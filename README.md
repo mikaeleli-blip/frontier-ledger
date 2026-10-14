@@ -8,7 +8,7 @@ The town economy is the game:
 - Settlers grow some of their food in back gardens and buy the rest at stores and stalls.
 - Stores and stalls buy wholesale from farms, fishers and gatherers.
 - Whoever owns a business hires hands and pays them wages.
-- You set the taxes and pay a building crew.
+- You set the taxes and hire settlers without a job as day laborers to build.
 - The town hires a sheriff and deputies.
 - Settlers elect a mayor, who moves into the Mayor's Estate.
 
@@ -51,22 +51,23 @@ A sound opening:
 | Build | Hotbar at the bottom: Roads, Housing, Food, Industry, Trade, Civic |
 | Inspect | Click a settler or building. Tear down is in the building panel. |
 
-The five books at the top right are the Ledger (taxes, wages, crew, reserves, the town's books), Citizens,
+The five books at the top right are the Ledger (taxes, wages, day laborers, reserves, the town's books), Citizens,
 Trade, Election and the Gazette.
 
 ## How it works
 
-- **Construction:** placing a building marks a site.
-  - The town's builders carry logs and stone from stores (bought from producers if the stores run short) and raise it over several days.
-  - Idle laborers help at a quarter of a builder's pace.
-  - You set how many builders the treasury pays.
+- **Construction:** placing a building stakes out a site.
+  - The town hires settlers without a job by the day and pays them a day wage from the treasury. You set how many it hires and the wage.
+  - Laborers carry logs and stone from the storehouse or wagon to the site. If the stores run short, the town buys from producers.
+  - Then they lay stone footings, raise a timber frame, and put up the walls and roof behind scaffolding.
+  - If everyone already has a job, nobody is free to build.
 - **Food:** each adult eats 1 food a day, each child 0.6.
   - Gardens cover part of it in spring through autumn and nothing in winter.
   - The rest is bought at shops, or from the town storehouse when no shop has stock.
   - With charity on, the town feeds households that can't pay.
 - **Fields:** crops grow while hands work them in spring and summer. They are harvested in autumn, and whatever is still standing at the first frost rots.
 - **Idle hands:**
-  - Laborers without a job, and builders with nothing to build, help bring in harvests for a share of a wage.
+  - Laborers with no building work help bring in harvests for a share of a wage.
   - The rest of the time they forage and gather deadwood for their own household.
 - **Firewood:**
   - Homes burn firewood every day, most of all in winter.
@@ -90,6 +91,7 @@ Trade, Election and the Gazette.
   - The dead are buried in the cemetery if there is room.
   - Newcomers arrive when there are spare beds.
 - **Law:** broke, hungry settlers steal. The sheriff and deputies catch them and jail them for two days.
+- **Daily life:** settlers open their front doors to go in at night and come out in the morning. Most saloon-goers head inside, and jailed settlers are taken into the sheriff's office.
 - **Mayor:**
   - Every 4 weeks, 2–3 settlers campaign on a platform: Law & Order, Farmers' Champion, Railroad & Trade or Common Folk.
   - Settlers vote for whoever employs them, lives with them or speaks to their troubles.
