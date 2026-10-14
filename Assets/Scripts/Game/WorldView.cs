@@ -185,7 +185,7 @@ namespace FrontierLedger.Game
             if (!b.Built) return false;
             switch (b.Type)
             {
-                case BuildingType.House: return b.Residents.Count > 0;
+                case BuildingType.House: case BuildingType.BoardingHouse: return b.Residents.Count > 0;
                 case BuildingType.Estate: return town.MayorId >= 0;
                 case BuildingType.Sheriff: return b.Employees.Count > 0;
                 case BuildingType.Storehouse: case BuildingType.Wagon: case BuildingType.Cemetery: return false;
@@ -803,7 +803,7 @@ namespace FrontierLedger.Game
                 float X = b.X * 16, Y = b.Y * 16;
                 if (X > vr.xMax || X + d.W * 16 < vr.xMin || Y > vr.yMax || Y + d.H * 16 < vr.yMin) continue;
                 float rate = 0; bool dark = false;
-                if (b.Type == BuildingType.House && b.Residents.Count > 0) rate = (nightness > 0 || town.TimeOfDay < 0.3f || si == 3 || si == 2) ? 0.9f : 0.3f;
+                if ((b.Type == BuildingType.House || b.Type == BuildingType.BoardingHouse) && b.Residents.Count > 0) rate = (nightness > 0 || town.TimeOfDay < 0.3f || si == 3 || si == 2) ? 0.9f : 0.3f;
                 else if (b.Type == BuildingType.Smithy && town.IsOpen(b)) { rate = 2.2f; dark = true; }
                 else if ((b.Type == BuildingType.Estate && town.MayorId >= 0) || (b.Type == BuildingType.LumberCamp && town.IsOpen(b))) rate = 0.6f;
                 if (rate <= 0) continue;

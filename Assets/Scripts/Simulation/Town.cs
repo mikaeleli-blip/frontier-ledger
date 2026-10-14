@@ -11,7 +11,7 @@ namespace FrontierLedger.Simulation
     [Serializable]
     public partial class Town
     {
-        public int Version = 3;
+        public int Version = 4;
         public int Seed;
         public int Day = 1;
         public float TimeOfDay = 0.3f;           // 0 = midnight, 0.5 = noon
@@ -76,6 +76,13 @@ namespace FrontierLedger.Simulation
                 foreach (var b in Buildings) if (b.Def.IsBusiness && b.Built) b.Price[(int)Good.Furniture] = Balance.StartRetail[(int)Good.Furniture];
                 Version = 3;
             }
+            if (Version < 4)
+            {
+                // version 4 added boarding houses and birth parents
+                Policy.BoardRent = new TownPolicy().BoardRent;
+                foreach (var p in People) { p.MotherId = p.ParentId; p.FatherId = -1; p.RentOwed = 0; var m = GetCitizen(p.ParentId); if (m != null && m.PartnerId >= 0) p.FatherId = m.PartnerId; }
+                Version = 4;
+            }
         }
 
         /// <summary>Resizes a per-good array to the current number of goods, keeping what's there.</summary>
@@ -137,7 +144,9 @@ namespace FrontierLedger.Simulation
 
         public float AverageHappiness { get { return People.Count == 0 ? 50f : People.Average(p => p.Happy); } }
         public float AverageHealth { get { return People.Count == 0 ? 100f : People.Average(p => p.Health); } }
-        public int FreeBeds { get { return OfType(BuildingType.House).Sum(h => h.Def.Beds - h.Residents.Count); } }
+        public int FreeBeds { get { return Buildings.Where(h => h.Built && (h.Type == BuildingType.House || h.Type == BuildingType.BoardingHouse)).Sum(h => h.Def.Beds - h.Residents.Count); } }
+        /// <summary>Buildings people live in.</summary>
+        public static bool IsHome(BuildingType t) { return t == BuildingType.House || t == BuildingType.BoardingHouse || t == BuildingType.Estate; }
         public int Homeless { get { return People.Count(p => p.HomeId < 0); } }
         public float AverageFoodPrice
         {
@@ -402,7 +411,7 @@ namespace FrontierLedger.Simulation
                 b.Desired = d.MaxEmployees > 1 ? 1 : 0;
             }
             if (!quiet && b.Type != BuildingType.Road) AddLog("The " + d.Name + " is finished.", LogKind.Build);
-            if (b.Type == BuildingType.House) RehouseEveryone();
+            if (b.Type == BuildingType.House || b.Type == BuildingType.BoardingHouse) RehouseEveryone();
         }
 
         public void Remove(Building b)
@@ -494,7 +503,7 @@ namespace FrontierLedger.Simulation
                 var mom = t.AddPerson(true, fam, t.Rnd(20, 36), (float)Math.Round(t.Rnd(10, 30)));
                 dad.PartnerId = mom.Id; mom.PartnerId = dad.Id;
                 int kids = f == 0 ? 0 : t.Rng.Next(1, 3);
-                for (int k = 0; k < kids; k++) { var c = t.AddPerson(t.Chance(0.5), fam, t.Rnd(1, 9), 0); c.ParentId = mom.Id; }
+                for (int k = 0; k < kids; k++) { var c = t.AddPerson(t.Chance(0.5), fam, t.Rnd(1, 9), 0); c.ParentId = c.MotherId = mom.Id; c.FatherId = dad.Id; }
                 if (f == 0 && yard != null)
                 {
                     yard.OwnerId = dad.Id; dad.Role = Role.Owner; dad.WorkId = yard.Id;
@@ -511,7 +520,7 @@ namespace FrontierLedger.Simulation
             t.AddLog("Four families and two drifters stopped by the creek with what one wagon could carry.", LogKind.Good);
             var builder = yard != null ? t.GetCitizen(yard.OwnerId) : null;
             if (builder != null) t.AddLog(builder.Name + " brought his tools and set up a builder's yard by the wagon. The town pays him by the job.", LogKind.Build);
-            t.AddLog("Get cottages up before winter, and a woodcutter to keep them warm. Food runs out faster than you think.", LogKind.Info);
+            t.AddLog("Get roofs over their heads before winter: a boarding house is quickest, cottages let families grow. A woodcutter keeps them warm. Food runs out faster than you think.", LogKind.Info);
             return t;
         }
     }

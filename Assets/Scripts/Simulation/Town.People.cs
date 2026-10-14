@@ -46,13 +46,55 @@ namespace FrontierLedger.Simulation
             p.HomeId = h.Id; h.Residents.Add(p.Id); p.Homeless = 0;
         }
 
-        /// <summary>Puts homeless households into houses: whole families into empty cottages first,
-        /// then singles and orphans into any spare bed.</summary>
+        /// <summary>A settler with the partner and children who live with them.</summary>
+        List<Citizen> FamilyUnit(Citizen a)
+        {
+            var unit = new List<Citizen> { a };
+            var partner = GetCitizen(a.PartnerId);
+            if (partner != null && partner.Role != Role.Mayor && partner.HomeId == a.HomeId) unit.Add(partner);
+            unit.AddRange(ChildrenOf(a).Where(c => c.HomeId == a.HomeId && !unit.Contains(c)));
+            return unit;
+        }
+
+        static int FreeIn(Building h) { return h.Def.Beds - h.Residents.Count; }
+
+        /// <summary>
+        /// Finds everyone a bed. Families want a cottage of their own and only board when none is free;
+        /// single adults take a boarding-house bed, and move out of other people's cottages when one opens up.
+        /// </summary>
         void RehouseEveryone()
         {
             foreach (var h in Buildings) h.Residents.RemoveAll(id => GetCitizen(id) == null);
             var houses = OfType(BuildingType.House).ToList();
-            // Families first (couples and parents with children), then people on their own
+            var boards = OfType(BuildingType.BoardingHouse).ToList();
+
+            // Boarding families move into an empty cottage as soon as there is one
+            foreach (var bh in boards)
+                foreach (var id in bh.Residents.ToList())
+                {
+                    var a = GetCitizen(id);
+                    if (a == null || a.IsChild || a.HomeId != bh.Id) continue;
+                    var unit = FamilyUnit(a);
+                    if (unit.Count < 2) continue;
+                    var empty = houses.FirstOrDefault(h => h.Residents.Count == 0);
+                    if (empty == null) break;
+                    foreach (var u in unit) MoveInto(u, empty);
+                    AddLog("The " + a.Family + " family left the boarding house for a cottage of their own.", LogKind.Good);
+                }
+            // Grown children and lodgers move out of a family's cottage into the boarding house
+            foreach (var h in houses)
+                foreach (var id in h.Residents.ToList())
+                {
+                    var a = GetCitizen(id);
+                    if (a == null || a.IsChild || a.PartnerId >= 0 || ChildrenOf(a).Any() || a.HomeId != h.Id) continue;
+                    bool family = h.Residents.Select(GetCitizen).Any(o => o != null && o != a && !o.IsChild && (o.PartnerId >= 0 || ChildrenOf(o).Any()));
+                    if (!family) continue;
+                    var bed = boards.FirstOrDefault(b => FreeIn(b) > 0);
+                    if (bed == null) break;
+                    MoveInto(a, bed);
+                }
+
+            // Then everyone without a roof, families first
             var adults = People.Where(p => !p.IsChild && p.HomeId < 0 && p.Role != Role.Mayor && Day - p.EvictedDay >= 14)
                                .OrderBy(p => p.PartnerId >= 0 || ChildrenOf(p).Any() ? 0 : 1).ThenBy(p => p.ArrivedDay).ToList();
             foreach (var a in adults)
@@ -60,17 +102,19 @@ namespace FrontierLedger.Simulation
                 if (a.HomeId >= 0) continue;
                 var partner = GetCitizen(a.PartnerId);
                 var unit = new List<Citizen> { a };
-                if (partner != null && partner.Role != Role.Mayor) unit.Add(partner);
+                if (partner != null && partner.Role != Role.Mayor && partner.HomeId < 0) unit.Add(partner);
                 unit.AddRange(ChildrenOf(a).Where(c => c.HomeId < 0));
-                if (partner != null && partner.HomeId >= 0 && partner.Role != Role.Mayor)
+                if (partner != null && partner.HomeId >= 0)
                 {
                     // Partner already housed: join them if there is room
                     var ph = GetBuilding(partner.HomeId);
-                    if (ph != null && ph.Type == BuildingType.House && ph.Def.Beds - ph.Residents.Count >= unit.Count - 1)
-                    { foreach (var u in unit) if (u != partner) MoveInto(u, ph); continue; }
+                    if (ph != null && IsHome(ph.Type) && FreeIn(ph) >= unit.Count) { foreach (var u in unit) MoveInto(u, ph); continue; }
                 }
                 var empty = houses.FirstOrDefault(h => h.Residents.Count == 0);
-                var target = empty ?? (unit.Count == 1 ? houses.Where(h => h.Def.Beds - h.Residents.Count >= 1).OrderBy(h => h.Residents.Count).FirstOrDefault() : null);
+                Building target;
+                if (unit.Count > 1) target = empty ?? boards.Where(b => FreeIn(b) >= unit.Count).OrderBy(b => b.Residents.Count).FirstOrDefault();
+                else target = boards.Where(b => FreeIn(b) >= 1).OrderBy(b => b.Residents.Count).FirstOrDefault()
+                              ?? empty ?? houses.Where(h => FreeIn(h) >= 1).OrderBy(h => h.Residents.Count).FirstOrDefault();
                 if (target != null) foreach (var u in unit) MoveInto(u, target);
             }
             // Children go where their parents live; orphans take any spare bed
@@ -78,11 +122,33 @@ namespace FrontierLedger.Simulation
             {
                 var parent = GetCitizen(c.ParentId);
                 var home = parent != null ? GetBuilding(parent.HomeId) : null;
-                if (home != null && home.Type == BuildingType.House && home.Residents.Count < home.Def.Beds) { MoveInto(c, home); continue; }
+                if (home != null && IsHome(home.Type) && FreeIn(home) > 0) { MoveInto(c, home); continue; }
                 if (parent != null) continue;
-                var spare = houses.Where(h => h.Residents.Count < h.Def.Beds && h.Residents.Count > 0).OrderBy(h => h.Residents.Count).FirstOrDefault();
+                var spare = houses.Where(h => FreeIn(h) > 0 && h.Residents.Count > 0).OrderBy(h => h.Residents.Count).FirstOrDefault()
+                            ?? boards.FirstOrDefault(b => FreeIn(b) > 0);
                 if (spare != null) MoveInto(c, spare);
             }
+        }
+
+        /// <summary>Parents, children and brothers and sisters don't marry.</summary>
+        bool Related(Citizen a, Citizen b)
+        {
+            if (a.MotherId >= 0 && a.MotherId == b.MotherId) return true;
+            if (a.FatherId >= 0 && a.FatherId == b.FatherId) return true;
+            if (a.ParentId >= 0 && a.ParentId == b.ParentId) return true;
+            if (a.MotherId == b.Id || a.FatherId == b.Id || a.ParentId == b.Id) return true;
+            if (b.MotherId == a.Id || b.FatherId == a.Id || b.ParentId == a.Id) return true;
+            var pa = GetCitizen(a.ParentId); if (pa != null && pa.PartnerId == b.Id) return true;
+            var pb = GetCitizen(b.ParentId); if (pb != null && pb.PartnerId == a.Id) return true;
+            return false;
+        }
+
+        /// <summary>Clears the Mayor's Estate; the family that lived there needs a new home.</summary>
+        void EmptyEstate()
+        {
+            var e = Estate; if (e == null) return;
+            foreach (var id in e.Residents.ToList()) { var r = GetCitizen(id); if (r != null && r.HomeId == e.Id) r.HomeId = -1; }
+            e.Residents.Clear();
         }
 
         void QuitJob(Citizen p)
@@ -102,7 +168,7 @@ namespace FrontierLedger.Simulation
 
         void UnseatMayor(Citizen m, bool rehouse)
         {
-            var e = Estate; if (e != null) e.Residents.Clear();
+            EmptyEstate();
             MayorId = -1; MayorPlatform = Platform.None;
             ResumeOrIdle(m); m.HomeId = -1;
             if (rehouse) RehouseEveryone();
@@ -114,9 +180,13 @@ namespace FrontierLedger.Simulation
             var old = Mayor;
             if (old != null && old != p) { UnseatMayor(old, false); AddLog(old.Name + " packs up and moves out of the Mayor's Estate."); }
             if (p.Role == Role.Worker || p.Role == Role.Sheriff || p.Role == Role.Deputy || p.Role == Role.Builder) QuitJob(p);
-            LeaveHome(p);
-            p.Role = Role.Mayor; p.WorkId = e.Id; p.HomeId = e.Id;
-            e.Residents.Clear(); e.Residents.Add(p.Id);
+            EmptyEstate();
+            p.Role = Role.Mayor; p.WorkId = e.Id;
+            // the mayor's household moves in too
+            var family = new List<Citizen> { p };
+            var spouse = GetCitizen(p.PartnerId); if (spouse != null) family.Add(spouse);
+            family.AddRange(ChildrenOf(p).Where(c => !family.Contains(c)));
+            foreach (var f in family) { LeaveHome(f); f.HomeId = e.Id; e.Residents.Add(f.Id); }
             MayorId = p.Id; MayorPlatform = platform; TermEnd = Day + Balance.TermDays;
             RehouseEveryone();
         }
@@ -124,7 +194,7 @@ namespace FrontierLedger.Simulation
         /// <summary>Takes a settler out of the town, for death or leaving.</summary>
         void RemovePerson(Citizen p)
         {
-            if (p.Role == Role.Mayor) { MayorId = -1; MayorPlatform = Platform.None; var e = Estate; if (e != null) e.Residents.Clear(); }
+            if (p.Role == Role.Mayor) { MayorId = -1; MayorPlatform = Platform.None; LeaveHome(p); EmptyEstate(); }
             else if (p.Role != Role.Owner) QuitJob(p);
             var own = OwnedBusiness(p);
             if (own != null)
@@ -173,6 +243,17 @@ namespace FrontierLedger.Simulation
         // =====================================================================
         // Families: aging, marriage, births, old age
         // =====================================================================
+        void Marry(Citizen m, Citizen w, Building empty)
+        {
+            m.PartnerId = w.Id; w.PartnerId = m.Id;
+            var kids = ChildrenOf(w).Concat(ChildrenOf(m)).Distinct().ToList();
+            string old = w.Family; w.Family = m.Family;
+            MoveInto(m, empty); MoveInto(w, empty);
+            foreach (var k in kids) if (empty.Residents.Count < empty.Def.Beds) MoveInto(k, empty);
+            m.Happy = Math.Min(100, m.Happy + 15); w.Happy = Math.Min(100, w.Happy + 15);
+            AddLog(m.First + " " + m.Family + " and " + w.First + " " + old + " were married and moved into a cottage of their own.", LogKind.Birth);
+        }
+
         void FamilyLife()
         {
             float yearPerDay = 1f / Balance.DaysPerYearF;
@@ -197,14 +278,8 @@ namespace FrontierLedger.Simulation
                 if (men.Count > 0 && women.Count > 0 && empty != null)
                 {
                     var m = Pick(men);
-                    var w = women.OrderBy(x => Math.Abs(x.Age - m.Age)).First();
-                    m.PartnerId = w.Id; w.PartnerId = m.Id;
-                    var kids = ChildrenOf(w).Concat(ChildrenOf(m)).Distinct().ToList();
-                    string old = w.Family; w.Family = m.Family;
-                    MoveInto(m, empty); MoveInto(w, empty);
-                    foreach (var k in kids) if (empty.Residents.Count < empty.Def.Beds) MoveInto(k, empty);
-                    m.Happy = Math.Min(100, m.Happy + 15); w.Happy = Math.Min(100, w.Happy + 15);
-                    AddLog(m.First + " " + m.Family + " and " + w.First + " " + old + " were married and moved into a cottage of their own.", LogKind.Birth);
+                    var w = women.Where(x => !Related(m, x)).OrderBy(x => Math.Abs(x.Age - m.Age)).FirstOrDefault();
+                    if (w != null) Marry(m, w, empty);
                 }
             }
 
@@ -215,11 +290,11 @@ namespace FrontierLedger.Simulation
             {
                 var h = GetBuilding(w.HomeId);
                 var m = GetCitizen(w.PartnerId);
-                if (h == null || m == null || m.HomeId != w.HomeId || h.Residents.Count >= h.Def.Beds) continue;
+                if (h == null || m == null || m.HomeId != w.HomeId || h.Residents.Count >= h.Def.Beds || h.Type == BuildingType.BoardingHouse) continue;
                 if (w.Fed < 0.9f || w.Health < 60) continue;
                 if (!Chance(Balance.BirthChancePerDay)) continue;
                 var baby = AddPerson(Chance(0.5), m.Family, 0, 0);
-                baby.ParentId = w.Id; baby.Health = 100;
+                baby.ParentId = baby.MotherId = w.Id; baby.FatherId = m.Id; baby.Health = 100;
                 MoveInto(baby, h);
                 Births++;
                 w.Happy = Math.Min(100, w.Happy + 20); m.Happy = Math.Min(100, m.Happy + 20);
@@ -293,7 +368,11 @@ namespace FrontierLedger.Simulation
             }
             // when food is short, settlers take food jobs first
             bool hungry = People.Count > 0 && TotalFood() / People.Count < 12f;
-            vac = vac.OrderByDescending(v => v.Wage + (hungry && v.B != null && Produces(v.B.Type, Good.Food) ? 1f : 0f)).ToList();
+            int homes = Buildings.Count(h => h.Built && IsHome(h.Type) && h.Residents.Count > 0);
+            bool cold = TotalFirewood() < homes * 8f;
+            vac = vac.OrderByDescending(v => v.Wage + (v.B == null ? 0f :
+                        (hungry && Produces(v.B.Type, Good.Food) ? 1f : 0f) +
+                        (cold && (v.B.Type == BuildingType.Woodcutter || v.B.Type == BuildingType.LumberCamp) ? 1f : 0f))).ToList();
             var idle = Shuffle(People.Where(Employable).ToList());
             foreach (var v in vac) { if (idle.Count == 0) break; var p = idle[0]; idle.RemoveAt(0); Hire(p, v); }
         }

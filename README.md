@@ -34,7 +34,7 @@ A town that builds nothing starves or freezes in its first winter.
 
 A sound opening:
 
-1. Build cottages.
+1. Build a boarding house to get people out of the tents, then cottages for the families.
 2. Build a gatherer's hut or fishing dock for food.
 3. Build a lumber camp and a woodcutter so there is firewood for winter.
 4. Build a storehouse so the wagon can be unloaded.
@@ -66,8 +66,12 @@ Trade, Election and the Gazette.
 - **Wear and repairs:** buildings wear down a little every day, faster in winter.
   - Below 70% a yard is sent to repair them. The town pays for cottages and public buildings; owners pay for their businesses.
   - Drafty cottages burn more firewood, and leaking ones make the family miserable. Worn businesses get less done.
-- **Rent:** families pay the town weekly rent for their cottage. Four weeks behind and they're put out.
-  Families living on charity pay nothing. Large homes for families to buy are planned.
+- **Housing:** tents, then a boarding house, then a cottage (large homes to buy are planned).
+  - A boarding house sleeps eight cheaply, but has no garden, is cramped, and no babies are born there.
+  - Single adults take a boarding-house bed, and grown children move out of their parents' cottage into one.
+  - Families board only when no cottage is free, and move out as soon as one is.
+- **Rent:** cottages pay weekly rent per family, boarders pay per head. Four weeks behind and they're put out.
+  Families living on charity pay nothing.
 - **Deeds:** a finished business is sold to the settler with the most savings at what it cost the town.
   They pay some down and the rest out of profits.
 - **Furniture:** in quiet weeks the yard's crew makes furniture from logs and sells it from the yard.
@@ -97,16 +101,16 @@ Trade, Election and the Gazette.
   - A business tax on weekly profit.
   - High taxes make people unhappy.
 - **Families:**
-  - Couples marry when there is an empty cottage for them, have children, and grow old.
+  - Single men and women marry (never close relatives) when there is an empty cottage for them, have children, and grow old.
   - Births slow down when the town is short of food.
   - The dead are buried in the cemetery if there is room.
-  - Newcomers arrive when there are spare beds.
+  - Newcomers arrive when there are spare beds and the larders aren't thin, and bring some food with them.
 - **Law:** broke, hungry settlers steal. The sheriff and deputies catch them and jail them for two days.
 - **Daily life:** settlers open their front doors to go in at night and come out in the morning. Most saloon-goers head inside, and jailed settlers are taken into the sheriff's office.
 - **Mayor:**
   - Every 4 weeks, 2–3 settlers campaign on a platform: Law & Order, Farmers' Champion, Railroad & Trade or Common Folk.
   - Settlers vote for whoever employs them, lives with them or speaks to their troubles.
-  - The winner moves into the Mayor's Estate.
+  - The winner moves into the Mayor's Estate with their family.
   - Turn elections off and the mayor serves for life.
 
 All the numbers live in `Assets/Scripts/Simulation/Defs.cs` (`Balance` and `Defs`).

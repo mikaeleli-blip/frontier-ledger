@@ -164,7 +164,7 @@ namespace FrontierLedger.Game
                 Ui.IconAt(x, r.y + 7, kv.Key);
                 Color c = Ui.Ink;
                 if (i == 0 && food < people * 6) c = Ui.Bad;
-                if (i == 1 && T.Season >= 2 && wood < T.OfType(BuildingType.House).Count(h => h.Residents.Count > 0) * 6) c = Ui.Bad;
+                if (i == 1 && T.Season >= 2 && wood < T.Buildings.Count(h => h.Built && (h.Type == BuildingType.House || h.Type == BuildingType.BoardingHouse) && h.Residents.Count > 0) * 6) c = Ui.Bad;
                 if (i == 6) c = Ui.Mood(T.AverageHappiness);
                 if (i == 7) c = Ui.Mood(T.AverageHealth);
                 if (i == 8) c = Ui.Bad;
@@ -429,6 +429,7 @@ namespace FrontierLedger.Game
             P.Deputies = Mathf.RoundToInt(SliderRow("Deputies", P.Deputies.ToString(), P.Deputies, 0, 3, 1, "Sheriff $4/day, deputies $3, from the treasury."));
             Heading("Housing");
             P.Rent = SliderRow("Cottage rent (weekly)", Town.Money(P.Rent), P.Rent, 0, 6, 0.25f, "Every family in a cottage pays on Sunday. Four weeks behind and they're put out. Over $3 hurts morale. Families living on charity pay nothing.");
+            P.BoardRent = SliderRow("Boarding rent (weekly)", Town.Money(P.BoardRent), P.BoardRent, 0, 3, 0.25f, "Each adult in a boarding house pays this. Over $1.50 hurts morale.");
             Heading("Stores");
             P.Charity = Ui.Toggle(new Rect(bx, by, bw, 11), P.Charity, "Storehouse feeds those who can't pay"); by += 13;
             P.StorehouseSells = Ui.Toggle(new Rect(bx, by, bw, 11), P.StorehouseSells, "Storehouse sells when shops run out"); by += 13;
@@ -670,7 +671,8 @@ namespace FrontierLedger.Game
             Row("Eating", p.Fed >= 0.95f ? "well" : p.Fed >= 0.7f ? "short" : "hungry", p.Fed >= 0.95f ? Ui.Good : p.Fed >= 0.7f ? Ui.Warn : Ui.Bad);
             Row("Warmth", p.Warm ? "warm" : "cold", p.Warm ? Ui.Good : Ui.Bad);
             var home = T.GetBuilding(p.HomeId); var work = T.GetBuilding(p.WorkId);
-            Row("Home", home != null ? (home.Type == BuildingType.Estate ? "Mayor's Estate" : "Cottage #" + home.Id) : "tent by the wagon", home == null ? Ui.Bad : Ui.Ink);
+            Row("Home", home != null ? (home.Type == BuildingType.Estate ? "Mayor's Estate" : home.Type == BuildingType.BoardingHouse ? "Boarding House" : "Cottage #" + home.Id) : "tent by the wagon", home == null ? Ui.Bad : Ui.Ink);
+            if (p.RentOwed > 0.01f) Row("Behind on rent", Town.Money(p.RentOwed), Ui.Warn);
             Row("Work", work != null ? work.Def.Name : p.IsChild ? "too young" : p.Role == Role.Laborer ? "laborer" : "none");
             if (!p.IsChild && (p.Chore != Chore.None || p.Role == Role.Laborer))
             {
@@ -713,8 +715,9 @@ namespace FrontierLedger.Game
                 Para(working ? "Being repaired by " + who + "." : b.RepairPaid ? "Repair booked with " + who + "." : "Needs repair: " + Town.Money(T.RepairPrice(b)) + (b.Def.IsBusiness && b.OwnerId >= 0 ? ", paid by the owner." : ", paid by the town."), working ? Ui.Good : Ui.Warn);
             }
             else if (b.Condition < Balance.RepairAt) Para(T.Yards.Any() ? "Worn. A builder's yard will be sent." : "Worn, and there's no builder's yard to repair it.", Ui.Warn);
-            if (b.Condition < 25) Para(b.Type == BuildingType.House ? "The roof leaks: the family is miserable and burns more firewood." : b.Def.IsBusiness ? "Falling apart: work goes at half pace." : "Falling apart.", Ui.Bad);
-            else if (b.Condition < 50) Para(b.Type == BuildingType.House ? "Drafty: burns more firewood." : b.Def.IsBusiness ? "Worn: work goes a little slower." : "Worn.", Ui.Warn);
+            bool home = b.Type == BuildingType.House || b.Type == BuildingType.BoardingHouse;
+            if (b.Condition < 25) Para(home ? "The roof leaks: the family is miserable and burns more firewood." : b.Def.IsBusiness ? "Falling apart: work goes at half pace." : "Falling apart.", Ui.Bad);
+            else if (b.Condition < 50) Para(home ? "Drafty: burns more firewood." : b.Def.IsBusiness ? "Worn: work goes a little slower." : "Worn.", Ui.Warn);
         }
 
         void Stocks(Building b, params Good[] goods)
@@ -812,12 +815,17 @@ namespace FrontierLedger.Game
                 var staff = b.Employees.Select(T.GetCitizen).Where(x => x != null).Select(x => x.First + " " + x.Family).ToArray();
                 if (staff.Length > 0) { Heading("Hands"); Para(string.Join(", ", staff), Ui.Ink); }
             }
-            else if (b.Type == BuildingType.House || b.Type == BuildingType.Estate)
+            else if (Town.IsHome(b.Type))
             {
                 var rs = T.Household(b).ToList();
                 Row("Beds", rs.Count + " / " + Mathf.Max(1, d.Beds));
                 if (b.Type == BuildingType.House) Row("Garden today", b.GardenToday.ToString("0.0") + " food");
                 Stocks(b, Good.Food, Good.Firewood, Good.Furniture);
+                if (b.Type == BuildingType.BoardingHouse && rs.Count > 0)
+                {
+                    Row("Rent", T.Policy.BoardRent <= 0 ? "free" : Town.Money(T.Policy.BoardRent) + "/week a boarder");
+                    Para("No garden, no babies, and families leave when a cottage frees up.", Ui.InkSoft);
+                }
                 if (b.Type == BuildingType.House && rs.Count > 0)
                 {
                     bool charity = T.Policy.Charity && rs.Any(p => p.CharityDays > 0);
@@ -896,7 +904,7 @@ namespace FrontierLedger.Game
                     {
                         s = b.Def.Name + (b.Built ? "" : " (being built, " + Mathf.RoundToInt(b.BuildFraction * 100) + "%)");
                         if (b.Built && b.Def.IsBusiness) { var o = T.GetCitizen(b.OwnerId); s += "\n" + (o != null ? o.Name : "For sale") + " · " + T.WorkersAt(b) + " working"; }
-                        if (b.Type == BuildingType.House) s += "\n" + b.Residents.Count + " living here";
+                        if (b.Type == BuildingType.House || b.Type == BuildingType.BoardingHouse) s += "\n" + b.Residents.Count + " living here";
                     }
                 }
                 else

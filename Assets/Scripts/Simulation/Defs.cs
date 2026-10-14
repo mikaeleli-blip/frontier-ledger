@@ -6,7 +6,7 @@ namespace FrontierLedger.Simulation
     public enum BuildingType
     {
         Road, House, Storehouse, Farm, Gatherer, Fishery, LumberCamp, Woodcutter, Quarry, Smithy,
-        Store, Stall, Saloon, Sheriff, Estate, Cemetery, Wagon, BuilderYard
+        Store, Stall, Saloon, Sheriff, Estate, Cemetery, Wagon, BuilderYard, BoardingHouse
     }
     public enum Category { Roads, Housing, Food, Industry, Trade, Civic, Hidden }
     public enum Role { Child, Laborer, Worker, Owner, Builder, Sheriff, Deputy, Mayor }   // Builder is unused (old saves)
@@ -149,6 +149,8 @@ namespace FrontierLedger.Simulation
                 Blurb = "Settlers walk faster on roads. Roads can bridge water." });
             Add(new BuildingDef { Type = BuildingType.House, Category = Category.Housing, Name = "Cottage", W = 2, H = 3, Logs = 16, Stone = 6, Work = 10, Beds = 5, Color = "#c79a62",
                 Blurb = "Home for one family. The garden out back grows some of their food. Burns firewood to stay warm." });
+            Add(new BuildingDef { Type = BuildingType.BoardingHouse, Category = Category.Housing, Name = "Boarding House", W = 3, H = 2, Logs = 18, Stone = 4, Work = 8, Beds = 8, Color = "#b89a6a",
+                Blurb = "Cheap rooms for eight. No garden and little privacy: boarders buy all their food, no babies are born here, and families move out as soon as a cottage is free." });
             Add(new BuildingDef { Type = BuildingType.Storehouse, Category = Category.Housing, Name = "Storehouse", W = 3, H = 2, Logs = 20, Stone = 10, Work = 12, IsPublic = true, IsStorage = true, Capacity = 400, Color = "#9a7a4a",
                 Blurb = "Town stores for building materials and the winter food reserve. Sells food and firewood to settlers." });
             Add(new BuildingDef { Type = BuildingType.Farm, Category = Category.Food, Name = "Crop Field", W = 3, H = 3, Logs = 12, Stone = 4, Work = 8, IsBusiness = true, MaxEmployees = 4, BaseWage = 2.4f, Color = "#b59a4a",
@@ -175,8 +177,8 @@ namespace FrontierLedger.Simulation
                 Blurb = "Drinks and company. Cheers settlers up." });
             Add(new BuildingDef { Type = BuildingType.Sheriff, Category = Category.Civic, Name = "Sheriff's Office", W = 2, H = 2, Logs = 16, Stone = 14, Work = 12, IsPublic = true, Unique = true, Color = "#9c8b74",
                 Blurb = "Hires a sheriff and deputies, paid by the treasury, who catch thieves." });
-            Add(new BuildingDef { Type = BuildingType.Estate, Category = Category.Civic, Name = "Mayor's Estate", W = 3, H = 2, Logs = 30, Stone = 30, Work = 24, IsPublic = true, Unique = true, Color = "#e9e1cf",
-                Blurb = "The town elects a mayor, who moves in. The mayor's platform helps the whole town." });
+            Add(new BuildingDef { Type = BuildingType.Estate, Category = Category.Civic, Name = "Mayor's Estate", W = 3, H = 2, Logs = 30, Stone = 30, Work = 24, Beds = 6, IsPublic = true, Unique = true, Color = "#e9e1cf",
+                Blurb = "The town elects a mayor, who moves in with their family. The mayor's platform helps the whole town." });
             Add(new BuildingDef { Type = BuildingType.Cemetery, Category = Category.Civic, Name = "Cemetery", W = 3, H = 3, Stone = 8, Work = 4, IsPublic = true, Graves = 18, Color = "#6f7a5a",
                 Blurb = "Somewhere to bury the dead. Without one, every death weighs on the whole town." });
             Add(new BuildingDef { Type = BuildingType.Wagon, Category = Category.Hidden, Name = "Supply Wagon", W = 2, H = 2, IsPublic = true, IsStorage = true, Capacity = 300, Color = "#c49c69",

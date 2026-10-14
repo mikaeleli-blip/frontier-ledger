@@ -268,7 +268,7 @@ namespace FrontierLedger.Game
             {
                 if (!File.Exists(SavePath)) return null;
                 var t = JsonUtility.FromJson<Town>(File.ReadAllText(SavePath));
-                if (t == null || t.Version < 2 || t.Version > 3 || t.Terrain == null || t.Terrain.Length != Town.Cols * Town.Rows) return null;
+                if (t == null || t.Version < 2 || t.Version > 4 || t.Terrain == null || t.Terrain.Length != Town.Cols * Town.Rows) return null;
                 t.AfterLoad();
                 return t;
             }

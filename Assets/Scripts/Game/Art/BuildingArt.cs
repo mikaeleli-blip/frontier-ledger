@@ -53,6 +53,7 @@ namespace FrontierLedger.Game.Art
                 case BuildingType.Estate: return 18;
                 case BuildingType.Wagon: return 8;
                 case BuildingType.BuilderYard: return 8;
+                case BuildingType.BoardingHouse: return 22;
                 default: return 0;
             }
         }
@@ -243,6 +244,7 @@ namespace FrontierLedger.Game.Art
                 case BuildingType.Cemetery: Cemetery(k); break;
                 case BuildingType.Wagon: Wagon(k); break;
                 case BuildingType.BuilderYard: BuilderYard(k); break;
+                case BuildingType.BoardingHouse: BoardingHouse(k); break;
             }
             k.Tg.Outline(OL);
             string n = type + "_" + v + "_" + si;
@@ -332,6 +334,35 @@ namespace FrontierLedger.Game.Art
             Foundation(tg, 3, y0 + 43, 26);
             Window(k, 6, y0 + 33, 5, 4); Window(k, 21, y0 + 33, 5, 4);
             Door(k, 13, y0 + 33, 6, 10);
+        }
+
+        static void BoardingHouse(Ctx k)
+        {
+            var bg = k.Bg; var tg = k.Tg; bool W = k.Winter; int y0 = k.Y(0);
+            string[] wall = { "#d8c08a", "#b8a06a", "#ead8a8" };
+            // trodden yard and a path to the door
+            bg.R(0, y0 + 25, 48, 7, W ? "#d8d2c6" : "#b8996a");
+            bg.R(20, y0 + 25, 8, 7, W ? "#e4e0d8" : "#c8b088");
+            Shadow(tg, 3, y0 + 25, 42);
+            // two storeys of clapboard under a long roof
+            Chimney(k, 7, y0 - 22, 8); Chimney(k, 36, y0 - 22, 8);
+            Shingles(tg, 1, y0 - 16, 46, 10, new[] { "#5a6a5a", "#43503f", "#76887a" }, W);
+            Planks(tg, 2, y0 - 6, 44, 13, wall[0], wall[1], wall[2]);
+            tg.R(2, y0 - 6, 44, 1, wall[1]);
+            foreach (int x in new[] { 6, 16, 28, 38 }) Window(k, x, y0 - 3, 4, 5, x == 6 || x == 38);
+            // porch roof on posts
+            tg.R(0, y0 + 7, 48, 3, "#6e5a4a"); tg.R(0, y0 + 7, 48, 1, "#8e7a68"); tg.R(0, y0 + 9, 48, 1, "#4e3e32");
+            if (W) tg.R(0, y0 + 6, 48, 1, SNOW);
+            Planks(tg, 2, y0 + 10, 44, 14, wall[0], wall[1], wall[2]);
+            foreach (int x in new[] { 6, 13, 31, 38 }) Window(k, x, y0 + 13, 4, 5, false);
+            Door(k, 21, y0 + 14, 6, 10, "#6e4428");
+            foreach (int x in new[] { 1, 15, 32, 46 }) { tg.R(x, y0 + 10, 1, 14, "#8a6a4a"); tg.D(x, y0 + 10, "#a8886a"); }
+            // a sign: ROOMS
+            tg.R(16, y0 + 4, 16, 5, "#3a2a1a"); tg.R(17, y0 + 5, 14, 3, "#e8d8b0"); Letters(tg, 18, y0 + 5, 12, "#3a2a1a");
+            // bench on the porch and a washtub
+            tg.R(8, y0 + 21, 6, 1, "#8a5a34"); tg.D(8, y0 + 22, "#6e4428"); tg.D(13, y0 + 22, "#6e4428");
+            tg.R(35, y0 + 21, 5, 3, "#9a9aa2"); tg.R(35, y0 + 21, 5, 1, "#c8c8d0");
+            Foundation(tg, 2, y0 + 24, 44);
         }
 
         static void Storehouse(Ctx k)

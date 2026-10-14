@@ -598,12 +598,12 @@ namespace FrontierLedger.Simulation
         {
             var report = new MarketReport();
             float heatSeason = Balance.FirewoodBySeason[si];
-            foreach (var h in Buildings.Where(b => b.Built && (b.Type == BuildingType.House || b.Type == BuildingType.Estate)))
+            foreach (var h in Buildings.Where(b => b.Built && IsHome(b.Type)))
             {
                 var rs = Household(h).ToList();
                 h.ColdToday = false;
                 // a drafty cottage burns more; furniture wears out slowly
-                float heatNeed = heatSeason * (h.Type == BuildingType.House ? (h.Condition < 25 ? 1.6f : h.Condition < 50 ? 1.25f : 1f) : 1f);
+                float heatNeed = heatSeason * (h.Type == BuildingType.BoardingHouse ? 1.5f : 1f) * (h.Type != BuildingType.Estate ? (h.Condition < 25 ? 1.6f : h.Condition < 50 ? 1.25f : 1f) : 1f);
                 h.Stock[(int)Good.Furniture] = Math.Max(0, h.Stock[(int)Good.Furniture] * (1 - Balance.FurnitureWear));
                 if (rs.Count == 0) { h.GardenToday = 0; continue; }
                 if (h.Type == BuildingType.House)
@@ -830,8 +830,9 @@ namespace FrontierLedger.Simulation
                 if (home != null)
                 {
                     d += (Math.Min(home.Stock[(int)Good.Furniture], 3f) - 1f) * 0.2f;   // a bare house is dreary, a furnished one homely
-                    if (home.Type == BuildingType.House && home.Condition < 25) d -= 0.6f;
+                    if (home.Type != BuildingType.Estate && home.Condition < 25) d -= 0.6f;
                     if (!p.IsChild && home.Type == BuildingType.House && Policy.Rent > 3f) d -= (Policy.Rent - 3f) * 0.2f;
+                    if (home.Type == BuildingType.BoardingHouse) d -= 0.3f + (Policy.BoardRent > 1.5f ? (Policy.BoardRent - 1.5f) * 0.3f : 0f);   // cramped
                 }
                 d -= p.Grief * 0.04f;
                 d -= Math.Min(3f, Unburied * 0.3f);
@@ -855,6 +856,8 @@ namespace FrontierLedger.Simulation
         void Migration(int si)
         {
             if (si == 3 || AverageHappiness < 40 || FreeBeds < 2) return;
+            // newcomers ask around first: they won't settle where the larders look thin, least of all before winter
+            if (TotalFood() < (People.Count + 3) * (si == 2 ? 14f : 5f)) return;
             if (!Chance(0.035 + (AverageHappiness - 40) / 1500.0)) return;
             var names = new List<Citizen>();
             if (Chance(0.55))
@@ -864,7 +867,7 @@ namespace FrontierLedger.Simulation
                 var mom = AddPerson(true, fam, Rnd(19, 38), (float)Math.Round(Rnd(5, 25)));
                 dad.PartnerId = mom.Id; mom.PartnerId = dad.Id;
                 names.Add(dad); names.Add(mom);
-                for (int k = Rng.Next(0, 3); k > 0; k--) { var c = AddPerson(Chance(0.5), fam, Rnd(1, 9), 0); c.ParentId = mom.Id; names.Add(c); }
+                for (int k = Rng.Next(0, 3); k > 0; k--) { var c = AddPerson(Chance(0.5), fam, Rnd(1, 9), 0); c.ParentId = c.MotherId = mom.Id; c.FatherId = dad.Id; names.Add(c); }
                 AddLog("The " + fam + " family (" + names.Count + ") rolled in on a wagon and asked to stay.", LogKind.Good);
             }
             else
@@ -874,6 +877,7 @@ namespace FrontierLedger.Simulation
                 AddLog(p.Name + " drifted into town looking for work.", LogKind.Good);
             }
             foreach (var p in names) if (!p.IsChild) { Treasury += Balance.ClaimFee; LedgerThisWeek.Claims += Balance.ClaimFee; }
+            PutInTown(Good.Food, names.Count * 12f);   // they bring some provisions
             RehouseEveryone();
         }
 
@@ -927,9 +931,9 @@ namespace FrontierLedger.Simulation
 
         void CollectRent()
         {
-            if (Policy.Rent <= 0) return;
             foreach (var h in OfType(BuildingType.House).ToList())
             {
+                if (Policy.Rent <= 0) { h.Arrears = 0; continue; }
                 var rs = Household(h).ToList();
                 if (rs.Count == 0) { h.Arrears = 0; continue; }
                 if (Policy.Charity && rs.Any(p => p.CharityDays > 0)) continue;   // the town doesn't charge families it is feeding
@@ -948,6 +952,26 @@ namespace FrontierLedger.Simulation
                     h.Arrears = 0;
                 }
             }
+            // boarders pay for their own bed, and are put out on their own
+            if (Policy.BoardRent > 0)
+                foreach (var h in OfType(BuildingType.BoardingHouse).ToList())
+                    foreach (var p in Household(h).Where(x => !x.IsChild).ToList())
+                    {
+                        if (Policy.Charity && p.CharityDays > 0) continue;
+                        float due = Policy.BoardRent + Math.Min(p.RentOwed, Policy.BoardRent);
+                        float paid = Math.Min(Math.Max(0, p.Money), due);
+                        p.Money -= paid; Treasury += paid; LedgerThisWeek.Rent += paid;
+                        p.RentOwed = Math.Max(0, p.RentOwed + Policy.BoardRent - paid);
+                        if (p.RentOwed <= 0.01f) continue;
+                        p.Happy -= 2;
+                        if (p.RentOwed >= Policy.BoardRent * 4 - 0.01f)
+                        {
+                            AddLog(p.Name + " was put out of the boarding house, four weeks behind on rent.", LogKind.Bad);
+                            var unit = new List<Citizen> { p }; unit.AddRange(ChildrenOf(p).Where(c => c.HomeId == h.Id));
+                            foreach (var u in unit) { LeaveHome(u); u.EvictedDay = Day; }
+                            p.RentOwed = 0;
+                        }
+                    }
             RehouseEveryone();
         }
 

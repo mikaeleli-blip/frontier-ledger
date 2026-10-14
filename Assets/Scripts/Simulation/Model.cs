@@ -103,7 +103,9 @@ namespace FrontierLedger.Simulation
         public bool Female;
         public float Age;                // years
         public int PartnerId = -1;
-        public int ParentId = -1;
+        public int ParentId = -1;        // who looks after a child (the mother, or the father if she dies)
+        public int MotherId = -1, FatherId = -1;   // birth parents, never change
+        public float RentOwed;           // a boarder's unpaid rent
         public float Money;
         public int HomeId = -1;
         public int WorkId = -1;
@@ -184,6 +186,7 @@ namespace FrontierLedger.Simulation
         public float BuilderWage = 2f;     // and their day wage
         public float ContractRate = 3.5f;  // paid to a builder's yard per day of work a job takes
         public float Rent = 2.5f;          // per cottage per week
+        public float BoardRent = 0.75f;    // per boarder per week
         public float ReliefWage = 0.6f;    // paid to laborers on days without work
         public bool Charity = true;        // the storehouse feeds and warms those who can't pay
         public bool ElectionsOn = true;
