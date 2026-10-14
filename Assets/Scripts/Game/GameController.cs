@@ -24,18 +24,18 @@ namespace FrontierLedger.Game
 
         public int Speed { get; private set; }
         int lastSpeed = 1;
-        public const float SecondsPerDay = 10f;
+        public const float SecondsPerDay = 16f;
 
         public ToolKind Tool { get; private set; }
         public BuildingType BuildType { get; private set; }
         public Selection Selected { get; set; }
 
-        /// <summary>Tile under the mouse, or (-1,-1).</summary>
+        /// <summary>Tile under the mouse.</summary>
         public Vector2Int HoverTile { get; private set; }
         public Vector2 HoverPixel { get; private set; }
         public bool PointerOnMap { get; private set; }
 
-        string SavePath { get { return Path.Combine(Application.persistentDataPath, "frontier-ledger-save.json"); } }
+        string SavePath { get { return Path.Combine(Application.persistentDataPath, "frontier-ledger-save-v2.json"); } }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Boot()
@@ -49,6 +49,7 @@ namespace FrontierLedger.Game
             if (Instance != null && Instance != this) { Destroy(gameObject); return; }
             Instance = this;
             Application.targetFrameRate = 60;
+            Selected = Selection.None;
 
             var cam = Camera.main;
             if (cam == null)
@@ -90,7 +91,7 @@ namespace FrontierLedger.Game
         // ================================================================== controls
         public void SetSpeed(int s) { if (s > 0) lastSpeed = s; Speed = s; }
         public void TogglePause() { SetSpeed(Speed > 0 ? 0 : lastSpeed); }
-        public void SetTool(ToolKind k, BuildingType t = BuildingType.Road) { Tool = k; BuildType = t; View.HideGhost(); }
+        public void SetTool(ToolKind k, BuildingType t = BuildingType.Road) { Tool = k; BuildType = t; if (View != null) View.HideGhost(); }
         public void Select(Selection s) { Selected = s; }
 
         public void CenterOnTown()
@@ -104,6 +105,8 @@ namespace FrontierLedger.Game
             Rig.CenterOn(n > 0 ? new Vector2(x / n, y / n) : new Vector2(Town.Cols * 8, Town.Rows * 8));
         }
 
+        public void CenterOn(Vector2 px) { Rig.CenterOn(px); }
+
         // ================================================================== loop
         bool dragging, painting, panning;
         Vector2 dragStart, lastMouse;
@@ -112,21 +115,20 @@ namespace FrontierLedger.Game
         {
             if (Town == null) return;
             if (Speed > 0) Town.Advance(Time.deltaTime / SecondsPerDay * Speed);
-
             HandleKeys();
             HandleMouse();
         }
 
         void HandleKeys()
         {
-            if (Hud.TextFieldFocused) return;
             if (Input.GetKeyDown(KeyCode.Space)) TogglePause();
-            if (Input.GetKeyDown(KeyCode.Escape)) { SetTool(ToolKind.Inspect); Selected = Selection.None; }
+            if (Input.GetKeyDown(KeyCode.Escape)) { if (Tool != ToolKind.Inspect) SetTool(ToolKind.Inspect); else Selected = Selection.None; Hud.CloseAll(); }
             if (Input.GetKeyDown(KeyCode.Q)) SetTool(ToolKind.Inspect);
             if (Input.GetKeyDown(KeyCode.R)) SetTool(ToolKind.Build, BuildingType.Road);
             if (Input.GetKeyDown(KeyCode.X)) SetTool(ToolKind.Clear);
-            for (int i = 0; i < 8; i++)
-                if (Input.GetKeyDown(KeyCode.Alpha1 + i)) SetTool(ToolKind.Build, (BuildingType)(i + 1));
+            if (Input.GetKeyDown(KeyCode.Alpha1)) SetSpeed(1);
+            if (Input.GetKeyDown(KeyCode.Alpha2)) SetSpeed(2);
+            if (Input.GetKeyDown(KeyCode.Alpha3)) SetSpeed(4);
             if (Input.GetKeyDown(KeyCode.H) || Input.GetKeyDown(KeyCode.Home)) CenterOnTown();
             if (Input.GetKeyDown(KeyCode.Equals) || Input.GetKeyDown(KeyCode.KeypadPlus)) Rig.ZoomAt(1, new Vector2(Screen.width / 2f, Screen.height / 2f));
             if (Input.GetKeyDown(KeyCode.Minus) || Input.GetKeyDown(KeyCode.KeypadMinus)) Rig.ZoomAt(-1, new Vector2(Screen.width / 2f, Screen.height / 2f));
@@ -150,12 +152,19 @@ namespace FrontierLedger.Game
 
             if (PointerOnMap && Mathf.Abs(Input.mouseScrollDelta.y) > 0.01f) Rig.ZoomAt(Input.mouseScrollDelta.y > 0 ? 1 : -1, mouse);
 
-            // Right or middle drag always pans
-            if ((Input.GetMouseButtonDown(1) || Input.GetMouseButtonDown(2)) && PointerOnMap) { panning = true; lastMouse = mouse; }
-            if (panning)
+            if ((Input.GetMouseButtonDown(1) || Input.GetMouseButtonDown(2)) && PointerOnMap)
+            {
+                panning = true; lastMouse = mouse; dragStart = mouse;
+            }
+            if (panning && !dragging)
             {
                 Rig.PanScreen(mouse - lastMouse); lastMouse = mouse;
-                if (!Input.GetMouseButton(1) && !Input.GetMouseButton(2)) panning = false;
+                if (!Input.GetMouseButton(1) && !Input.GetMouseButton(2))
+                {
+                    panning = false;
+                    // a right-click without dragging cancels the current tool
+                    if (Vector2.Distance(mouse, dragStart) < 4 && Tool != ToolKind.Inspect) SetTool(ToolKind.Inspect);
+                }
             }
 
             bool paintTool = Tool == ToolKind.Clear || (Tool == ToolKind.Build && BuildType == BuildingType.Road);
@@ -180,11 +189,9 @@ namespace FrontierLedger.Game
                 else
                 {
                     if (!panning && PointerOnMap) Act(true);
-                    dragging = false;
-                    if (!Input.GetMouseButton(1) && !Input.GetMouseButton(2)) panning = false;
+                    dragging = false; panning = false;
                 }
             }
-
             UpdateGhost();
         }
 
@@ -195,9 +202,11 @@ namespace FrontierLedger.Game
             return new Vector2Int(HoverTile.x - (d.W - 1) / 2, HoverTile.y - (d.H - 1) / 2);
         }
 
+        public Vector2Int PlacementAnchor { get { return Anchor(BuildType); } }
+
         void UpdateGhost()
         {
-            if (!PointerOnMap || panning) { View.HideGhost(); return; }
+            if (!PointerOnMap || (panning && !painting)) { View.HideGhost(); return; }
             if (Tool == ToolKind.Build)
             {
                 var a = Anchor(BuildType);
@@ -207,8 +216,8 @@ namespace FrontierLedger.Game
             {
                 var b = Town.OccupantAt(HoverTile.x, HoverTile.y);
                 byte t = Town.TerrainAt(HoverTile.x, HoverTile.y);
-                if (b != null) View.ShowClearMarker(b.X, b.Y, b.Def.W, b.Def.H);
-                else if (t == Tile.Tree || t == Tile.Rock) View.ShowClearMarker(HoverTile.x, HoverTile.y, 1, 1);
+                if (b != null && b.Type != BuildingType.Wagon) View.ShowClearMarker(b.X, b.Y, b.Def.W, b.Def.H);
+                else if (t == Tile.Tree || t == Tile.Rock || t == Tile.Sapling || t == Tile.Stump) View.ShowClearMarker(HoverTile.x, HoverTile.y, 1, 1);
                 else View.HideGhost();
             }
             else View.HideGhost();
@@ -223,8 +232,11 @@ namespace FrontierLedger.Game
                 var b = Town.OccupantAt(tx, ty);
                 if (b != null)
                 {
-                    if (Selected.Kind == SelectionKind.Building && Selected.Id == b.Id) Selected = Selection.None;
-                    Town.Remove(b);
+                    if (!first) return;   // tearing down buildings needs a deliberate click
+                    if (b.Type == BuildingType.Wagon) { Hud.Toast("The supply wagon stays until you build a storehouse and empty it."); return; }
+                    Selected = Selection.Building(b.Id);
+                    SetTool(ToolKind.Inspect);
+                    Hud.Toast("Use Tear down in the panel to remove the " + b.Def.Name + ".");
                     return;
                 }
                 var err = Town.ClearTile(tx, ty);
@@ -254,7 +266,7 @@ namespace FrontierLedger.Game
             {
                 if (!File.Exists(SavePath)) return null;
                 var t = JsonUtility.FromJson<Town>(File.ReadAllText(SavePath));
-                if (t == null || t.Terrain == null || t.Terrain.Length != Town.Cols * Town.Rows) return null;
+                if (t == null || t.Version != 2 || t.Terrain == null || t.Terrain.Length != Town.Cols * Town.Rows) return null;
                 t.AfterLoad();
                 return t;
             }

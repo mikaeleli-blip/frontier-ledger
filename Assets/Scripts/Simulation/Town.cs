@@ -5,16 +5,16 @@ using System.Linq;
 namespace FrontierLedger.Simulation
 {
     /// <summary>
-    /// The whole settlement: map, buildings, settlers and the town books. Engine-free so it can be
+    /// The whole settlement: map, buildings, settlers, goods and the town books. Engine-free so it can be
     /// unit tested and saved as plain JSON. The Unity layer reads it and calls Advance / Place / Remove.
     /// </summary>
     [Serializable]
     public partial class Town
     {
-        public int Version = 1;
+        public int Version = 2;
         public int Seed;
         public int Day = 1;
-        public float TimeOfDay = 0.18f;          // 0 = midnight, 0.5 = noon
+        public float TimeOfDay = 0.3f;           // 0 = midnight, 0.5 = noon
         public float Treasury;
         public TownPolicy Policy = new TownPolicy();
         public int NextId = 1;
@@ -34,6 +34,7 @@ namespace FrontierLedger.Simulation
         public TownLedger LedgerLastWeek = new TownLedger();
         public bool HasLastWeek;
         public int CrimesWeek, CrimesLast, CaughtWeek, CaughtLast;
+        public int Births, Deaths, Unburied;
         public List<HistoryPoint> History = new List<HistoryPoint>();
         public MarketReport Market = new MarketReport();
 
@@ -57,6 +58,12 @@ namespace FrontierLedger.Simulation
             if (DirtyTiles == null) DirtyTiles = new List<int>();
             if (Campaign == null) Campaign = new Campaign();
             if (LastElection == null) LastElection = new ElectionResult();
+            foreach (var b in Buildings)
+            {
+                if (b.Stock == null || b.Stock.Length != 5) b.Stock = new float[5];
+                if (b.Price == null || b.Price.Length != 5) b.Price = new float[5];
+                if (b.Delivered == null || b.Delivered.Length != 5) b.Delivered = new float[5];
+            }
         }
 
         // =====================================================================
@@ -66,15 +73,17 @@ namespace FrontierLedger.Simulation
         public int Year { get { return Balance.StartYear + (Day - 1) / Balance.DaysPerYear; } }
         public int DayOfSeason { get { return ((Day - 1) % Balance.DaysPerSeason) + 1; } }
         public string Weekday { get { return Defs.Weekdays[(Day - 1) % 7]; } }
-        public string DateLabel { get { return Weekday + " · " + Defs.Seasons[Season] + " " + DayOfSeason + ", " + Year; } }
+        public string DateLabel { get { return Defs.Seasons[Season] + " " + DayOfSeason + ", " + Year; } }
+        /// <summary>0..1 through the current season.</summary>
+        public float SeasonProgress { get { return (DayOfSeason - 1 + TimeOfDay) / Balance.DaysPerSeason; } }
         /// <summary>0 in daylight, rising to 1 at the darkest point of night.</summary>
         public float Nightness
         {
             get
             {
                 float t = TimeOfDay;
-                if (t < 0.12f) return (0.12f - t) / 0.12f;
-                if (t > 0.8f) return (t - 0.8f) / 0.2f;
+                if (t < 0.15f) return (0.15f - t) / 0.15f;
+                if (t > 0.82f) return Math.Min(1f, (t - 0.82f) / 0.12f);
                 return 0f;
             }
         }
@@ -83,6 +92,7 @@ namespace FrontierLedger.Simulation
         // Small helpers
         // =====================================================================
         float Rnd(float a, float b) { return a + (float)Rng.NextDouble() * (b - a); }
+        bool Chance(double p) { return Rng.NextDouble() < p; }
         T Pick<T>(IList<T> list) { return list[Rng.Next(list.Count)]; }
         List<T> Shuffle<T>(List<T> a)
         {
@@ -93,22 +103,27 @@ namespace FrontierLedger.Simulation
 
         public Building GetBuilding(int id) { if (id < 0) return null; for (int i = 0; i < Buildings.Count; i++) if (Buildings[i].Id == id) return Buildings[i]; return null; }
         public Citizen GetCitizen(int id) { if (id < 0) return null; for (int i = 0; i < People.Count; i++) if (People[i].Id == id) return People[i]; return null; }
-        public IEnumerable<Building> OfType(BuildingType t) { return Buildings.Where(b => b.Type == t); }
-        public IEnumerable<Building> Businesses { get { return Buildings.Where(b => b.Def.IsBusiness); } }
-        public Building Office { get { return Buildings.FirstOrDefault(b => b.Type == BuildingType.Sheriff); } }
-        public Building Estate { get { return Buildings.FirstOrDefault(b => b.Type == BuildingType.Estate); } }
+        public IEnumerable<Building> OfType(BuildingType t) { return Buildings.Where(b => b.Type == t && b.Built); }
+        public IEnumerable<Building> Businesses { get { return Buildings.Where(b => b.Built && b.Def.IsBusiness); } }
+        public IEnumerable<Building> Sites { get { return Buildings.Where(b => !b.Built); } }
+        public IEnumerable<Building> Storages { get { return Buildings.Where(b => b.Built && b.Def.IsStorage); } }
+        public IEnumerable<Citizen> Adults { get { return People.Where(p => !p.IsChild); } }
+        public Building Office { get { return OfType(BuildingType.Sheriff).FirstOrDefault(); } }
+        public Building Estate { get { return OfType(BuildingType.Estate).FirstOrDefault(); } }
         public Building OwnedBusiness(Citizen p) { return Buildings.FirstOrDefault(b => b.Def.IsBusiness && b.OwnerId == p.Id); }
         public Citizen Mayor { get { return GetCitizen(MayorId); } }
         bool MayorBonus(Platform p) { return MayorId >= 0 && MayorPlatform == p; }
 
         public float AverageHappiness { get { return People.Count == 0 ? 50f : People.Average(p => p.Happy); } }
+        public float AverageHealth { get { return People.Count == 0 ? 100f : People.Average(p => p.Health); } }
         public int FreeBeds { get { return OfType(BuildingType.House).Sum(h => h.Def.Beds - h.Residents.Count); } }
+        public int Homeless { get { return People.Count(p => p.HomeId < 0); } }
         public float AverageFoodPrice
         {
             get
             {
-                var r = Buildings.Where(b => b.Def.IsRetail && b.OwnerId >= 0).ToList();
-                return r.Count == 0 ? 0f : r.Average(b => b.Price);
+                var r = Buildings.Where(b => b.Built && b.Def.IsRetail && b.OwnerId >= 0).ToList();
+                return r.Count == 0 ? (Policy.StorehouseSells ? Policy.StorehousePrice[0] : 0f) : r.Average(b => b.Price[0]);
             }
         }
 
@@ -120,13 +135,12 @@ namespace FrontierLedger.Simulation
             if (o != null && o.WorkId == b.Id && o.Jail == 0) n++;
             return n;
         }
-        public bool IsOpen(Building b) { return WorkersAt(b) > 0; }
-        List<Building> OpenRetailers() { return Buildings.Where(b => b.Def.IsRetail && IsOpen(b)).ToList(); }
+        public bool IsOpen(Building b) { return b.Built && WorkersAt(b) > 0; }
 
         void AddLog(string msg, LogKind kind = LogKind.Info)
         {
             Log.Insert(0, new LogEntry { Day = Day, Message = msg, Kind = kind });
-            if (Log.Count > 200) Log.RemoveRange(200, Log.Count - 200);
+            if (Log.Count > 250) Log.RemoveRange(250, Log.Count - 250);
         }
 
         public static string Money(float v)
@@ -137,12 +151,79 @@ namespace FrontierLedger.Simulation
         }
 
         // =====================================================================
+        // Town stores
+        // =====================================================================
+        public float TownStock(Good g) { float s = 0; foreach (var b in Storages) s += b.Stock[(int)g]; return s; }
+        public float TownCapacity { get { float c = 0; foreach (var b in Storages) c += b.Def.Capacity; return c; } }
+        public float TownStored { get { float s = 0; foreach (var b in Storages) for (int i = 0; i < 5; i++) s += b.Stock[i]; return s; } }
+        public float TownSpace { get { return Math.Max(0, TownCapacity - TownStored); } }
+
+        float TakeFromTown(Good g, float q)
+        {
+            float taken = 0;
+            foreach (var b in Storages)
+            {
+                if (q - taken <= 0) break;
+                float t = Math.Min(b.Stock[(int)g], q - taken);
+                b.Stock[(int)g] -= t; taken += t;
+            }
+            return taken;
+        }
+
+        float PutInTown(Good g, float q)
+        {
+            float put = 0;
+            foreach (var b in Storages)
+            {
+                float free = b.Def.Capacity - b.Stock.Sum();
+                float p = Math.Min(free, q - put);
+                if (p <= 0) continue;
+                b.Stock[(int)g] += p; put += p;
+                if (put >= q) break;
+            }
+            return put;
+        }
+
+        /// <summary>Which business type makes a good.</summary>
+        public static bool Produces(BuildingType t, Good g)
+        {
+            switch (g)
+            {
+                case Good.Food: return t == BuildingType.Farm || t == BuildingType.Gatherer || t == BuildingType.Fishery;
+                case Good.Firewood: return t == BuildingType.Woodcutter;
+                case Good.Logs: return t == BuildingType.LumberCamp;
+                case Good.Stone: return t == BuildingType.Quarry;
+                case Good.Tools: return t == BuildingType.Smithy;
+            }
+            return false;
+        }
+
+        /// <summary>Buys a good from the businesses that make it, at wholesale. Returns the amount bought
+        /// and lowers <paramref name="budget"/> by what was paid.</summary>
+        float BuyFromProducers(Good g, float qty, ref float budget, Building buyer)
+        {
+            float price = Balance.Wholesale[(int)g], bought = 0;
+            if (qty <= 0 || budget < price * 0.1f) return 0;
+            foreach (var s in Businesses.Where(b => b != buyer && Produces(b.Type, g) && b.Stock[(int)g] > 0.01f).OrderByDescending(b => b.Stock[(int)g]))
+            {
+                float q = Math.Min(Math.Min(qty - bought, s.Stock[(int)g]), budget / price);
+                if (q <= 0.001f) break;
+                float c = q * price;
+                s.Stock[(int)g] -= q; s.Cash += c; s.Week.Revenue += c; s.Today.Sold += q; s.Week.Sold += q;
+                budget -= c; bought += q;
+                if (bought >= qty - 0.001f) break;
+            }
+            return bought;
+        }
+
+        // =====================================================================
         // Map
         // =====================================================================
         public byte TerrainAt(int x, int y) { return x < 0 || y < 0 || x >= Cols || y >= Rows ? Tile.OutOfBounds : Terrain[y * Cols + x]; }
         void SetTerrain(int x, int y, byte v) { if (TerrainAt(x, y) == Tile.OutOfBounds) return; Terrain[y * Cols + x] = v; MarkDirty(x, y); }
         void MarkDirty(int x, int y) { DirtyTiles.Add(y * Cols + x); MapVersion++; }
         void MarkDirty(Building b) { var d = b.Def; for (int dx = 0; dx < d.W; dx++) for (int dy = 0; dy < d.H; dy++) MarkDirty(b.X + dx, b.Y + dy); occDirty = true; }
+        public static bool IsTreeish(byte t) { return t == Tile.Tree || t == Tile.Sapling; }
 
         void RebuildOcc()
         {
@@ -170,7 +251,7 @@ namespace FrontierLedger.Simulation
         }
         public bool IsRoad(int x, int y) { var b = OccupantAt(x, y); return b != null && b.Type == BuildingType.Road; }
 
-        static float ClearCostOf(byte t) { return t == Tile.Tree ? Balance.ClearTree : t == Tile.Rock ? Balance.ClearRock : 0f; }
+        static float ClearCostOf(byte t) { return t == Tile.Tree || t == Tile.Sapling ? Balance.ClearTree : t == Tile.Rock ? Balance.ClearRock : t == Tile.Stump ? 0.5f : 0f; }
         public float ClearCost(BuildingType type, int x, int y)
         {
             var d = Defs.Get(type); float c = 0;
@@ -178,15 +259,48 @@ namespace FrontierLedger.Simulation
             return c;
         }
 
-        /// <summary>Clears a tree or boulder. Returns an error message or null.</summary>
+        /// <summary>Clears a tree, sapling, stump or boulder for a small fee. Felled trees go to town stores as logs.</summary>
         public string ClearTile(int x, int y)
         {
             byte t = TerrainAt(x, y); float c = ClearCostOf(t);
             if (c <= 0) return null;
-            if (Treasury < c) return "Clearing that " + (t == Tile.Tree ? "tree" : "rock") + " costs " + Money(c);
+            if (Treasury < c) return "Clearing that costs " + Money(c);
             Treasury -= c; LedgerThisWeek.Construction += c;
+            if (t == Tile.Tree) PutInTown(Good.Logs, 2);
+            if (t == Tile.Rock) PutInTown(Good.Stone, 3);
             SetTerrain(x, y, Tile.Grass);
             return null;
+        }
+
+        int CountInRadius(int cx, int cy, int r, Func<byte, bool> pred)
+        {
+            int n = 0;
+            for (int y = cy - r; y <= cy + r; y++)
+                for (int x = cx - r; x <= cx + r; x++)
+                {
+                    if ((x - cx) * (x - cx) + (y - cy) * (y - cy) > r * r) continue;
+                    if (pred(TerrainAt(x, y))) n++;
+                }
+            return n;
+        }
+        public int TreesNear(Building b) { var d = b.Def; return CountInRadius(b.X + d.W / 2, b.Y + d.H / 2, d.Radius, t => t == Tile.Tree); }
+
+        bool TouchesWater(int x, int y, int w, int h)
+        {
+            for (int dx = -1; dx <= w; dx++)
+                for (int dy = -1; dy <= h; dy++)
+                {
+                    bool edge = dx == -1 || dy == -1 || dx == w || dy == h;
+                    if (edge && TerrainAt(x + dx, y + dy) == Tile.Water) return true;
+                }
+            return false;
+        }
+        bool NearStone(int x, int y, int w, int h, int r)
+        {
+            for (int dx = -1; dx <= w; dx++)
+                for (int dy = -1; dy <= h; dy++)
+                    if (TerrainAt(x + dx, y + dy) == Tile.Hill) return true;
+            return CountInRadius(x + w / 2, y + h / 2, r, t => t == Tile.Rock) > 0;
         }
 
         /// <summary>Returns why a building can't go here, or null if it can.</summary>
@@ -202,40 +316,58 @@ namespace FrontierLedger.Simulation
                     if (t == Tile.Hill) return "Too steep. Nothing can be built on the hills";
                     if (t == Tile.Water && type != BuildingType.Road) return "Only a road can bridge the water";
                 }
-            if (d.Unique && OfType(type).Any()) return "The town already has a " + d.Name;
-            float cc = ClearCost(type, x, y);
-            if (!free && Treasury < d.Cost + cc)
-                return "The treasury needs " + Money(d.Cost + cc) + (cc > 0 ? " (incl. " + Money(cc) + " to clear the land)" : "");
+            if (d.Unique && Buildings.Any(b => b.Type == type)) return "The town already has a " + d.Name;
+            if (d.NeedsWater && !TouchesWater(x, y, d.W, d.H)) return "A fishing dock has to touch the river or lake";
+            if (d.NeedsStone && !NearStone(x, y, d.W, d.H, d.Radius)) return "A quarry needs a hillside next to it or boulders nearby";
+            float money = d.Money + ClearCost(type, x, y);
+            if (!free && Treasury < money) return "The treasury needs " + Money(money) + " to clear the ground";
             return null;
         }
 
-        /// <summary>Builds something. Returns the new building, or null with an error message.</summary>
+        /// <summary>Lays out a construction site (or a road, which is instant).
+        /// Returns the new building, or null with an error message.</summary>
         public Building Place(BuildingType type, int x, int y, out string error, bool free = false)
         {
             error = CanPlace(type, x, y, free);
             if (error != null) return null;
             var d = Defs.Get(type);
-            float cc = ClearCost(type, x, y);
-            if (!free) { Treasury -= d.Cost + cc; LedgerThisWeek.Construction += d.Cost + cc; }
+            float money = d.Money + ClearCost(type, x, y);
+            if (!free) { Treasury -= money; LedgerThisWeek.Construction += money; }
             for (int dx = 0; dx < d.W; dx++)
                 for (int dy = 0; dy < d.H; dy++)
                 {
                     byte t = TerrainAt(x + dx, y + dy);
-                    if (t == Tile.Tree || t == Tile.Rock) Terrain[(y + dy) * Cols + x + dx] = Tile.Grass;
+                    if (t == Tile.Tree || t == Tile.Rock || t == Tile.Sapling || t == Tile.Stump) Terrain[(y + dy) * Cols + x + dx] = Tile.Grass;
                 }
-            var b = new Building { Id = NextId++, Type = type, X = x, Y = y, BuiltDay = Day };
-            if (d.IsBusiness)
-            {
-                b.Price = d.StartPrice;
-                b.Wage = Math.Max(Policy.MinWage, d.BaseWage);
-                b.Desired = d.DesiredStart;
-            }
+            var b = new Building { Id = NextId++, Type = type, X = x, Y = y, BuiltDay = Day, Built = free || d.Instant };
+            if (b.Built) { b.Progress = d.Work; b.Delivered[(int)Good.Logs] = d.Logs; b.Delivered[(int)Good.Stone] = d.Stone; }
             Buildings.Add(b);
             MarkDirty(b);
-            if (type != BuildingType.Road && !free) AddLog("The town built a " + d.Name + ".", LogKind.Build);
-            if (type == BuildingType.House)
-                foreach (var p in People) if (p.HomeId < 0 && p.Role != Role.Mayor) FindHome(p);
+            if (b.Built) OnBuilt(b, free);
+            else AddLog("Builders staked out a " + d.Name + ". It needs " + MaterialsText(d) + ".", LogKind.Build);
             return b;
+        }
+
+        public static string MaterialsText(BuildingDef d)
+        {
+            var parts = new List<string>();
+            if (d.Logs > 0) parts.Add(d.Logs + " logs");
+            if (d.Stone > 0) parts.Add(d.Stone + " stone");
+            return parts.Count == 0 ? "no materials" : string.Join(" and ", parts.ToArray());
+        }
+
+        void OnBuilt(Building b, bool quiet)
+        {
+            var d = b.Def;
+            b.Built = true; b.BuiltDay = Day; MarkDirty(b);
+            if (d.IsBusiness)
+            {
+                for (int i = 0; i < 5; i++) b.Price[i] = Balance.StartRetail[i];
+                b.Wage = Math.Max(Policy.MinWage, d.BaseWage);
+                b.Desired = d.MaxEmployees > 1 ? 1 : 0;
+            }
+            if (!quiet && b.Type != BuildingType.Road) AddLog("The " + d.Name + " is finished.", LogKind.Build);
+            if (b.Type == BuildingType.House) RehouseEveryone();
         }
 
         public void Remove(Building b)
@@ -247,164 +379,21 @@ namespace FrontierLedger.Simulation
                 Campaign.Active = false;
             }
             foreach (var id in b.Residents.ToList()) { var p = GetCitizen(id); if (p != null) p.HomeId = -1; }
-            foreach (var id in b.Employees.ToList()) { var p = GetCitizen(id); if (p != null) { p.WorkId = -1; p.Role = Role.Unemployed; } }
+            foreach (var id in b.Employees.ToList()) { var p = GetCitizen(id); if (p != null) { p.WorkId = -1; p.Role = Role.Laborer; } }
+            foreach (var p in People) if (p.WorkId == b.Id && p.Role == Role.Builder) p.WorkId = -1;
             if (d.IsBusiness && b.OwnerId >= 0)
             {
                 var o = GetCitizen(b.OwnerId);
-                if (o != null) { o.Money += b.Cash * 0.5f; if (o.WorkId == b.Id) { o.WorkId = -1; o.Role = Role.Unemployed; } }
+                if (o != null) { o.Money += b.Cash * 0.5f; if (o.WorkId == b.Id) { o.WorkId = -1; o.Role = Role.Laborer; } }
             }
             Buildings.Remove(b);
             MarkDirty(b);
-            float refund = d.Cost * 0.25f;
-            Treasury += refund; LedgerThisWeek.Refunds += refund;
-            if (b.Type != BuildingType.Road) AddLog("The " + d.Name + " was torn down.", LogKind.Bad);
-            if (b.Type == BuildingType.Estate && MayorId < 0) AddLog("With the estate gone, the town has no mayor.", LogKind.Bad);
-            foreach (var p in People) if (p.HomeId < 0 && p.Role != Role.Mayor) FindHome(p);
-        }
-
-        // =====================================================================
-        // Settlers
-        // =====================================================================
-        bool FindHome(Citizen p)
-        {
-            var h = OfType(BuildingType.House).Where(x => x.Residents.Count < x.Def.Beds).OrderBy(x => x.Residents.Count).FirstOrDefault();
-            if (h != null) { p.HomeId = h.Id; h.Residents.Add(p.Id); p.Homeless = 0; return true; }
-            p.HomeId = -1; return false;
-        }
-
-        Citizen AddPerson(float money)
-        {
-            var p = new Citizen
-            {
-                Id = NextId++,
-                Name = Pick(Defs.FirstNames) + " " + Pick(Defs.LastNames),
-                Money = money,
-                Role = Role.Unemployed,
-                Happy = Rnd(55, 70),
-                Seed = (float)Rng.NextDouble(),
-                ArrivedDay = Day
-            };
-            FindHome(p);
-            People.Add(p);
-            return p;
-        }
-
-        void QuitJob(Citizen p)
-        {
-            var b = GetBuilding(p.WorkId);
-            if (b != null) b.Employees.Remove(p.Id);
-            p.WorkId = -1; p.Role = Role.Unemployed;
-        }
-
-        void ResumeOrIdle(Citizen p)
-        {
-            var own = OwnedBusiness(p);
-            if (own != null) { p.Role = Role.Owner; p.WorkId = own.Id; }
-            else { p.Role = Role.Unemployed; p.WorkId = -1; }
-        }
-
-        void UnseatMayor(Citizen m, bool rehouse)
-        {
-            var e = Estate; if (e != null) e.Residents.Clear();
-            MayorId = -1; MayorPlatform = Platform.None;
-            ResumeOrIdle(m); m.HomeId = -1;
-            if (rehouse && !FindHome(m)) AddLog(m.Name + " left the estate but found no house to move into.", LogKind.Bad);
-        }
-
-        void InstallMayor(Citizen p, Platform platform)
-        {
-            var e = Estate; if (e == null) return;
-            var old = Mayor;
-            if (old != null && old != p) { UnseatMayor(old, true); AddLog(old.Name + " packs up and moves out of the Mayor's Estate."); }
-            if (p.Role == Role.Worker || p.Role == Role.Sheriff || p.Role == Role.Deputy) QuitJob(p);
-            var h = GetBuilding(p.HomeId);
-            if (h != null && h != e) h.Residents.Remove(p.Id);
-            p.Role = Role.Mayor; p.WorkId = e.Id; p.HomeId = e.Id;
-            e.Residents.Clear(); e.Residents.Add(p.Id);
-            MayorId = p.Id; MayorPlatform = platform; TermEnd = Day + Balance.TermDays;
-        }
-
-        void RemovePerson(Citizen p, string why)
-        {
-            if (p.Role == Role.Mayor) { MayorId = -1; MayorPlatform = Platform.None; var e = Estate; if (e != null) e.Residents.Clear(); }
-            else if (p.Role != Role.Owner) QuitJob(p);
-            var own = OwnedBusiness(p);
-            if (own != null) { own.OwnerId = -1; AddLog("The " + own.Def.Name + " is up for sale."); }
-            var h = GetBuilding(p.HomeId); if (h != null) h.Residents.Remove(p.Id);
-            if (Campaign.Active)
-            {
-                Campaign.Candidates.RemoveAll(c => c.CitizenId == p.Id);
-                if (Campaign.Candidates.Count == 0) Campaign.Active = false;
-            }
-            People.Remove(p);
-            AddLog(p.Name + " " + why, LogKind.Bad);
-        }
-
-        float Standing(Citizen p) { return p.Money + (OwnedBusiness(p) != null ? 30 : 0) + p.Happy * 0.3f + (MayorId == p.Id ? 15 : 0); }
-        List<Citizen> Eligible() { return People.Where(p => p.Role != Role.Sheriff && p.Role != Role.Deputy && p.Jail == 0 && Day - p.ArrivedDay >= 3).ToList(); }
-
-        // =====================================================================
-        // Jobs
-        // =====================================================================
-        void AssignOwner(Building b)
-        {
-            var d = b.Def;
-            var c = People.Where(p => (p.Role == Role.Unemployed || p.Role == Role.Worker) && p.Jail == 0 && p.Money >= 12 && OwnedBusiness(p) == null)
-                          .OrderByDescending(p => p.Money).FirstOrDefault();
-            if (c == null) return;
-            if (c.Role == Role.Worker) QuitJob(c);
-            float invest = c.Money * 0.6f, deed = Math.Min(invest, d.Cost * 0.5f);
-            c.Money -= invest; Treasury += deed; LedgerThisWeek.Deeds += deed;
-            float grant = Math.Min(25f, Math.Max(0f, Treasury)); Treasury -= grant; LedgerThisWeek.Grants += grant;
-            b.Cash += grant + invest - deed; b.OwnerId = c.Id; c.Role = Role.Owner; c.WorkId = b.Id; b.LossWeeks = 0; b.BuiltDay = Day;
-            AddLog(c.Name + " bought the deed to the " + d.Name + " for " + Money(deed) + ".", LogKind.Good);
-        }
-
-        struct Vacancy { public Building B; public float Wage; public Role Role; }
-
-        void Hire(Citizen p, Vacancy v)
-        {
-            p.WorkId = v.B.Id; p.Role = v.Role; v.B.Employees.Add(p.Id);
-            string label = v.Role == Role.Worker ? "a hand at the " + v.B.Def.Name : v.Role == Role.Sheriff ? "the new Sheriff" : "a deputy";
-            var boss = GetCitizen(v.B.OwnerId);
-            AddLog(p.Name + " was hired as " + label + (boss != null && v.Role == Role.Worker ? " by " + boss.Name : "") + " at " + Money(v.Wage) + "/day.");
-        }
-
-        void Hiring()
-        {
-            foreach (var b in Businesses.ToList()) if (b.OwnerId < 0) AssignOwner(b);
-            var off = Office;
-            if (off != null)
-            {
-                var deps = off.Employees.Select(GetCitizen).Where(p => p != null && p.Role == Role.Deputy).ToList();
-                while (deps.Count > Policy.Deputies)
-                {
-                    var dpt = deps[deps.Count - 1]; deps.RemoveAt(deps.Count - 1);
-                    QuitJob(dpt); AddLog(dpt.Name + " turned in the deputy's badge.");
-                }
-            }
-            var vac = new List<Vacancy>();
-            foreach (var b in Businesses)
-            {
-                if (b.OwnerId < 0) continue;
-                int want = Math.Min(b.Def.MaxEmployees, b.Desired);
-                for (int i = b.Employees.Count; i < want; i++) vac.Add(new Vacancy { B = b, Wage = b.Wage, Role = Role.Worker });
-            }
-            if (off != null && Treasury > 15)
-            {
-                var staff = off.Employees.Select(GetCitizen).Where(p => p != null).ToList();
-                if (!staff.Any(p => p.Role == Role.Sheriff)) vac.Add(new Vacancy { B = off, Wage = Balance.SalarySheriff, Role = Role.Sheriff });
-                for (int i = staff.Count(p => p.Role == Role.Deputy); i < Policy.Deputies; i++) vac.Add(new Vacancy { B = off, Wage = Balance.SalaryDeputy, Role = Role.Deputy });
-            }
-            vac = vac.OrderByDescending(v => v.Wage).ToList();
-            var idle = Shuffle(People.Where(p => p.Role == Role.Unemployed && p.Jail == 0).ToList());
-            foreach (var v in vac) { if (idle.Count == 0) break; var p = idle[0]; idle.RemoveAt(0); Hire(p, v); }
-        }
-
-        public void SetMinWage(float v)
-        {
-            Policy.MinWage = v;
-            foreach (var b in Businesses) b.Wage = Math.Max(v, b.Def.BaseWage);
+            // Salvage: half the materials go back to town stores, plus anything that was stored here
+            PutInTown(Good.Logs, b.Delivered[(int)Good.Logs] * 0.5f);
+            PutInTown(Good.Stone, b.Delivered[(int)Good.Stone] * 0.5f);
+            if (d.IsStorage) for (int g = 0; g < 5; g++) PutInTown((Good)g, b.Stock[g]);
+            if (b.Type != BuildingType.Road) AddLog("The " + d.Name + (b.Built ? " was torn down." : " site was cleared."), LogKind.Bad);
+            RehouseEveryone();
         }
 
         // =====================================================================
@@ -426,37 +415,49 @@ namespace FrontierLedger.Simulation
         // =====================================================================
         // New town
         // =====================================================================
+        public const int WagonX = 37, WagonY = 22;
+
+        /// <summary>A handful of families arrive with a supply wagon in early spring. No houses yet.</summary>
         public static Town CreateNew(int seed)
         {
             var t = new Town { Seed = seed, Treasury = Balance.StartingTreasury };
             t.Terrain = TerrainGen.Generate(seed, Cols, Rows);
-            // Open the town site
-            for (int y = 19; y <= 29; y++)
-                for (int x = 27; x <= 49; x++)
-                    if (t.TerrainAt(x, y) != Tile.Water) t.Terrain[y * Cols + x] = Tile.Grass;
+            // Open meadow around the camp
+            for (int y = 18; y <= 29; y++)
+                for (int x = 29; x <= 47; x++)
+                {
+                    double d = Math.Sqrt(Math.Pow((x - 38) / 1.5, 2) + Math.Pow(y - 23.5, 2));
+                    if (d < 6.5 && t.TerrainAt(x, y) != Tile.Water) t.Terrain[y * Cols + x] = Tile.Grass;
+                }
+            // The wagon trail they came in on
             string err;
-            for (int x = 1; x < Cols - 1; x++)
+            for (int x = 0; x < Cols; x++)
             {
                 if (t.TerrainAt(x, 24) != Tile.Water) t.Terrain[24 * Cols + x] = Tile.Grass;
                 t.Place(BuildingType.Road, x, 24, out err, true);
             }
-            for (int y = 6; y < Rows - 8; y++)
+            var wagon = t.Place(BuildingType.Wagon, WagonX, WagonY, out err, true);
+            for (int g = 0; g < 5; g++) wagon.Stock[g] = Balance.StartingStock[g];
+
+            // Four families
+            for (int f = 0; f < 4; f++)
             {
-                if (t.OccupantAt(38, y) != null) continue;
-                if (t.TerrainAt(38, y) != Tile.Water) t.Terrain[y * Cols + 38] = Tile.Grass;
-                t.Place(BuildingType.Road, 38, y, out err, true);
+                string fam = t.Pick(Defs.LastNames);
+                var dad = t.AddPerson(false, fam, t.Rnd(22, 40), (float)Math.Round(t.Rnd(25, 60)));
+                var mom = t.AddPerson(true, fam, t.Rnd(20, 36), (float)Math.Round(t.Rnd(10, 30)));
+                dad.PartnerId = mom.Id; mom.PartnerId = dad.Id;
+                int kids = f == 0 ? 0 : t.Rng.Next(1, 3);
+                for (int k = 0; k < kids; k++) { var c = t.AddPerson(t.Chance(0.5), fam, t.Rnd(1, 9), 0); c.ParentId = mom.Id; }
             }
-            t.Place(BuildingType.House, 29, 22, out err, true);
-            t.Place(BuildingType.House, 32, 22, out err, true);
-            t.Place(BuildingType.House, 35, 22, out err, true);
-            t.Place(BuildingType.Store, 39, 22, out err, true);
-            t.Place(BuildingType.Farm, 42, 25, out err, true);
-            for (int i = 0; i < 9; i++) t.AddPerson((float)Math.Round(t.Rnd(15, 55)));
+            // and two single folk
+            t.AddPerson(false, t.Pick(Defs.LastNames), t.Rnd(18, 30), (float)Math.Round(t.Rnd(15, 40)));
+            t.AddPerson(true, t.Pick(Defs.LastNames), t.Rnd(18, 30), (float)Math.Round(t.Rnd(15, 40)));
+
             t.Hiring();
-            foreach (var b in t.Businesses) b.BuiltDay = -10;
             t.DirtyTiles.Clear();
-            t.AddLog("Nine settlers have staked their claims at Cedar Fork. The town council hands you the treasury.", LogKind.Good);
-            t.AddLog("Tip: build a Sheriff's Office and Mayor's Estate. Idle hands need jobs. Clearing trees costs $3, rocks $10.");
+            t.Log.Clear();
+            t.AddLog("Four families and two drifters stopped by the creek with what one wagon could carry.", LogKind.Good);
+            t.AddLog("Get cottages up before winter, and a woodcutter to keep them warm. Food runs out faster than you think.", LogKind.Info);
             return t;
         }
     }

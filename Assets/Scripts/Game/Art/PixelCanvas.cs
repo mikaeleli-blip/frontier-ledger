@@ -84,6 +84,66 @@ namespace FrontierLedger.Game.Art
                 }
         }
         public bool IsOpaque(int x, int y) { return Get(x, y).a > 0; }
+        bool Solid(int x, int y) { return x >= 0 && y >= 0 && x < W && y < H && Get(x, y).a == 255; }
+
+        /// <summary>Stardew-style outline: every empty pixel touching a solid pixel becomes the outline color.
+        /// Semi-transparent pixels (shadows) don't count as solid.</summary>
+        public void Outline(Color32 col, bool corners = false)
+        {
+            var mark = new List<int>();
+            for (int y = 0; y < H; y++)
+                for (int x = 0; x < W; x++)
+                {
+                    if (Get(x, y).a == 255) continue;
+                    bool edge = Solid(x - 1, y) || Solid(x + 1, y) || Solid(x, y - 1) || Solid(x, y + 1);
+                    if (!edge && corners) edge = Solid(x - 1, y - 1) || Solid(x + 1, y - 1) || Solid(x - 1, y + 1) || Solid(x + 1, y + 1);
+                    if (edge) mark.Add(y * W + x);
+                }
+            foreach (int i in mark) Set(i % W, i / W, col);
+        }
+        public void Outline(string hex, bool corners = false) { Outline(C(hex), corners); }
+
+        /// <summary>Darkens solid pixels on the inside edge of a shape (gives a soft rim).</summary>
+        public void Recolor(string fromHex, string toHex)
+        {
+            var f = C(fromHex); var t = C(toHex);
+            for (int i = 0; i < Px.Length; i++) if (Px[i].r == f.r && Px[i].g == f.g && Px[i].b == f.b && Px[i].a == f.a) Px[i] = t;
+        }
+
+        public PixelCanvas Mirrored()
+        {
+            var m = new PixelCanvas(W, H);
+            for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) m.Set(W - 1 - x, y, Get(x, y));
+            return m;
+        }
+
+        public void Disc(float cx, float cy, float r, string hex)
+        {
+            var c = C(hex);
+            for (int y = (int)(cy - r - 1); y <= (int)(cy + r + 1); y++)
+                for (int x = (int)(cx - r - 1); x <= (int)(cx + r + 1); x++)
+                {
+                    float dx = x + 0.5f - cx, dy = y + 0.5f - cy;
+                    if (dx * dx + dy * dy <= r * r) Set(x, y, c);
+                }
+        }
+        public void Ellipse(float cx, float cy, float rx, float ry, Color32 c, bool blend = false)
+        {
+            for (int y = (int)(cy - ry - 1); y <= (int)(cy + ry + 1); y++)
+                for (int x = (int)(cx - rx - 1); x <= (int)(cx + rx + 1); x++)
+                {
+                    float dx = (x + 0.5f - cx) / rx, dy = (y + 0.5f - cy) / ry;
+                    if (dx * dx + dy * dy <= 1) { if (blend) Blend(x, y, c); else Set(x, y, c); }
+                }
+        }
+
+        public Sprite ToSprite(string name, Vector2 pivot)
+        {
+            var t = ToTexture(name);
+            var s = Sprite.Create(t, new Rect(0, 0, W, H), pivot, Pixels.PerUnit, 0, SpriteMeshType.FullRect);
+            if (name != null) s.name = name;
+            return s;
+        }
 
         public Texture2D ToTexture(string name = null)
         {

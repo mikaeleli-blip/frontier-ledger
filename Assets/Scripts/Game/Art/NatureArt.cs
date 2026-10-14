@@ -4,220 +4,233 @@ using UnityEngine;
 
 namespace FrontierLedger.Game.Art
 {
-    /// <summary>Trees, boulders, settlers and chickens.</summary>
+    /// <summary>Big leafy trees, pines, saplings, stumps, boulders, chickens and the 1-pixel white sprite.</summary>
     public static class NatureArt
     {
-        const string SNOW = "#f2f6f8";
+        const string SNOW = "#f4f8fa", SNOW2 = "#d4e2ea";
+        const string TREE_OL = "#1f2a14", ROCK_OL = "#2e2a26";
         static readonly Dictionary<string, Sprite> cache = new Dictionary<string, Sprite>();
 
-        static Sprite Cached(string key, System.Func<PixelCanvas> make)
+        static Sprite Cached(string key, System.Func<PixelCanvas> make, Vector2 pivot)
         {
             Sprite s;
-            if (!cache.TryGetValue(key, out s)) { s = make().ToSprite(key); cache[key] = s; }
+            if (!cache.TryGetValue(key, out s)) { s = make().ToSprite(key, pivot); cache[key] = s; }
             return s;
         }
 
-        static void Shadow(PixelCanvas g, int x, int y, int w, byte a) { g.RBlend(x, y, w, 1, new Color32(0, 0, 0, a)); }
-
-        // ------------------------------------------------------------------ trees & rocks
+        // ------------------------------------------------------------------ placement
         public struct Placement { public Sprite Sprite; public float Px, Py; }
 
-        /// <summary>Picks the sprite and pixel offset for the tree or boulder on a tile.</summary>
+        /// <summary>Sprite and anchor (bottom-centre of the trunk, in map pixels) for whatever grows on a tile.</summary>
         public static Placement At(int tx, int ty, byte tile, int season)
         {
-            int ox = Mathf.RoundToInt((Noise.Hash(tx, ty, 21) - 0.5f) * 4);
-            int oy = -Mathf.RoundToInt(Noise.Hash(tx, ty, 22) * 2);
-            if (tile == Tile.Rock)
+            float ox = Mathf.Round((Noise.Hash(tx, ty, 21) - 0.5f) * 6), oy = Mathf.Round((Noise.Hash(tx, ty, 22) - 0.3f) * 4);
+            float px = tx * 16 + 8 + ox, py = ty * 16 + 13 + oy;
+            switch (tile)
             {
-                int v = Noise.Hash(tx, ty, 23) < 0.5f ? 1 : 0;
-                return new Placement { Sprite = Rock(season, v), Px = tx * 16 + 1 + ox, Py = ty * 16 + 5 + oy };
+                case Tile.Rock: return new Placement { Sprite = Rock(season, Noise.Hash(tx, ty, 23) < 0.5f ? 1 : 0), Px = px, Py = py };
+                case Tile.Sapling: return new Placement { Sprite = Sapling(season), Px = px, Py = py };
+                case Tile.Stump: return new Placement { Sprite = Stump(season), Px = px, Py = py };
             }
-            bool pine = Noise.Hash(tx, ty, 5) < (ty < Balance.Rows / 2 ? 0.55f : 0.3f);
-            if (pine) return new Placement { Sprite = Pine(season), Px = tx * 16 + 1 + ox, Py = ty * 16 - 8 + oy };
-            return new Placement { Sprite = Oak(season, Noise.Hash(tx, ty, 6) < 0.5f ? 0 : 1), Px = tx * 16 - 1 + ox, Py = ty * 16 - 6 + oy };
+            bool pine = Noise.Hash(tx, ty, 5) < (ty < Balance.Rows / 2 ? 0.5f : 0.28f);
+            if (pine) return new Placement { Sprite = Pine(season, Noise.Hash(tx, ty, 7) < 0.5f ? 0 : 1), Px = px, Py = py };
+            int kind = Noise.Hash(tx, ty, 6) < 0.6f ? 0 : 1;   // oak or maple
+            return new Placement { Sprite = Leafy(season, kind, Noise.Hash(tx, ty, 8) < 0.5f ? 0 : 1), Px = px, Py = py };
         }
 
-        static readonly string[][][] OakPal =
+        // ------------------------------------------------------------------ leafy trees
+        static readonly string[][][] Canopy =
         {
-            new[] { new[] { "#2f5a25", "#4e8a35", "#6aa842", "#93c75a" }, new[] { "#2f5a25", "#4e8a35", "#6aa842", "#93c75a" } },
-            new[] { new[] { "#1f3a1c", "#2f5e2a", "#3f7a32", "#5f9a42" }, new[] { "#1f3a1c", "#2f5e2a", "#3f7a32", "#5f9a42" } },
-            new[] { new[] { "#5a2a12", "#a8501f", "#d0742a", "#eba04a" }, new[] { "#5a4012", "#b0821f", "#d8ac36", "#f0d070" } },
+            // oak: spring, summer, autumn  (outline-adjacent dark, mid, light, highlight)
+            new[] { new[] { "#3d7a2a", "#56a03a", "#78c24a", "#a8de6a" }, new[] { "#2e6424", "#428a32", "#5aa83e", "#86c85a" }, new[] { "#8a5a1a", "#c47a24", "#e0a032", "#f4c860" } },
+            // maple
+            new[] { new[] { "#4a8a2e", "#68ae3e", "#8ccc52", "#b8e47a" }, new[] { "#356e28", "#4c9436", "#66b246", "#92d066" }, new[] { "#8a2a1a", "#c43a24", "#e0602e", "#f49a4a" } },
         };
 
-        public static Sprite Oak(int si, int v)
+        public static Sprite Leafy(int si, int kind, int v)
         {
-            return Cached("oak" + si + v, () =>
+            return Cached("leafy" + si + kind + v, () =>
             {
-                var g = new PixelCanvas(18, 22);
-                Shadow(g, 4, 20, 10, 70); Shadow(g, 3, 21, 12, 38);
-                g.R(8, 12, 2, 9, "#6b4a2e"); g.R(9, 14, 1, 6, "#4e3420"); g.D(7, 20, "#6b4a2e"); g.D(10, 20, "#6b4a2e");
+                var g = new PixelCanvas(34, 46);
+                const int cx = 17, baseY = 43;
+                // ground shadow
+                g.Ellipse(cx, baseY + 0.5f, 9, 2.2f, new Color32(0, 0, 0, 60), true);
+                // trunk with roots
+                g.R(cx - 3, 26, 6, baseY - 26 + 1, "#7a4e2c");
+                g.R(cx + 1, 26, 2, baseY - 26 + 1, "#5e3a20");
+                g.R(cx - 3, 26, 1, baseY - 26 + 1, "#94603a");
+                g.R(cx - 5, baseY - 1, 3, 2, "#7a4e2c"); g.R(cx + 3, baseY - 1, 3, 2, "#5e3a20");
+                for (int y = 30; y < baseY - 1; y += 4) g.D(cx - 1, y, "#5e3a20");
                 if (si == 3)
                 {
-                    const string br = "#5a4030";
-                    g.R(8, 6, 2, 8, "#6b4a2e");
-                    g.Line(8, 10, 4, 5, br); g.Line(9, 9, 14, 4, br); g.Line(8, 7, 6, 2, br); g.Line(9, 6, 12, 1, br); g.Line(5, 6, 3, 4, br); g.Line(13, 5, 15, 4, br);
-                    foreach (var p in new[] { new[] { 4, 4 }, new[] { 14, 3 }, new[] { 6, 1 }, new[] { 12, 0 }, new[] { 3, 3 }, new[] { 15, 3 }, new[] { 8, 5 } }) g.D(p[0], p[1], SNOW);
+                    // bare branches with a dusting of snow
+                    const string br = "#6a4428";
+                    g.R(cx - 2, 12, 4, 15, "#7a4e2c");
+                    g.Line(cx - 1, 24, cx - 9, 12, br); g.Line(cx - 1, 23, cx - 10, 13, br);
+                    g.Line(cx + 1, 22, cx + 9, 10, br); g.Line(cx + 2, 22, cx + 10, 11, br);
+                    g.Line(cx, 16, cx - 5, 4, br); g.Line(cx, 15, cx + 4, 3, br); g.Line(cx, 14, cx, 2, br);
+                    g.Line(cx - 6, 16, cx - 12, 14, br); g.Line(cx + 6, 15, cx + 13, 13, br);
+                    g.Line(cx - 4, 8, cx - 8, 6, br); g.Line(cx + 3, 7, cx + 7, 4, br);
+                    foreach (var p in new[] { new[] { cx - 9, 11 }, new[] { cx - 10, 12 }, new[] { cx + 9, 9 }, new[] { cx + 10, 10 }, new[] { cx - 5, 3 }, new[] { cx + 4, 2 }, new[] { cx, 1 }, new[] { cx - 12, 13 }, new[] { cx + 13, 12 } }) g.D(p[0], p[1], SNOW);
+                    g.Outline("#3a2618");
                     return g;
                 }
-                var pal = OakPal[si][v];
-                float cx = 9, cy = v == 1 ? 8f : 7.5f, r = v == 1 ? 6.2f : 7f;
-                System.Func<int, int, bool> inside = (x, y) =>
-                {
-                    if (x < 0 || y < 0 || x >= 18 || y >= 16) return false;
-                    float dx = x + 0.5f - cx, dy = (y + 0.5f - cy) * 1.12f;
-                    return Mathf.Sqrt(dx * dx + dy * dy) + (Noise.Hash(x, y, v + 50) - 0.5f) * 1.6f < r;
-                };
-                for (int y = 0; y < 16; y++)
-                    for (int x = 0; x < 18; x++)
-                    {
-                        if (!inside(x, y)) continue;
-                        string col;
-                        if (!inside(x - 1, y) || !inside(x + 1, y) || !inside(x, y - 1) || !inside(x, y + 1)) col = pal[0];
-                        else
+                var pal = Canopy[kind][si == 0 ? 0 : si == 1 ? 1 : 2];
+                // canopy: a cluster of blobs
+                var blobs = v == 0
+                    ? new[] { new[] { 17f, 15, 11 }, new[] { 9f, 19, 7 }, new[] { 25f, 19, 7 }, new[] { 12f, 9, 7 }, new[] { 22f, 9, 7 }, new[] { 17f, 22, 8 } }
+                    : new[] { new[] { 17f, 14, 10 }, new[] { 10f, 18, 7.5f }, new[] { 24f, 17, 7.5f }, new[] { 17f, 7, 7.5f }, new[] { 17f, 22, 8 } };
+                var inside = new bool[34, 46];
+                var shade = new float[34, 46];
+                foreach (var b in blobs)
+                    for (int y = 0; y < 46; y++)
+                        for (int x = 0; x < 34; x++)
                         {
-                            float dx = x + 0.5f - cx, dy = y + 0.5f - cy;
-                            float s = (-dx * 0.55f - dy * 0.85f) / r + (Noise.Hash(x, y, v + 70) - 0.5f) * 0.5f;
-                            col = s > 0.42f ? pal[3] : s < -0.18f ? pal[1] : pal[2];
+                            float dx = x + 0.5f - b[0], dy = y + 0.5f - b[1];
+                            float d = Mathf.Sqrt(dx * dx + dy * dy) + (Noise.Hash(x, y, (int)b[0] * 7 + v) - 0.5f) * 1.4f;
+                            if (d >= b[2]) continue;
+                            // light from the upper left, per blob
+                            float l = (-dx * 0.55f - dy * 0.8f) / b[2] + 0.15f;
+                            if (!inside[x, y] || l > shade[x, y]) shade[x, y] = l;
+                            inside[x, y] = true;
                         }
+                for (int y = 0; y < 46; y++)
+                    for (int x = 0; x < 34; x++)
+                    {
+                        if (!inside[x, y]) continue;
+                        float l = shade[x, y] + (Noise.Hash(x, y, 70 + v) - 0.5f) * 0.35f;
+                        string col = l > 0.62f ? pal[3] : l > 0.2f ? pal[2] : l > -0.25f ? pal[1] : pal[0];
                         g.D(x, y, col);
-                        if (si == 0 && v == 1 && col != pal[0] && Noise.Hash(x, y, 77) < 0.13f) g.D(x, y, "#f4c6d2");
                     }
+                // leaf texture: little dark notches
+                for (int i = 0; i < 40; i++)
+                {
+                    int x = (int)(Noise.Hash(i, v, 81 + kind) * 34), y = (int)(Noise.Hash(v, i, 82 + kind) * 30);
+                    if (inside[x, y] && y + 1 < 46 && inside[x, y + 1]) { g.D(x, y, pal[0]); g.D(x + 1, y + 1, pal[0]); }
+                }
+                if (si == 0 && kind == 0)
+                    for (int i = 0; i < 24; i++)
+                    {
+                        int x = (int)(Noise.Hash(i, 3, 91 + v) * 34), y = (int)(Noise.Hash(3, i, 92 + v) * 30);
+                        if (inside[x, y]) { g.D(x, y, "#f6c8d6"); if (Noise.Hash(i, 4, 93) < 0.5f) g.D(x + 1, y, "#ffe2ea"); }
+                    }
+                if (si == 1 && kind == 1)
+                    for (int i = 0; i < 10; i++)
+                    {
+                        int x = (int)(Noise.Hash(i, 5, 94 + v) * 34), y = (int)(Noise.Hash(5, i, 95 + v) * 30);
+                        if (inside[x, y]) g.D(x, y, "#d84a3a");   // a few red fruit
+                    }
+                g.Outline(TREE_OL);
                 return g;
-            });
+            }, new Vector2(17f / 34f, 3f / 46f));
         }
 
-        public static Sprite Pine(int si)
+        // ------------------------------------------------------------------ pines
+        public static Sprite Pine(int si, int v)
         {
-            return Cached("pine" + si, () =>
+            return Cached("pine" + si + v, () =>
             {
-                var g = new PixelCanvas(14, 24);
-                Shadow(g, 3, 22, 8, 70);
-                g.R(6, 18, 2, 4, "#5a3a22");
-                string[] P = { "#16301f", "#234a2f", "#2f5d3a", "#457a4f" };
-                for (int i = 0; i < 3; i++)
+                var g = new PixelCanvas(26, 44);
+                const int cx = 13, baseY = 41;
+                g.Ellipse(cx, baseY + 0.5f, 7, 2, new Color32(0, 0, 0, 60), true);
+                g.R(cx - 2, 32, 4, baseY - 32 + 1, "#6a4428"); g.R(cx + 1, 32, 1, baseY - 32 + 1, "#4e3020");
+                string[] P = { "#173a26", "#22523a", "#2e6a46", "#3f8a5a" };
+                int tiers = 4;
+                for (int i = 0; i < tiers; i++)
                 {
-                    int y0 = 1 + i * 5; float mh = 3 + i * 1.6f;
-                    for (int j = 0; j < 8; j++)
+                    int top = 2 + i * 7 + (v == 1 ? i : 0), h = 11;
+                    float maxW = 4.5f + i * 2.6f;
+                    for (int j = 0; j < h; j++)
                     {
-                        int hw = Mathf.Max(1, Mathf.RoundToInt((j + 1) / 8f * mh)), y = y0 + j;
-                        for (int x = 7 - hw; x < 7 + hw; x++)
+                        int y = top + j; if (y >= 36) break;
+                        int hw = Mathf.Max(1, Mathf.RoundToInt((j + 1f) / h * maxW));
+                        for (int x = cx - hw; x < cx + hw; x++)
                         {
-                            string col = x < 7 ? P[2] : P[1];
-                            if (x == 7 - hw || x == 6 + hw || j == 7) col = P[0];
-                            else if (x < 7 && Noise.Hash(x, y, 31) < 0.25f) col = P[3];
-                            if (si == 3 && (j < 2 || (j < 6 && Noise.Hash(x, y, 33) < 0.18f)) && col != P[0]) col = SNOW;
+                            string col = x < cx - hw / 3 ? P[3] : x < cx + hw / 3 ? P[2] : P[1];
+                            if (j >= h - 2) col = P[0];
+                            else if (Noise.Hash(x, y, 31 + v) < 0.12f) col = P[0];
+                            if (si == 3 && (j < 3 || (j < h - 3 && Noise.Hash(x, y, 33) < 0.16f)) && x < cx + hw / 2) col = j < 2 ? SNOW : SNOW2;
                             g.D(x, y, col);
                         }
                     }
                 }
+                g.Outline(TREE_OL);
                 return g;
-            });
+            }, new Vector2(13f / 26f, 3f / 44f));
+        }
+
+        public static Sprite Sapling(int si)
+        {
+            return Cached("sapling" + si, () =>
+            {
+                var g = new PixelCanvas(12, 16);
+                g.Ellipse(6, 13.5f, 3, 1, new Color32(0, 0, 0, 50), true);
+                g.R(5, 7, 2, 7, "#7a4e2c");
+                if (si == 3) { g.D(4, 6, "#7a4e2c"); g.D(7, 5, "#7a4e2c"); g.D(6, 4, SNOW); }
+                else
+                {
+                    string a = si == 2 ? "#e0a032" : "#5aa83e", b = si == 2 ? "#c47a24" : "#3d7a2a", c = si == 2 ? "#f4c860" : "#86c85a";
+                    g.Disc(6, 5, 3.6f, a); g.R(3, 6, 6, 2, b); g.D(4, 3, c); g.D(5, 3, c); g.D(3, 4, c);
+                }
+                g.Outline("#2a2216");
+                return g;
+            }, new Vector2(0.5f, 2f / 16f));
+        }
+
+        public static Sprite Stump(int si)
+        {
+            return Cached("stump" + si, () =>
+            {
+                var g = new PixelCanvas(14, 10);
+                g.Ellipse(7, 8, 6, 1.5f, new Color32(0, 0, 0, 55), true);
+                g.R(3, 3, 8, 5, "#7a4e2c"); g.R(8, 3, 3, 5, "#5e3a20");
+                g.R(2, 6, 1, 2, "#7a4e2c"); g.R(11, 6, 1, 2, "#5e3a20");
+                g.Ellipse(7, 3, 4, 1.6f, PixelCanvas.C(si == 3 ? SNOW : "#d8b07a"));
+                g.D(7, 3, "#a8804a"); g.D(6, 3, "#c49a62");
+                g.Outline("#3a2618");
+                return g;
+            }, new Vector2(0.5f, 2f / 10f));
         }
 
         public static Sprite Rock(int si, int v)
         {
             return Cached("rock" + si + v, () =>
             {
-                var g = new PixelCanvas(14, 11);
-                Shadow(g, 2, 9, 10, 64);
-                float rx = v == 1 ? 4.6f : 6f, ry = v == 1 ? 3f : 3.8f, cx = 7, cy = v == 1 ? 6f : 5.6f;
-                string[] P = { "#3e3a36", "#6c665e", "#8d877d", "#b2aca1" };
-                System.Func<int, int, bool> ins = (x, y) =>
-                {
-                    float dx = (x + 0.5f - cx) / rx, dy = (y + 0.5f - cy) / ry;
-                    return dx * dx + dy * dy + (Noise.Hash(x, y, v + 90) - 0.5f) * 0.25f < 1;
-                };
-                for (int y = 0; y < 11; y++)
-                    for (int x = 0; x < 14; x++)
+                var g = new PixelCanvas(18, 14);
+                g.Ellipse(9, 11.5f, 7.5f, 1.6f, new Color32(0, 0, 0, 60), true);
+                float rx = v == 1 ? 5.6f : 7f, ry = v == 1 ? 4f : 4.8f, cx = 9, cy = v == 1 ? 8f : 7.2f;
+                string[] P = { "#5e5852", "#7e776e", "#a39c90", "#c8c1b4" };
+                for (int y = 0; y < 14; y++)
+                    for (int x = 0; x < 18; x++)
                     {
-                        if (!ins(x, y)) continue;
-                        bool edge = !ins(x - 1, y) || !ins(x + 1, y) || !ins(x, y - 1) || !ins(x, y + 1);
-                        string col;
-                        if (edge) col = P[0];
-                        else
-                        {
-                            float s = -(x + 0.5f - cx) / rx * 0.6f - (y + 0.5f - cy) / ry * 0.9f + (Noise.Hash(x, y, 91) - 0.5f) * 0.4f;
-                            col = s > 0.5f ? P[3] : s < -0.3f ? P[1] : P[2];
-                            if (si == 3 && y + 0.5f < cy - 0.4f) col = SNOW;
-                            else if (si < 2 && y < cy - 1 && Noise.Hash(x, y, 93) < 0.2f) col = "#6a8a3a";
-                        }
+                        float dx = (x + 0.5f - cx) / rx, dy = (y + 0.5f - cy) / ry;
+                        if (dx * dx + dy * dy + (Noise.Hash(x, y, v + 90) - 0.5f) * 0.2f >= 1) continue;
+                        float s = -dx * 0.55f - dy * 0.9f + (Noise.Hash(x, y, 91) - 0.5f) * 0.3f;
+                        string col = s > 0.55f ? P[3] : s > 0.05f ? P[2] : s > -0.45f ? P[1] : P[0];
+                        if (si == 3 && dy < -0.25f) col = SNOW;
+                        else if (si < 2 && dy < -0.3f && Noise.Hash(x, y, 93) < 0.22f) col = "#6a9a3a";
                         g.D(x, y, col);
                     }
-                g.D(8, Mathf.RoundToInt(cy), P[1]); g.D(9, Mathf.RoundToInt(cy) + 1, P[1]);
+                g.D((int)cx + 1, (int)cy, P[0]); g.D((int)cx + 2, (int)cy + 1, P[0]); g.D((int)cx - 2, (int)cy - 1, P[1]);
+                g.Outline(ROCK_OL);
                 return g;
-            });
-        }
-
-        // ------------------------------------------------------------------ settlers
-        public static readonly Dictionary<Role, string> RoleColor = new Dictionary<Role, string>
-        {
-            { Role.Owner, "#d4a542" }, { Role.Worker, "#e8dcc0" }, { Role.Unemployed, "#8f8f8f" },
-            { Role.Sheriff, "#3f8fcb" }, { Role.Deputy, "#7cc0e8" }, { Role.Mayor, "#9a3a62" }
-        };
-        static readonly string[] Skin = { "#f1c9a0", "#d9a477", "#a8714a", "#7a4e30" };
-        static readonly string[] Hats = { "#b08a5a", "#6b4428", "#d8b55a", "#4a3a2e" };
-        static readonly string[] Pants = { "#4a3a2e", "#3e4f66", "#5a4a3a" };
-
-        /// <summary>A 5px-wide settler, pivot at the feet. Frame 1 is the mid-stride pose.</summary>
-        public static Sprite Person(Citizen p, int frame)
-        {
-            bool jailed = p.Jail > 0;
-            int si = (int)(p.Seed * 4) % 4, hi = (int)(p.Seed * 16) % 4, li = (int)(p.Seed * 64) % 3;
-            string key = "p" + (jailed ? "J" : p.Role.ToString()) + si + hi + li + frame;
-            Sprite s;
-            if (cache.TryGetValue(key, out s)) return s;
-            var g = new PixelCanvas(5, 12);
-            int y = 0;
-            bool top = !jailed && (p.Role == Role.Owner || p.Role == Role.Mayor);
-            if (top) { g.R(1, 0, 3, 2, "#2a2420"); g.R(0, 2, 5, 1, "#2a2420"); g.R(1, 1, 3, 1, p.Role == Role.Mayor ? "#b5432f" : "#6b4428"); y = 3; }
-            else if (jailed) { g.R(1, 0, 3, 1, "#5a4030"); y = 1; }
-            else
-            {
-                string hat = p.Role == Role.Sheriff ? "#c49364" : p.Role == Role.Deputy ? "#8a5d3a" : Hats[hi];
-                g.R(1, 0, 3, 1, hat); g.R(0, 1, 5, 1, hat); y = 2;
-            }
-            g.R(1, y, 3, 2, Skin[si]); y += 2;
-            string bc = jailed ? "#d8d8d8" : RoleColor[p.Role];
-            g.R(0, y, 5, 3, bc); g.D(0, y + 2, Skin[si]); g.D(4, y + 2, Skin[si]);
-            if (!jailed)
-            {
-                if (p.Role == Role.Worker) { g.D(1, y, "#4a3a2e"); g.D(3, y, "#4a3a2e"); g.D(1, y + 1, "#4a3a2e"); g.D(3, y + 1, "#4a3a2e"); }
-                if (p.Role == Role.Owner) { g.D(2, y, "#f4efe4"); g.D(2, y + 1, "#8a6a2a"); }
-                if (p.Role == Role.Sheriff || p.Role == Role.Deputy) g.D(1, y + 1, "#f2d04a");
-                if (p.Role == Role.Mayor) { g.D(1, y, "#e6c15a"); g.D(2, y + 1, "#e6c15a"); g.D(3, y + 2, "#e6c15a"); }
-            }
-            else g.R(0, y + 1, 5, 1, "#3a3a3a");
-            y += 3;
-            string pc = jailed ? "#3a3a3a" : Pants[li];
-            if (frame == 0) { g.R(1, y, 1, 2, pc); g.R(3, y, 1, 2, pc); }
-            else { g.D(1, y, pc); g.D(3, y, pc); g.D(0, y + 1, pc); g.D(4, y + 1, pc); }
-            y += 2;
-            // crop to the drawn height so the pivot sits at the feet
-            var c = new PixelCanvas(5, y);
-            for (int yy = 0; yy < y; yy++) for (int xx = 0; xx < 5; xx++) c.Set(xx, yy, g.Get(xx, yy));
-            var t = c.ToTexture(key);
-            s = Sprite.Create(t, new Rect(0, 0, 5, y), new Vector2(2.5f / 5f, 0f), Pixels.PerUnit, 0, SpriteMeshType.FullRect);
-            s.name = key;
-            cache[key] = s;
-            return s;
+            }, new Vector2(0.5f, 2.5f / 14f));
         }
 
         /// <summary>A chicken, pivot at the feet. Frame 1 is pecking.</summary>
         public static Sprite Chicken(int frame)
         {
-            string key = "chick" + frame;
-            Sprite s;
-            if (cache.TryGetValue(key, out s)) return s;
-            var g = new PixelCanvas(5, 5);
-            g.RBlend(0, 4, 3, 1, new Color32(0, 0, 0, 64));
-            g.R(0, 2, 3, 2, "#f4f1e6"); g.D(1, 4, "#d8742a");
-            if (frame == 1) { g.D(3, 2, "#f4f1e6"); g.D(3, 1, "#d9534a"); g.D(4, 3, "#e8a23a"); }
-            else { g.D(2, 1, "#f4f1e6"); g.D(2, 0, "#d9534a"); g.D(3, 1, "#e8a23a"); }
-            var t = g.ToTexture(key);
-            s = Sprite.Create(t, new Rect(0, 0, 5, 5), new Vector2(0.2f, 0f), Pixels.PerUnit, 0, SpriteMeshType.FullRect);
-            s.name = key;
-            cache[key] = s;
-            return s;
+            return Cached("chick" + frame, () =>
+            {
+                var g = new PixelCanvas(9, 8);
+                g.RBlend(1, 7, 6, 1, new Color32(0, 0, 0, 60));
+                g.R(1, 3, 5, 3, "#f4f1e6"); g.R(2, 2, 3, 1, "#f4f1e6"); g.D(1, 2, "#e4ded0"); g.R(2, 4, 3, 1, "#e0d8c8");
+                g.D(3, 6, "#e8a23a"); g.D(5, 6, "#e8a23a");
+                if (frame == 1) { g.R(6, 4, 2, 2, "#f4f1e6"); g.D(7, 3, "#d9534a"); g.D(8, 5, "#e8a23a"); g.D(7, 4, "#2b1d1a"); }
+                else { g.R(5, 1, 2, 3, "#f4f1e6"); g.D(6, 0, "#d9534a"); g.D(7, 2, "#e8a23a"); g.D(6, 1, "#2b1d1a"); }
+                g.Outline("#4a3a2a");
+                return g;
+            }, new Vector2(0.5f, 1f / 8f));
         }
 
         static Sprite white;
@@ -229,11 +242,16 @@ namespace FrontierLedger.Game.Art
                 if (white == null)
                 {
                     var g = new PixelCanvas(1, 1); g.Set(0, 0, new Color32(255, 255, 255, 255));
-                    var t = g.ToTexture("white");
-                    white = Sprite.Create(t, new Rect(0, 0, 1, 1), new Vector2(0f, 1f), Pixels.PerUnit, 0, SpriteMeshType.FullRect);
+                    white = g.ToSprite("white", new Vector2(0f, 1f));
                 }
                 return white;
             }
         }
+
+        public static readonly Dictionary<Role, string> RoleColor = new Dictionary<Role, string>
+        {
+            { Role.Owner, "#d4a542" }, { Role.Worker, "#e8dcc0" }, { Role.Laborer, "#a89a86" }, { Role.Child, "#e8a8c0" },
+            { Role.Builder, "#e08a4a" }, { Role.Sheriff, "#3f8fcb" }, { Role.Deputy, "#7cc0e8" }, { Role.Mayor, "#b05a82" }
+        };
     }
 }

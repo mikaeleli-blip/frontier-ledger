@@ -1,51 +1,41 @@
 using System.Collections.Generic;
 using System.Linq;
 using FrontierLedger.Game.Art;
+using FrontierLedger.Game.UI;
 using FrontierLedger.Simulation;
 using UnityEngine;
 
 namespace FrontierLedger.Game
 {
     /// <summary>
-    /// First-pass interface drawn with IMGUI: top bar, build palette, minimap, ledger book with tabs,
-    /// inspector, tooltip and toasts. Placeholder until we move to UI Toolkit; all numbers are live.
+    /// The interface: a date box with speed controls, the stores bar, the treasury, a hotbar of buildings,
+    /// a minimap, a message feed, a ledger book with tabs, and an inspector. Wooden frames, parchment and
+    /// a pixel font, all drawn through the small Ui kit at a whole-number scale.
     /// </summary>
     public sealed class Hud : MonoBehaviour
     {
-        // Lamplit walnut desk with brass fittings, same palette as the prototype
-        static readonly Color Desk = Hex("#241a13"), Panel = Hex("#33261c"), Panel2 = Hex("#3f2f23"), Line = Hex("#5a4532"),
-                              Ink = Hex("#f0e5d0"), Muted = Hex("#b49f82"), Brass = Hex("#d3a24a");
-        const string GoodC = "#9cc46e", WarnC = "#e2b04a", BadC = "#de6f55", MutedC = "#b49f82", BrassC = "#d3a24a";
-
-        static Color Hex(string h) { Color c; ColorUtility.TryParseHtmlString(h, out c); return c; }
+        enum Tab { None, Ledger, Citizens, Trade, Election, Gazette }
 
         GameController gc;
         Town T { get { return gc.Town; } }
+        int S = 2;
+        float W, H;
 
-        float scale = 1f;
-        readonly List<Rect> blockers = new List<Rect>();
+        List<Rect> blockers = new List<Rect>(), building = new List<Rect>();
+        Tab tab = Tab.None;
+        Category cat = Category.Housing;
         string toast; float toastUntil;
-        float confirmNewUntil;
-        int confirmTearDown = -1;
-        int tab;
-        Vector2 scrollTab, scrollInspector;
-        static readonly string[] Tabs = { "Ledger", "Citizens", "Trade", "Election", "Gazette" };
+        float confirmNewUntil; int confirmTearDown = -1;
+        Vector2 panelScroll, inspScroll;
+        float panelContentH, inspContentH;
+        Texture2D minimap; int miniVersion = -1, miniSeason = -1; float miniTimer; Color32[] miniBase;
+        string hoverTip;
 
-        Texture2D minimap; int miniVersion = -1, miniSeason = -1; float miniTimer;
-        Color32[] miniBase;
-
-        GUIStyle sPanel, sPanel2, sBar, sTitle, sSub, sLabel, sLabelR, sSmall, sNum, sNumR, sBtn, sBtnOn, sTool, sToolOn, sTab, sTabOn,
-                 sRow, sHead, sToast, sTip, sChip, sHeading, sMono, sToggle;
-        bool stylesReady;
-
-        public bool TextFieldFocused { get { return GUIUtility.keyboardControl != 0; } }
+        readonly List<System.Action> deferred = new List<System.Action>();
+        void Later(System.Action a) { deferred.Add(a); }
 
         void Awake() { gc = GetComponent<GameController>(); }
 
-        // IMGUI runs several passes per frame; changing what is on screen mid-pass breaks the layout,
-        // so clicks that change selection, tabs or buildings are queued and applied in Update.
-        readonly List<System.Action> deferred = new List<System.Action>();
-        void Later(System.Action a) { deferred.Add(a); }
         void Update()
         {
             if (deferred.Count == 0) return;
@@ -53,202 +43,260 @@ namespace FrontierLedger.Game
             foreach (var a in run) a();
         }
 
-        public void Toast(string msg) { toast = msg; toastUntil = Time.unscaledTime + 2.4f; }
+        public void Toast(string msg) { toast = msg; toastUntil = Time.unscaledTime + 2.6f; }
         public void ResetConfirm() { confirmTearDown = -1; }
+        public void CloseAll() { tab = Tab.None; }
 
-        /// <summary>True when the mouse (Unity screen coords, y up) is over a panel.</summary>
+        /// <summary>True when the mouse (Unity screen coords, y up) is over the interface.</summary>
         public bool Blocks(Vector2 mouse)
         {
-            var p = new Vector2(mouse.x / scale, (Screen.height - mouse.y) / scale);
+            var p = new Vector2(mouse.x / S, (Screen.height - mouse.y) / S);
             foreach (var r in blockers) if (r.Contains(p)) return true;
             return false;
         }
-
-        // ================================================================== styles
-        static Texture2D Solid(Color c)
-        {
-            var t = new Texture2D(1, 1); t.SetPixel(0, 0, c); t.Apply(); t.hideFlags = HideFlags.HideAndDontSave; return t;
-        }
-        static Texture2D Framed(Color fill, Color border, int bw = 1)
-        {
-            var t = new Texture2D(8, 8); t.filterMode = FilterMode.Point; t.hideFlags = HideFlags.HideAndDontSave;
-            for (int y = 0; y < 8; y++) for (int x = 0; x < 8; x++) t.SetPixel(x, y, (x < bw || y < bw || x >= 8 - bw || y >= 8 - bw) ? border : fill);
-            t.Apply(); return t;
-        }
-        GUIStyle Style(GUIStyle baseStyle, int size, Color color, FontStyle fs = FontStyle.Normal, TextAnchor anchor = TextAnchor.MiddleLeft)
-        {
-            var s = new GUIStyle(baseStyle) { fontSize = size, fontStyle = fs, alignment = anchor, richText = true, wordWrap = false };
-            s.normal.textColor = s.hover.textColor = s.active.textColor = s.focused.textColor = color;
-            return s;
-        }
-
-        void BuildStyles()
-        {
-            var skin = GUI.skin;
-            sPanel = new GUIStyle { normal = { background = Framed(Panel, Line) }, border = new RectOffset(2, 2, 2, 2), padding = new RectOffset(10, 10, 8, 8) };
-            sPanel2 = new GUIStyle(sPanel) { normal = { background = Framed(Panel2, Line) } };
-            sBar = new GUIStyle { normal = { background = Framed(Desk, Line) }, border = new RectOffset(2, 2, 2, 2) };
-            sTitle = Style(skin.label, 22, Brass, FontStyle.Bold);
-            sHeading = Style(skin.label, 16, Brass, FontStyle.Bold); sHeading.wordWrap = true;
-            sSub = Style(skin.label, 10, Muted, FontStyle.Bold);
-            sLabel = Style(skin.label, 13, Ink); sLabel.wordWrap = true;
-            sLabelR = Style(skin.label, 13, Ink, FontStyle.Normal, TextAnchor.MiddleRight);
-            sSmall = Style(skin.label, 11, Muted); sSmall.wordWrap = true;
-            sNum = Style(skin.label, 14, Ink, FontStyle.Bold);
-            sNumR = Style(skin.label, 13, Ink, FontStyle.Normal, TextAnchor.MiddleRight);
-            sMono = Style(skin.label, 12, Ink);
-            sBtn = Style(skin.button, 13, Ink, FontStyle.Normal, TextAnchor.MiddleCenter);
-            sBtn.normal.background = Framed(Panel, Line); sBtn.hover.background = Framed(Panel2, Line); sBtn.active.background = Framed(Panel2, Brass);
-            sBtn.border = new RectOffset(2, 2, 2, 2); sBtn.padding = new RectOffset(8, 8, 4, 4);
-            sBtnOn = new GUIStyle(sBtn); sBtnOn.normal.background = sBtnOn.hover.background = Solid(Brass);
-            sBtnOn.normal.textColor = sBtnOn.hover.textColor = Desk;
-            sTool = new GUIStyle(sBtn) { alignment = TextAnchor.MiddleLeft, padding = new RectOffset(26, 8, 5, 5) };
-            sToolOn = new GUIStyle(sTool); sToolOn.normal.background = sToolOn.hover.background = Framed(Panel2, Brass, 2);
-            sTab = Style(skin.button, 12, Muted, FontStyle.Normal, TextAnchor.MiddleCenter);
-            sTab.normal.background = sTab.hover.background = sTab.active.background = Solid(Panel);
-            sTabOn = Style(skin.button, 12, Ink, FontStyle.Bold, TextAnchor.MiddleCenter);
-            sTabOn.normal.background = sTabOn.hover.background = sTabOn.active.background = Framed(Panel2, Brass, 1);
-            sRow = Style(skin.label, 12, Ink); sRow.hover.background = Solid(new Color(Brass.r, Brass.g, Brass.b, 0.12f)); sRow.padding = new RectOffset(2, 2, 2, 2);
-            sHead = Style(skin.label, 10, Muted, FontStyle.Bold);
-            sToast = Style(skin.box, 13, Desk, FontStyle.Bold, TextAnchor.MiddleCenter); sToast.normal.background = Solid(Hex(BadC)); sToast.padding = new RectOffset(12, 12, 6, 6);
-            sTip = Style(skin.box, 12, Ink, FontStyle.Normal, TextAnchor.UpperLeft); sTip.normal.background = Framed(new Color(0.11f, 0.08f, 0.055f, 0.95f), Hex("#8d6a2e"));
-            sTip.border = new RectOffset(2, 2, 2, 2); sTip.padding = new RectOffset(8, 8, 5, 5); sTip.wordWrap = true;
-            sChip = Style(skin.box, 11, Ink, FontStyle.Normal, TextAnchor.MiddleCenter); sChip.normal.background = Framed(Panel, Line); sChip.padding = new RectOffset(7, 7, 2, 2);
-            sToggle = new GUIStyle(skin.toggle) { fontSize = 13 };
-            sToggle.normal.textColor = sToggle.onNormal.textColor = sToggle.hover.textColor = sToggle.onHover.textColor = Ink;
-            stylesReady = true;
-        }
-
-        static string Col(string text, string hex) { return "<color=" + hex + ">" + text + "</color>"; }
-        static string Money(float v) { return Town.Money(v); }
-        static string MoodColor(float h) { return h < 35 ? BadC : h < 55 ? WarnC : GoodC; }
-        static string FedLabel(Citizen p) { return p.Fed >= 0.95f ? Col("Fed", GoodC) : p.Fed >= 0.7f ? Col("Peckish", WarnC) : Col("Hungry", BadC); }
+        Rect Block(Rect r) { building.Add(r); return r; }
 
         // ================================================================== main
         void OnGUI()
         {
             if (gc == null || gc.Town == null) return;
-            if (!stylesReady) BuildStyles();
-            scale = Mathf.Clamp(Screen.height / 900f, 1f, 3f);
-            GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(scale, scale, 1));
-            float W = Screen.width / scale, H = Screen.height / scale;
-            if (Event.current.type == EventType.Layout) blockers.Clear();
+            S = Mathf.Max(1, Mathf.RoundToInt(Screen.height / 560f));
+            GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(S, S, 1));
+            W = Screen.width / (float)S; H = Screen.height / (float)S;
+            if (Event.current.type == EventType.Layout) building.Clear();
+            hoverTip = null;
 
-            float rightW = Mathf.Min(372, W * 0.34f);
-            var top = new Rect(0, 0, W, 54);
-            var palette = new Rect(8, 62, 182, 12 + Defs.Buildable.Length * 30 + 66);
-            var mini = new Rect(8, H - 8 - 150, 196, 150);
-            var right = new Rect(W - rightW - 8, 62, rightW, H - 70);
-            AddBlocker(top); AddBlocker(palette); AddBlocker(mini); AddBlocker(right);
-
-            DrawTopBar(top);
-            DrawPalette(palette);
-            DrawMinimap(mini);
-            DrawRight(right);
-            DrawHint(new Rect(palette.xMax + 12, H - 28, right.xMin - palette.xMax - 24, 22));
-            DrawTooltip();
+            DateBox();
+            StoresBar();
+            MoneyAndTabs();
+            Hotbar();
+            Minimap();
+            Messages();
+            if (tab != Tab.None) BookPanel();
+            if (gc.Selected.Kind != SelectionKind.None) Inspector();
+            MapTooltip();
+            if (hoverTip != null) UiTip(hoverTip);
             if (toast != null && Time.unscaledTime < toastUntil)
             {
-                var size = sToast.CalcSize(new GUIContent(toast));
-                GUI.Label(new Rect((W - size.x) / 2, 64, size.x, size.y + 4), toast, sToast);
+                float w = PixelFont.Width(toast) + 16;
+                var r = new Rect(Mathf.Round((W - w) / 2), 44, w, 17);
+                Ui.Tip(r); Ui.Text(r.x + 8, r.y + 5, toast, Ui.Bad);
             }
+            if (Event.current.type == EventType.Repaint) { blockers = new List<Rect>(building); }
         }
 
-        void AddBlocker(Rect r) { if (Event.current.type == EventType.Layout) blockers.Add(r); }
-
-        // ---------------------------------------------------------------- top bar
-        void DrawTopBar(Rect r)
+        void UiTip(string s)
         {
-            GUI.Box(r, GUIContent.none, sBar);
-            GUI.Label(new Rect(14, 6, 220, 26), "Frontier Ledger", sTitle);
-            GUI.Label(new Rect(15, 32, 220, 14), "CEDAR FORK SETTLEMENT", sSub);
-            float x = 236;
-            var mayor = T.Mayor;
-            float mood = T.AverageHappiness, price = T.AverageFoodPrice;
-            bool shortFood = T.Market.Shortfall > 0.5f;
-            int employed = T.People.Count(p => p.Role != Role.Unemployed);
-            Stat(ref x, "DATE", T.DateLabel, 180);
-            Stat(ref x, "TREASURY", T.Treasury < 0 ? Col(Money(T.Treasury), BadC) : Money(T.Treasury), 96);
-            Stat(ref x, "SETTLERS", T.People.Count + " · " + T.FreeBeds + " beds free", 118);
-            Stat(ref x, "EMPLOYED", employed + " / " + T.People.Count, 74);
-            Stat(ref x, "FOOD PRICE", price > 0 ? (shortFood ? Col(Money(price) + " · short", WarnC) : Money(price)) : Col("No shop", WarnC), 96);
-            Stat(ref x, "MOOD", Col(Mathf.RoundToInt(mood) + "%", MoodColor(mood)), 54);
-            Stat(ref x, "MAYOR", mayor != null ? mayor.Name : T.Estate != null ? (T.Campaign.Active ? "Campaigning" : "Vacant") : "No estate", 150);
+            var m = Event.current.mousePosition;
+            float w = Mathf.Min(180, PixelFont.Width(s) + 12);
+            float h = Ui.WrappedHeight(s, w - 12) + 8;
+            var r = new Rect(Mathf.Min(m.x + 10, W - w - 4), Mathf.Min(m.y + 12, H - h - 4), w, h);
+            Ui.Tip(r); Ui.Wrapped(new Rect(r.x + 6, r.y + 5, w - 12, h), s, Ui.Ink);
+        }
 
-            float bx = r.width - 8 - 4 * 44;
+        // ---------------------------------------------------------------- date and speed
+        void DateBox()
+        {
+            var r = Block(new Rect(4, 4, 150, 52));
+            Ui.Panel(r);
+            int si = T.Season;
+            Ui.IconAt(r.x + 9, r.y + 8, si == 3 ? Icon.Snow : si == 2 ? Icon.Leaf : Icon.Sun);
+            Ui.Text(r.x + 22, r.y + 9, T.DateLabel, Ui.Title);
+            // day bar: dawn to night
+            var bar = new Rect(r.x + 9, r.y + 21, 132, 5);
+            Ui.Fill(bar, Ui.Hex("#3b2618"));
+            int segs = 24;
+            for (int i = 0; i < segs; i++)
+            {
+                float t = (i + 0.5f) / segs;
+                float n = t < 0.15f ? 1 - t / 0.15f : t > 0.82f ? Mathf.Min(1, (t - 0.82f) / 0.12f) : 0;
+                Ui.Fill(new Rect(bar.x + 1 + i * (bar.width - 2) / segs, bar.y + 1, (bar.width - 2) / segs + 0.5f, 3), Color.Lerp(Ui.Hex("#9ad0f0"), Ui.Hex("#2a3a6a"), n));
+            }
+            Ui.Fill(new Rect(bar.x + 1 + T.TimeOfDay * (bar.width - 3), bar.y - 1, 2, 7), Ui.Gold);
             int[] speeds = { 0, 1, 2, 4 };
-            string[] labels = { "II", "1×", "2×", "4×" };
+            string[] labels = { "", "1x", "2x", "4x" };
             for (int i = 0; i < 4; i++)
             {
-                if (GUI.Button(new Rect(bx + i * 44, 13, 40, 28), labels[i], gc.Speed == speeds[i] ? sBtnOn : sBtn)) gc.SetSpeed(speeds[i]);
+                var b = new Rect(r.x + 8 + i * 34, r.y + 31, 32, 15);
+                bool on = gc.Speed == speeds[i];
+                if (i == 0 ? Ui.Button(b, "", on, true, Icon.Pause) : Ui.Button(b, labels[i], on)) gc.SetSpeed(speeds[i]);
+                if (Ui.Hover(b)) hoverTip = i == 0 ? "Pause (Space)" : "Speed " + labels[i] + " (" + (i == 3 ? 3 : i) + ")";
             }
         }
 
-        void Stat(ref float x, string label, string value, float w)
+        // ---------------------------------------------------------------- stores bar
+        void StoresBar()
         {
-            GUI.Label(new Rect(x, 8, w, 14), label, sSub);
-            GUI.Label(new Rect(x, 22, w + 20, 22), value, sNum);
-            x += w + 14;
-        }
-
-        // ---------------------------------------------------------------- palette
-        void DrawPalette(Rect r)
-        {
-            GUI.Box(r, GUIContent.none, sPanel);
-            float y = r.y + 8;
-            GUI.Label(new Rect(r.x + 10, y, 120, 16), "BUILD", sSub); y += 18;
-            if (ToolButton(new Rect(r.x + 8, y, r.width - 16, 26), "Inspect", "Q", "#d3a24a", gc.Tool == ToolKind.Inspect, true)) gc.SetTool(ToolKind.Inspect);
-            y += 30;
-            for (int i = 0; i < Defs.Buildable.Length; i++)
+            float food = T.TotalFood(), wood = T.TotalFirewood();
+            int people = T.People.Count, kids = T.People.Count(p => p.IsChild), homeless = T.Homeless;
+            var items = new List<KeyValuePair<Icon, string>>
             {
-                var t = Defs.Buildable[i]; var d = Defs.Get(t);
-                bool on = gc.Tool == ToolKind.Build && gc.BuildType == t;
-                bool can = T.Treasury >= d.Cost && !(d.Unique && T.OfType(t).Any());
-                string name = t == BuildingType.House ? "House" : d.Name;
-                if (ToolButton(new Rect(r.x + 8, y, r.width - 16, 26), name, "$" + d.Cost, d.Color, on, can)) gc.SetTool(ToolKind.Build, t);
-                y += 30;
+                new KeyValuePair<Icon, string>(Icon.Food, Mathf.FloorToInt(food).ToString()),
+                new KeyValuePair<Icon, string>(Icon.Firewood, Mathf.FloorToInt(wood).ToString()),
+                new KeyValuePair<Icon, string>(Icon.Logs, Mathf.FloorToInt(T.TownStock(Good.Logs)).ToString()),
+                new KeyValuePair<Icon, string>(Icon.Stone, Mathf.FloorToInt(T.TownStock(Good.Stone)).ToString()),
+                new KeyValuePair<Icon, string>(Icon.Tools, Mathf.FloorToInt(T.TownStock(Good.Tools)).ToString()),
+                new KeyValuePair<Icon, string>(Icon.People, (people - kids) + "+" + kids),
+                new KeyValuePair<Icon, string>(Icon.Heart, Mathf.RoundToInt(T.AverageHappiness) + "%"),
+                new KeyValuePair<Icon, string>(Icon.Health, Mathf.RoundToInt(T.AverageHealth) + "%"),
+            };
+            if (homeless > 0) items.Add(new KeyValuePair<Icon, string>(Icon.Warning, homeless + " no roof"));
+            float w = 12; foreach (var kv in items) w += 14 + PixelFont.Width(kv.Value) + 10;
+            var r = Block(new Rect(Mathf.Round((W - w) / 2), 4, w, 24));
+            Ui.Panel(r);
+            float x = r.x + 8;
+            string[] tips =
+            {
+                "Food in town: shops, barns, pantries and stores. Each settler eats about 1 a day.",
+                "Firewood in town. Homes burn more as it gets colder; winter takes the most.",
+                "Logs in town stores, used for building.",
+                "Stone in town stores, used for building.",
+                "Tools in town stores. Workers without tools get 40% less done.",
+                "Adults + children",
+                "Average happiness",
+                "Average health. Hunger and cold wear it down.",
+                "Settlers without a roof. Build cottages.",
+            };
+            for (int i = 0; i < items.Count; i++)
+            {
+                var kv = items[i];
+                var cell = new Rect(x - 2, r.y + 4, 14 + PixelFont.Width(kv.Value) + 6, 16);
+                Ui.IconAt(x, r.y + 7, kv.Key);
+                Color c = Ui.Ink;
+                if (i == 0 && food < people * 6) c = Ui.Bad;
+                if (i == 1 && T.Season >= 2 && wood < T.OfType(BuildingType.House).Count(h => h.Residents.Count > 0) * 6) c = Ui.Bad;
+                if (i == 6) c = Ui.Mood(T.AverageHappiness);
+                if (i == 7) c = Ui.Mood(T.AverageHealth);
+                if (i == 8) c = Ui.Bad;
+                Ui.Text(x + 12, r.y + 9, kv.Value, c);
+                if (Ui.Hover(cell)) hoverTip = tips[Mathf.Min(i, tips.Length - 1)];
+                x += 14 + PixelFont.Width(kv.Value) + 10;
             }
-            if (ToolButton(new Rect(r.x + 8, y, r.width - 16, 26), "Clear & demolish", "X", "#de6f55", gc.Tool == ToolKind.Clear, true)) gc.SetTool(ToolKind.Clear);
         }
 
-        bool ToolButton(Rect r, string name, string right, string swatch, bool on, bool enabled)
+        // ---------------------------------------------------------------- treasury and book tabs
+        void MoneyAndTabs()
         {
-            bool prev = GUI.enabled; GUI.enabled = enabled;
-            bool clicked = GUI.Button(r, name, on ? sToolOn : sTool);
-            GUI.enabled = prev;
-            var old = GUI.color;
-            GUI.color = enabled ? Hex(swatch) : new Color(0.5f, 0.45f, 0.4f, 0.6f);
-            GUI.DrawTexture(new Rect(r.x + 9, r.y + 8, 10, 10), Texture2D.whiteTexture);
-            GUI.color = old;
-            GUI.Label(new Rect(r.xMax - 60, r.y, 54, r.height), Col(right, MutedC), sLabelR);
-            return clicked;
+            var r = Block(new Rect(W - 134, 4, 130, 24));
+            Ui.Panel(r);
+            Ui.IconAt(r.x + 8, r.y + 7, Icon.Coin);
+            Ui.Text(r.x + 21, r.y + 9, "Treasury", Ui.InkSoft);
+            Ui.Text(r.xMax - 8, r.y + 9, Town.Money(T.Treasury), T.Treasury < 0 ? Ui.Bad : Ui.Title, Ui.Align.Right);
+            Icon[] icons = { Icon.Book, Icon.People, Icon.Scales, Icon.Ballot, Icon.News };
+            string[] names = { "Ledger: taxes, wages, the town books", "Citizens", "Trade: food, firewood and businesses", "Election and mayor", "Gazette: what's been happening" };
+            for (int i = 0; i < 5; i++)
+            {
+                var b = Block(new Rect(W - 134 + i * 26, 30, 24, 18));
+                var t = (Tab)(i + 1);
+                if (Ui.Button(b, "", tab == t, true, icons[i])) { Later(() => { tab = tab == t ? Tab.None : t; panelScroll = Vector2.zero; }); }
+                if (Ui.Hover(b)) hoverTip = names[i];
+            }
+        }
+
+        // ---------------------------------------------------------------- hotbar
+        void Hotbar()
+        {
+            var cats = Defs.PaletteOrder;
+            float slotW = 30;
+            var defs = Defs.InCategory(cat).ToList();
+            int nSlots = 2 + 8;
+            float barW = nSlots * (slotW + 2) + 14;
+            var bar = Block(new Rect(Mathf.Round((W - barW) / 2), H - 44, barW, 40));
+            // category tabs above
+            float tabW = 48, tabsW = cats.Length * (tabW + 2);
+            var tabsR = Block(new Rect(Mathf.Round((W - tabsW) / 2), bar.y - 16, tabsW, 16));
+            for (int i = 0; i < cats.Length; i++)
+            {
+                var c = cats[i];
+                var tr = new Rect(tabsR.x + i * (tabW + 2), tabsR.y, tabW, 16);
+                if (Ui.Button(tr, Defs.CategoryNames[(int)c], cat == c)) { Later(() => cat = c); }
+            }
+            Ui.Panel(bar);
+            float x = bar.x + 7, y = bar.y + 5;
+            // tools
+            if (Slot(new Rect(x, y, slotW, slotW), null, Icon.Pointer, gc.Tool == ToolKind.Inspect, "Inspect (Q)\nClick a building or settler to see how they're doing.")) gc.SetTool(ToolKind.Inspect);
+            x += slotW + 2;
+            if (Slot(new Rect(x, y, slotW, slotW), null, Icon.Axe, gc.Tool == ToolKind.Clear, "Clear land (X)\nFell trees (+2 logs), break boulders (+3 stone), pull stumps. Small fee.")) gc.SetTool(ToolKind.Clear);
+            x += slotW + 6;
+            foreach (var d in defs.Take(8))
+            {
+                var r = new Rect(x, y, slotW, slotW);
+                bool on = gc.Tool == ToolKind.Build && gc.BuildType == d.Type;
+                bool can = !(d.Unique && T.Buildings.Any(b => b.Type == d.Type));
+                Texture tex = d.Type == BuildingType.Road ? null : BuildingArt.Get(d.Type, 0, T.Season).TopTexture;
+                if (Slot(r, tex, d.Type == BuildingType.Road ? Icon.Hammer : (Icon?)null, on, null, can) && can) gc.SetTool(ToolKind.Build, d.Type);
+                if (Ui.Hover(r)) BuildTip(d, new Vector2(r.x, bar.y - 20));
+                x += slotW + 2;
+            }
+        }
+
+        bool Slot(Rect r, Texture tex, Icon? icon, bool on, string tip, bool enabled = true)
+        {
+            Ui.SlotBox(r, on);
+            if (tex != null)
+            {
+                float aspect = tex.width / (float)tex.height;
+                float h = r.height - 6, w = h * aspect;
+                if (w > r.width - 6) { w = r.width - 6; h = w / aspect; }
+                var c = GUI.color; if (!enabled) GUI.color = new Color(1, 1, 1, 0.4f);
+                Ui.Texture(new Rect(r.x + (r.width - w) / 2, r.y + (r.height - h) / 2, w, h), tex);
+                GUI.color = c;
+            }
+            else if (icon.HasValue) Ui.IconAt(Mathf.Round(r.x + (r.width - 9) / 2), Mathf.Round(r.y + (r.height - 9) / 2), icon.Value, enabled ? 1 : 0.4f);
+            if (tip != null && Ui.Hover(r)) hoverTip = tip;
+            return Ui.Clickable(r);
+        }
+
+        void BuildTip(BuildingDef d, Vector2 anchor)
+        {
+            if (Event.current.type != EventType.Repaint) return;
+            float w = 190;
+            string blurb = d.Blurb ?? "";
+            float h = 30 + Ui.WrappedHeight(blurb, w - 14) + (d.IsBusiness ? 11 : 0);
+            var r = new Rect(Mathf.Clamp(anchor.x - 60, 4, W - w - 4), anchor.y - h, w, h);
+            Ui.Tip(r);
+            Ui.Text(r.x + 7, r.y + 6, d.Name, Ui.Title);
+            float x = r.x + 7, y = r.y + 17;
+            if (d.Type == BuildingType.Road) { Ui.Text(x, y, "$" + d.Money + " a tile, built at once", Ui.InkSoft); }
+            else
+            {
+                if (d.Logs > 0) { Ui.IconAt(x, y - 1, Icon.Logs); x += 11; x += Ui.Text(x, y, d.Logs.ToString(), T.TownStock(Good.Logs) >= d.Logs ? Ui.Ink : Ui.Bad) + 6; }
+                if (d.Stone > 0) { Ui.IconAt(x, y - 1, Icon.Stone); x += 11; x += Ui.Text(x, y, d.Stone.ToString(), T.TownStock(Good.Stone) >= d.Stone ? Ui.Ink : Ui.Bad) + 6; }
+                Ui.IconAt(x, y - 1, Icon.Hammer); x += 11; Ui.Text(x, y, d.Work + " builder-days", Ui.InkSoft);
+            }
+            float by = r.y + 28;
+            if (d.IsBusiness) { Ui.Text(r.x + 7, by, "Up to " + d.MaxEmployees + " workers · wage " + Town.Money(d.BaseWage), Ui.InkSoft); by += 11; }
+            Ui.Wrapped(new Rect(r.x + 7, by, w - 14, 200), blurb, Ui.Ink);
         }
 
         // ---------------------------------------------------------------- minimap
         void RebuildMinimap()
         {
             int w = Town.Cols * 2, h = Town.Rows * 2, si = T.Season;
-            if (minimap == null) { minimap = new Texture2D(w, h, TextureFormat.RGBA32, false) { filterMode = FilterMode.Point, hideFlags = HideFlags.HideAndDontSave }; }
+            if (minimap == null) minimap = new Texture2D(w, h, TextureFormat.RGBA32, false) { filterMode = FilterMode.Point, hideFlags = HideFlags.HideAndDontSave };
             if (miniBase == null) miniBase = new Color32[w * h];
-            var tileCol = new Color32[5];
+            var tileCol = new Color32[7];
             tileCol[0] = PixelCanvas.C(GroundPainter.GrassBase(si));
-            tileCol[1] = PixelCanvas.C(si == 3 ? "#bcd8e6" : "#3d7896");
-            tileCol[2] = PixelCanvas.C(si == 3 ? "#6f8a78" : "#2f5d3a");
-            tileCol[3] = PixelCanvas.C("#8d877d");
-            tileCol[4] = PixelCanvas.C(si == 3 ? "#d8e2e8" : "#a0915f");
+            tileCol[1] = PixelCanvas.C(si == 3 ? "#bcd8e6" : "#3b7cc0");
+            tileCol[2] = PixelCanvas.C(si == 3 ? "#6f8a78" : si == 2 ? "#c47a24" : "#3d7a2a");
+            tileCol[3] = PixelCanvas.C("#a39c90");
+            tileCol[4] = PixelCanvas.C(si == 3 ? "#d8e2e8" : GroundPainter.HillColors[si][0]);
+            tileCol[5] = tileCol[0]; tileCol[6] = tileCol[0];
             for (int ty = 0; ty < Town.Rows; ty++)
                 for (int tx = 0; tx < Town.Cols; tx++)
                 {
                     var b = T.OccupantAt(tx, ty);
-                    var c = b != null ? PixelCanvas.C(b.Type == BuildingType.Road ? "#c49c69" : b.Def.Color) : tileCol[Mathf.Min(4, (int)T.TerrainAt(tx, ty))];
+                    byte t = T.TerrainAt(tx, ty);
+                    var c = b != null ? PixelCanvas.C(b.Type == BuildingType.Road ? "#c49c69" : b.Def.Color) : tileCol[Mathf.Min(6, (int)t)];
                     for (int dy = 0; dy < 2; dy++) for (int dx = 0; dx < 2; dx++) miniBase[(h - 1 - (ty * 2 + dy)) * w + tx * 2 + dx] = c;
                 }
             miniVersion = T.MapVersion; miniSeason = si;
         }
 
-        void DrawMinimap(Rect r)
+        void Minimap()
         {
-            GUI.Box(r, GUIContent.none, sPanel);
+            var r = Block(new Rect(4, H - 4 - 104, 144, 104));
+            Ui.Panel(r);
             if (minimap == null || miniVersion != T.MapVersion || miniSeason != T.Season) RebuildMinimap();
             miniTimer -= Time.unscaledDeltaTime;
             if (miniTimer <= 0 && Event.current.type == EventType.Repaint)
@@ -265,486 +313,545 @@ namespace FrontierLedger.Game
                 }
                 minimap.SetPixels32(px); minimap.Apply(false);
             }
-            var inner = new Rect(r.x + 6, r.y + 6, r.width - 12, r.height - 12);
+            var inner = new Rect(r.x + 8, r.y + 8, 128, 88);
+            if (Ui.Repaint) GUI.DrawTexture(inner, minimap, ScaleMode.StretchToFill);
             float sx = inner.width / (Town.Cols * 16f), sy = inner.height / (Town.Rows * 16f);
-            GUI.DrawTexture(inner, minimap, ScaleMode.StretchToFill);
             var o = gc.Rig.ViewOrigin; var v = gc.Rig.ViewSize;
             var vr = Rect.MinMaxRect(Mathf.Max(inner.x, inner.x + o.x * sx), Mathf.Max(inner.y, inner.y + o.y * sy),
                                      Mathf.Min(inner.xMax, inner.x + (o.x + v.x) * sx), Mathf.Min(inner.yMax, inner.y + (o.y + v.y) * sy));
-            Outline(vr, Hex("#ffd77a"));
+            Ui.Fill(new Rect(vr.x, vr.y, vr.width, 1), Ui.Gold); Ui.Fill(new Rect(vr.x, vr.yMax - 1, vr.width, 1), Ui.Gold);
+            Ui.Fill(new Rect(vr.x, vr.y, 1, vr.height), Ui.Gold); Ui.Fill(new Rect(vr.xMax - 1, vr.y, 1, vr.height), Ui.Gold);
             var e = Event.current;
             if ((e.type == EventType.MouseDown || e.type == EventType.MouseDrag) && e.button == 0 && inner.Contains(e.mousePosition))
             {
-                gc.Rig.CenterOn(new Vector2((e.mousePosition.x - inner.x) / sx, (e.mousePosition.y - inner.y) / sy));
+                gc.CenterOn(new Vector2((e.mousePosition.x - inner.x) / sx, (e.mousePosition.y - inner.y) / sy));
                 e.Use();
             }
         }
 
-        static void Outline(Rect r, Color c)
+        // ---------------------------------------------------------------- message feed
+        void Messages()
         {
-            var old = GUI.color; GUI.color = c;
-            GUI.DrawTexture(new Rect(r.x, r.y, r.width, 1), Texture2D.whiteTexture);
-            GUI.DrawTexture(new Rect(r.x, r.yMax - 1, r.width, 1), Texture2D.whiteTexture);
-            GUI.DrawTexture(new Rect(r.x, r.y, 1, r.height), Texture2D.whiteTexture);
-            GUI.DrawTexture(new Rect(r.xMax - 1, r.y, 1, r.height), Texture2D.whiteTexture);
-            GUI.color = old;
+            float y = H - 112;
+            int shown = 0;
+            foreach (var l in T.Log)
+            {
+                if (T.Day - l.Day > 2 || shown >= 4) break;
+                if (l.Kind == LogKind.Info) continue;
+                Color c = l.Kind == LogKind.Death || l.Kind == LogKind.Bad ? Ui.Bad : l.Kind == LogKind.Birth || l.Kind == LogKind.Good ? Ui.Good : l.Kind == LogKind.Vote ? Ui.Hex("#8a5a10") : Ui.Ink;
+                var lines = PixelFont.Wrap(l.Message, 230);
+                float h = lines.Count * PixelFont.LineH + 6;
+                y -= h + 2;
+                var r = new Rect(4, y, 240, h);
+                var bg = Ui.Parch; bg.a = 0.88f;
+                Ui.Fill(r, Ui.Hex("#3b2618")); Ui.Fill(new Rect(r.x + 1, r.y + 1, r.width - 2, r.height - 2), bg);
+                float ly = r.y + 4;
+                foreach (var line in lines) { Ui.Text(r.x + 5, ly, line, c); ly += PixelFont.LineH; }
+                shown++;
+            }
         }
 
-        // ---------------------------------------------------------------- hint & tooltip
-        void DrawHint(Rect r)
+        // ================================================================== the ledger book
+        float bx, by, bw;   // content cursor
+        void Row(string k, string v, Color? vc = null)
         {
-            string hint;
-            if (gc.Tool == ToolKind.Inspect) hint = "Drag to pan · scroll to zoom · click a building or settler · Space pauses · H recenters";
-            else if (gc.Tool == ToolKind.Clear) hint = "Click or drag over trees, rocks and buildings. Right-drag pans. Esc to stop.";
-            else if (gc.BuildType == BuildingType.Road) hint = "Click and drag to lay road. Roads can bridge water. Right-drag pans.";
-            else hint = "Placing " + Defs.Get(gc.BuildType).Name + ". Trees and rocks are cleared for a fee. Esc to stop.";
-            var old = GUI.color; GUI.color = new Color(0, 0, 0, 0.45f);
-            GUI.DrawTexture(r, Texture2D.whiteTexture); GUI.color = old;
-            GUI.Label(new Rect(r.x + 8, r.y, r.width - 16, r.height), hint, sSmall);
+            Ui.Text(bx, by, k, Ui.InkSoft);
+            Ui.Text(bx + bw, by, v, vc ?? Ui.Ink, Ui.Align.Right);
+            by += 11;
+        }
+        void Heading(string s) { by += 4; Ui.Text(bx, by, s.ToUpper(), Ui.Title); by += 10; Ui.Line(bx, by - 2, bw, Ui.Hex("#c8a070")); by += 2; }
+        void Para(string s, Color? c = null) { by += Ui.Wrapped(new Rect(bx, by, bw, 400), s, c ?? Ui.InkSoft) + 2; }
+
+        void BookPanel()
+        {
+            float pw = 262;
+            var r = Block(new Rect(W - pw - 4, 52, pw, H - 52 - 64));
+            Ui.Panel(r);
+            string[] titles = { "", "Town Ledger", "Citizens", "Trade & Stores", "Election", "The Gazette" };
+            Ui.Text(r.x + 10, r.y + 9, titles[(int)tab], Ui.Title);
+            if (Ui.Button(new Rect(r.xMax - 22, r.y + 6, 15, 14), "", false, true, Icon.Close)) Later(() => tab = Tab.None);
+            var view = new Rect(r.x + 8, r.y + 22, r.width - 16, r.height - 30);
+            Ui.Fill(new Rect(view.x, view.y - 1, view.width, 1), Ui.Hex("#c8a070"));
+            panelScroll = GUI.BeginScrollView(view, panelScroll, new Rect(0, 0, view.width - 6, Mathf.Max(view.height, panelContentH)), false, false, GUIStyle.none, GUIStyle.none);
+            bx = 2; by = 4; bw = view.width - 12;
+            switch (tab)
+            {
+                case Tab.Ledger: LedgerTab(); break;
+                case Tab.Citizens: CitizensTab(); break;
+                case Tab.Trade: TradeTab(); break;
+                case Tab.Election: ElectionTab(); break;
+                case Tab.Gazette: GazetteTab(); break;
+            }
+            panelContentH = by + 6;
+            GUI.EndScrollView();
+            ScrollIndicator(view, panelScroll.y, panelContentH);
         }
 
-        void DrawTooltip()
+        void ScrollIndicator(Rect view, float scroll, float contentH)
+        {
+            if (contentH <= view.height) return;
+            float frac = view.height / contentH, pos = scroll / (contentH - view.height);
+            float h = Mathf.Max(10, view.height * frac);
+            Ui.Fill(new Rect(view.xMax - 3, view.y + (view.height - h) * pos, 3, h), Ui.Hex("#b8844a"));
+        }
+
+        float SliderRow(string label, string value, float v, float min, float max, float step, string help)
+        {
+            Ui.Text(bx, by, label, Ui.Ink);
+            Ui.Text(bx + bw, by, value, Ui.Hex("#8a5a10"), Ui.Align.Right);
+            by += 10;
+            float nv = Ui.Slider(new Rect(bx, by, bw, 9), v, min, max, step);
+            by += 11;
+            if (help != null) Para(help);
+            by += 2;
+            return nv;
+        }
+
+        void LedgerTab()
+        {
+            Row("Treasury", Town.Money(T.Treasury), T.Treasury < 0 ? Ui.Bad : Ui.Title);
+            Sparkline(new Rect(bx, by, bw, 26)); by += 30;
+            var P = T.Policy;
+            Heading("Taxes");
+            P.IncomeTax = SliderRow("Income tax", Mathf.RoundToInt(P.IncomeTax * 100) + "%", P.IncomeTax * 100, 0, 40, 1, "Taken from every wage. Over 12% people grumble.") / 100f;
+            P.HeadTax = SliderRow("Head tax (weekly)", Town.Money(P.HeadTax), P.HeadTax, 0, 3, 0.25f, "Every adult pays on Sunday. Over $1 hurts morale.");
+            P.BusinessTax = SliderRow("Business tax", Mathf.RoundToInt(P.BusinessTax * 100) + "%", P.BusinessTax * 100, 0, 50, 1, "Share of each business's weekly profit.") / 100f;
+            Heading("Wages & town payroll");
+            float mw = SliderRow("Minimum wage", Town.Money(P.MinWage), P.MinWage, 1, 5, 0.25f, null);
+            if (!Mathf.Approximately(mw, P.MinWage)) T.SetMinWage(mw);
+            P.Builders = Mathf.RoundToInt(SliderRow("Builders on the crew", P.Builders.ToString(), P.Builders, 0, 8, 1, "Paid by the treasury. They raise everything you place."));
+            P.BuilderWage = SliderRow("Builder wage", Town.Money(P.BuilderWage), P.BuilderWage, 1, 5, 0.25f, null);
+            P.ReliefWage = SliderRow("Laborer relief", Town.Money(P.ReliefWage), P.ReliefWage, 0, 2, 0.1f, "Daily pay for adults without a job. They haul for the builders.");
+            P.Deputies = Mathf.RoundToInt(SliderRow("Deputies", P.Deputies.ToString(), P.Deputies, 0, 3, 1, "Sheriff $4/day, deputies $3, from the treasury."));
+            Heading("Stores");
+            P.Charity = Ui.Toggle(new Rect(bx, by, bw, 11), P.Charity, "Storehouse feeds those who can't pay"); by += 13;
+            P.StorehouseSells = Ui.Toggle(new Rect(bx, by, bw, 11), P.StorehouseSells, "Storehouse sells when shops run out"); by += 13;
+            P.Reserve[0] = SliderRow("Keep food in store", Mathf.RoundToInt(P.Reserve[0]).ToString(), P.Reserve[0], 0, 400, 10, "The town buys food for the winter up to this much.");
+            P.Reserve[1] = SliderRow("Keep firewood", Mathf.RoundToInt(P.Reserve[1]).ToString(), P.Reserve[1], 0, 200, 10, null);
+            P.Reserve[2] = SliderRow("Keep logs", Mathf.RoundToInt(P.Reserve[2]).ToString(), P.Reserve[2], 0, 150, 5, null);
+            P.Reserve[3] = SliderRow("Keep stone", Mathf.RoundToInt(P.Reserve[3]).ToString(), P.Reserve[3], 0, 150, 5, null);
+            Heading("Mayor");
+            bool on = Ui.Toggle(new Rect(bx, by, bw, 11), P.ElectionsOn, "Elect a mayor every 4 weeks"); by += 13;
+            if (on != P.ElectionsOn) T.SetElections(on);
+
+            Heading("Town books");
+            var C = T.LedgerThisWeek; var L = T.HasLastWeek ? T.LedgerLastWeek : null;
+            Ui.Text(bx + bw - 54, by, "THIS WK", Ui.InkSoft, Ui.Align.Right); Ui.Text(bx + bw, by, "LAST WK", Ui.InkSoft, Ui.Align.Right); by += 11;
+            Book("Income tax", C.IncomeTax, L != null ? L.IncomeTax : (float?)null, 1);
+            Book("Head tax", C.HeadTax, L != null ? L.HeadTax : (float?)null, 1);
+            Book("Business tax", C.BusinessTax, L != null ? L.BusinessTax : (float?)null, 1);
+            Book("Storehouse sales", C.StoreSales, L != null ? L.StoreSales : (float?)null, 1);
+            Book("Deeds & claims", C.Deeds + C.Claims, L != null ? L.Deeds + L.Claims : (float?)null, 1);
+            Book("Builders", C.Builders, L != null ? L.Builders : (float?)null, -1);
+            Book("Relief", C.Relief, L != null ? L.Relief : (float?)null, -1);
+            Book("Salaries", C.Salaries, L != null ? L.Salaries : (float?)null, -1);
+            Book("Materials & food", C.Materials, L != null ? L.Materials : (float?)null, -1);
+            Book("Clearing, roads", C.Construction, L != null ? L.Construction : (float?)null, -1);
+            Book("Grants & upkeep", C.Grants + C.Upkeep, L != null ? L.Grants + L.Upkeep : (float?)null, -1);
+            Ui.Line(bx, by, bw, Ui.Hex("#c8a070")); by += 2;
+            Book("Net", C.Net, L != null ? L.Net : (float?)null, 0);
+            if (C.CharityGoods > 0.5f) Para("Handed out free this week: goods worth " + Town.Money(C.CharityGoods) + ".");
+            by += 8;
+            bool armed = Time.unscaledTime < confirmNewUntil;
+            if (Ui.Button(new Rect(bx, by, 120, 15), armed ? "Click to confirm" : "Start a new town")) { if (armed) { Later(gc.NewTown); confirmNewUntil = 0; } else confirmNewUntil = Time.unscaledTime + 3; }
+            Ui.Text(bx + bw, by + 4, "Saves every Monday", Ui.InkSoft, Ui.Align.Right);
+            by += 18;
+        }
+
+        void Book(string name, float cur, float? last, int sign)
+        {
+            Color c = sign == 0 ? (cur < 0 ? Ui.Bad : Ui.Good) : sign < 0 ? Ui.InkSoft : Ui.Ink;
+            Ui.Text(bx, by, name, sign == 0 ? Ui.Title : Ui.Ink);
+            Ui.Text(bx + bw - 54, by, (sign < 0 && cur > 0 ? "-" : "") + Town.Money(cur), c, Ui.Align.Right);
+            Color lc = sign == 0 && last.HasValue ? (last.Value < 0 ? Ui.Bad : Ui.Good) : c;
+            Ui.Text(bx + bw, by, last.HasValue ? (sign < 0 && last.Value > 0 ? "-" : "") + Town.Money(last.Value) : "-", lc, Ui.Align.Right);
+            by += 11;
+        }
+
+        void Sparkline(Rect r)
+        {
+            Ui.Inset(r);
+            var hist = T.History;
+            if (hist.Count < 2) return;
+            float mn = Mathf.Min(0, hist.Min(p => p.Treasury)), mx = Mathf.Max(1, hist.Max(p => p.Treasury) * 1.05f);
+            float step = (r.width - 4) / (hist.Count - 1);
+            for (int i = 0; i < hist.Count; i++)
+            {
+                float y = r.yMax - 2 - (hist[i].Treasury - mn) / (mx - mn) * (r.height - 4);
+                var col = Ui.Hex("#d8a040"); col.a = 0.35f;
+                Ui.Fill(new Rect(r.x + 2 + i * step, y, Mathf.Max(1, step), r.yMax - 2 - y), col);
+                Ui.Fill(new Rect(r.x + 2 + i * step, y, Mathf.Max(1, step), 1), Ui.Hex("#8a5a10"));
+            }
+        }
+
+        static readonly Role[] RoleOrder = { Role.Mayor, Role.Owner, Role.Worker, Role.Builder, Role.Sheriff, Role.Deputy, Role.Laborer, Role.Child };
+
+        void CitizensTab()
+        {
+            int adults = T.Adults.Count(), kids = T.People.Count - adults;
+            Row("Adults · children", adults + " · " + kids);
+            Row("Births · deaths", T.Births + " · " + T.Deaths);
+            Row("Without a roof", T.Homeless.ToString(), T.Homeless > 0 ? Ui.Bad : Ui.Ink);
+            Row("Free beds", T.FreeBeds.ToString());
+            by += 2;
+            float x = bx;
+            foreach (var role in RoleOrder)
+            {
+                int n = T.People.Count(p => p.Role == role); if (n == 0) continue;
+                string s = n + " " + Defs.RoleName(role).ToLower() + (n > 1 && role != Role.Child ? "s" : (n > 1 ? "ren" : ""));
+                float w = PixelFont.Width(s) + 8;
+                if (x + w > bx + bw) { x = bx; by += 14; }
+                var cr = new Rect(x, by, w, 12); Ui.Inset(cr); Ui.Text(cr.x + 4, cr.y + 3, s, Ui.Ink);
+                x += w + 3;
+            }
+            by += 18;
+            Ui.Text(bx, by, "NAME", Ui.InkSoft); Ui.Text(bx + 104, by, "JOB", Ui.InkSoft); Ui.Text(bx + bw, by, "HP  MOOD", Ui.InkSoft, Ui.Align.Right); by += 11;
+            foreach (var p in T.People.OrderBy(p => System.Array.IndexOf(RoleOrder, p.Role)).ThenBy(p => p.Family))
+            {
+                var rr = new Rect(bx - 2, by - 2, bw + 4, 11);
+                bool sel = gc.Selected.Kind == SelectionKind.Person && gc.Selected.Id == p.Id;
+                if (sel || Ui.Hover(rr)) Ui.Fill(rr, sel ? Ui.Hex("#f2cf4a") : Ui.ParchDark);
+                var w = T.GetBuilding(p.WorkId);
+                string job = (p.Role == Role.Worker || p.Role == Role.Owner) && w != null ? w.Def.Name : Defs.RoleName(p.Role);
+                string name = p.First + " " + p.Family + (p.IsChild ? " (" + Mathf.FloorToInt(p.Age) + ")" : "");
+                Ui.Text(bx, by, Trim(name, 100), p.Jail > 0 ? Ui.Bad : Ui.Ink);
+                Ui.Text(bx + 104, by, Trim(job, 80), Ui.InkSoft);
+                Ui.Bar(new Rect(bx + bw - 44, by + 1, 18, 5), p.Health / 100f, Ui.Mood(p.Health));
+                Ui.Bar(new Rect(bx + bw - 20, by + 1, 20, 5), p.Happy / 100f, Ui.Mood(p.Happy));
+                if (Ui.Clickable(rr)) { var id = p.Id; Later(() => { gc.Select(Selection.Person(id)); ResetConfirm(); }); }
+                by += 11;
+            }
+        }
+
+        static string Trim(string s, float w)
+        {
+            if (PixelFont.Width(s) <= w) return s;
+            while (s.Length > 1 && PixelFont.Width(s + ".") > w) s = s.Substring(0, s.Length - 1);
+            return s + ".";
+        }
+
+        void TradeTab()
+        {
+            var m = T.Market;
+            Heading("Food today · " + Defs.Seasons[T.Season]);
+            Row("Grown in gardens", m.Garden.ToString("0.0"));
+            Row("Still needed", m.Demand.ToString("0.0"));
+            Row("Bought or handed out", m.Bought.ToString("0.0"));
+            Row("Went without", m.Shortfall.ToString("0.0"), m.Shortfall > 0.5f ? Ui.Bad : Ui.Ink);
+            Row("Food in town", Mathf.FloorToInt(T.TotalFood()).ToString());
+            int eaters = T.People.Count;
+            float days = eaters > 0 ? T.TotalFood() / Mathf.Max(1, eaters - T.Market.Garden) : 0;
+            Row("Lasts about", Mathf.FloorToInt(days) + " days", days < 14 ? Ui.Bad : Ui.Ink);
+            Heading("Heat");
+            Row("Firewood burned per day", m.HeatDemand.ToString("0.0"));
+            Row("Cold homes", m.ColdHomes.ToString(), m.ColdHomes > 0 ? Ui.Bad : Ui.Ink);
+            Row("Firewood in town", Mathf.FloorToInt(T.TotalFirewood()).ToString());
+            Heading("Town stores");
+            Row("Capacity", Mathf.FloorToInt(T.TownStored) + " / " + Mathf.FloorToInt(T.TownCapacity));
+            for (int g = 0; g < 5; g++) Row(Defs.GoodNames[g], Mathf.FloorToInt(T.TownStock((Good)g)).ToString());
+            Heading("Prices");
+            Row("Producers get (food, wood)", Town.Money(Balance.Wholesale[0]) + ", " + Town.Money(Balance.Wholesale[1]));
+            Row("Shops charge (food)", T.AverageFoodPrice > 0 ? Town.Money(T.AverageFoodPrice) : "-");
+            Row("Storehouse charges", Town.Money(T.Policy.StorehousePrice[0]) + ", " + Town.Money(T.Policy.StorehousePrice[1]));
+            Heading("Businesses");
+            foreach (var b in T.Businesses)
+            {
+                var o = T.GetCitizen(b.OwnerId);
+                var rr = new Rect(bx - 2, by - 2, bw + 4, 21);
+                if (Ui.Hover(rr)) Ui.Fill(rr, Ui.ParchDark);
+                Ui.Text(bx, by, b.Def.Name, Ui.Ink);
+                Ui.Text(bx + bw, by, b.Last.Valid ? Town.Money(b.Last.Profit) + "/wk" : "new", b.Last.Valid ? (b.Last.Profit < 0 ? Ui.Bad : Ui.Good) : Ui.InkSoft, Ui.Align.Right);
+                by += 10;
+                Ui.Text(bx + 6, by, (o != null ? o.Name : "For sale") + " · " + T.WorkersAt(b) + " working", o != null ? Ui.InkSoft : Ui.Warn);
+                if (Ui.Clickable(rr)) { var id = b.Id; Later(() => gc.Select(Selection.Building(id))); }
+                by += 11;
+            }
+            if (!T.Businesses.Any()) Para("No businesses yet. Build one from the Food or Industry tabs.");
+        }
+
+        void ElectionTab()
+        {
+            if (T.Estate == null)
+            {
+                Para("No Mayor's Estate yet.", Ui.Ink);
+                Para("Build one from the Civic tab. The town then picks a mayor, who moves out of their cottage and into the estate. The mayor's platform gives the whole town a bonus.");
+                return;
+            }
+            var m = T.Mayor;
+            Heading("Mayor");
+            if (m != null)
+            {
+                Ui.Text(bx, by, m.Name, Ui.Title); by += 11;
+                var pd = Defs.Get(T.MayorPlatform);
+                Para(pd.Name + ": " + pd.Description);
+                if (T.Policy.ElectionsOn) Row("Term ends", "day " + T.TermEnd + " (" + Mathf.Max(0, T.TermEnd - T.Day) + " days)");
+                else Para("Serving for life.", Ui.Warn);
+            }
+            else Para("The seat is empty.");
+            if (T.Campaign.Active)
+            {
+                var poll = T.Poll(); int total = Mathf.Max(1, T.Adults.Count());
+                int days = T.Campaign.VoteDay - T.Day;
+                Heading("Campaign · vote in " + days + " day" + (days == 1 ? "" : "s"));
+                foreach (var c in T.Campaign.Candidates.OrderByDescending(c => poll.ContainsKey(c.CitizenId) ? poll[c.CitizenId] : 0))
+                {
+                    var p = T.GetCitizen(c.CitizenId); if (p == null) continue;
+                    int votes = poll.ContainsKey(c.CitizenId) ? poll[c.CitizenId] : 0;
+                    Ui.Text(bx, by, p.Name + (T.MayorId == p.Id ? " (mayor)" : ""), Ui.Ink);
+                    Ui.Text(bx + bw, by, votes + " votes", Ui.Title, Ui.Align.Right); by += 10;
+                    Ui.Bar(new Rect(bx, by, bw, 6), votes / (float)total, Ui.Hex("#d8a040")); by += 8;
+                    Para(Defs.Get(c.Platform).Name + ": " + Defs.Get(c.Platform).Description);
+                }
+                Para("Settlers favour whoever employs them, family, and whoever speaks to their troubles: food workers like the farm platform, tradesfolk like trade, the poor like Common Folk, and a crime wave helps Law & Order.");
+            }
+            if (T.LastElection.Valid)
+            {
+                Heading("Last election · day " + T.LastElection.Day);
+                foreach (var r in T.LastElection.Results) Row(r.Name, r.Votes + " votes");
+            }
+        }
+
+        void GazetteTab()
+        {
+            foreach (var l in T.Log.Take(80))
+            {
+                Color c = l.Kind == LogKind.Death || l.Kind == LogKind.Bad ? Ui.Bad : l.Kind == LogKind.Birth || l.Kind == LogKind.Good ? Ui.Good : l.Kind == LogKind.Vote ? Ui.Hex("#8a5a10") : Ui.Ink;
+                Ui.Text(bx, by, "Day " + l.Day, Ui.InkSoft);
+                by += Ui.Wrapped(new Rect(bx + 34, by, bw - 34, 400), l.Message, c) + 3;
+            }
+        }
+
+        // ================================================================== inspector
+        void Inspector()
+        {
+            float iw = 196;
+            var r = Block(new Rect(4, 62, iw, Mathf.Min(H - 62 - 120, Mathf.Max(90, inspContentH + 34))));
+            Ui.Panel(r);
+            if (Ui.Button(new Rect(r.xMax - 22, r.y + 6, 15, 14), "", false, true, Icon.Close)) Later(() => gc.Select(Selection.None));
+            var view = new Rect(r.x + 8, r.y + 8, r.width - 16, r.height - 14);
+            inspScroll = GUI.BeginScrollView(view, inspScroll, new Rect(0, 0, view.width - 6, Mathf.Max(view.height, inspContentH)), false, false, GUIStyle.none, GUIStyle.none);
+            bx = 2; by = 1; bw = view.width - 12;
+            if (gc.Selected.Kind == SelectionKind.Person) PersonPanel(); else BuildingPanel();
+            inspContentH = by + 4;
+            GUI.EndScrollView();
+            ScrollIndicator(view, inspScroll.y, inspContentH);
+        }
+
+        void PersonPanel()
+        {
+            var p = T.GetCitizen(gc.Selected.Id);
+            if (p == null) { Later(() => gc.Select(Selection.None)); return; }
+            Ui.Text(bx, by, p.Name, Ui.Title); by += 10;
+            Ui.Text(bx, by, Defs.RoleName(p.Role) + " · " + Mathf.FloorToInt(p.Age) + " years" + (p.Jail > 0 ? " · in jail" : ""), p.Jail > 0 ? Ui.Bad : Ui.InkSoft); by += 13;
+            Ui.Text(bx, by, "Health", Ui.InkSoft); Ui.Bar(new Rect(bx + 46, by + 1, bw - 46, 6), p.Health / 100f, Ui.Mood(p.Health)); by += 10;
+            Ui.Text(bx, by, "Mood", Ui.InkSoft); Ui.Bar(new Rect(bx + 46, by + 1, bw - 46, 6), p.Happy / 100f, Ui.Mood(p.Happy)); by += 12;
+            Row("Eating", p.Fed >= 0.95f ? "well" : p.Fed >= 0.7f ? "short" : "hungry", p.Fed >= 0.95f ? Ui.Good : p.Fed >= 0.7f ? Ui.Warn : Ui.Bad);
+            Row("Warmth", p.Warm ? "warm" : "cold", p.Warm ? Ui.Good : Ui.Bad);
+            var home = T.GetBuilding(p.HomeId); var work = T.GetBuilding(p.WorkId);
+            Row("Home", home != null ? (home.Type == BuildingType.Estate ? "Mayor's Estate" : "Cottage #" + home.Id) : "tent by the wagon", home == null ? Ui.Bad : Ui.Ink);
+            Row("Work", p.Role == Role.Builder ? "town building crew" : work != null ? work.Def.Name : p.IsChild ? "too young" : "laborer");
+            Row("Savings", Town.Money(p.Money));
+            if (p.CharityDays > 0) Row("Living on", "town charity", Ui.Warn);
+            var partner = T.GetCitizen(p.PartnerId);
+            var kids = T.ChildrenOf(p).ToList();
+            var parent = T.GetCitizen(p.ParentId);
+            Heading("Family");
+            if (partner != null) Row(p.Female ? "Husband" : "Wife", partner.First);
+            if (parent != null) Row(p.Female ? "Daughter of" : "Son of", parent.First);
+            if (kids.Count > 0) Para("Children: " + string.Join(", ", kids.Select(k => k.First + " (" + Mathf.FloorToInt(k.Age) + ")").ToArray()), Ui.Ink);
+            if (partner == null && parent == null && kids.Count == 0) Para("On their own.");
+            if (p.Grief > 5) Para("Grieving a loss in the family.", Ui.Bad);
+            if (T.Campaign.Active && !p.IsChild)
+            {
+                var v = T.VoteOf(p); var vc = v != null ? T.GetCitizen(v.CitizenId) : null;
+                if (vc != null) Row("Will vote for", vc.First + " " + vc.Family);
+            }
+        }
+
+        void Stocks(Building b, params Good[] goods)
+        {
+            float x = bx;
+            foreach (var g in goods)
+            {
+                string s = Mathf.FloorToInt(b.Stock[(int)g]).ToString();
+                Ui.IconAt(x, by - 1, (Icon)(int)g); Ui.Text(x + 11, by, s, Ui.Ink);
+                x += 16 + PixelFont.Width(s) + 4;
+            }
+            by += 12;
+        }
+
+        void BuildingPanel()
+        {
+            var b = T.GetBuilding(gc.Selected.Id);
+            if (b == null) { Later(() => gc.Select(Selection.None)); return; }
+            var d = b.Def;
+            Ui.Text(bx, by, d.Name, Ui.Title); by += 12;
+            if (!b.Built)
+            {
+                Ui.Text(bx, by, "Under construction", Ui.Warn); by += 11;
+                Ui.Text(bx, by, "Materials", Ui.InkSoft); Ui.Bar(new Rect(bx + 54, by + 1, bw - 54, 6), b.MaterialsFraction, Ui.Hex("#a8734a")); by += 10;
+                Ui.Text(bx, by, "Work", Ui.InkSoft); Ui.Bar(new Rect(bx + 54, by + 1, bw - 54, 6), b.BuildFraction, Ui.Good); by += 12;
+                if (d.Logs > 0) Row("Logs", Mathf.FloorToInt(b.Delivered[(int)Good.Logs]) + " / " + d.Logs);
+                if (d.Stone > 0) Row("Stone", Mathf.FloorToInt(b.Delivered[(int)Good.Stone]) + " / " + d.Stone);
+                int crew = T.People.Count(p => p.TaskId == b.Id);
+                Row("Working on it", crew + (crew == 1 ? " person" : " people"), crew == 0 ? Ui.Warn : Ui.Ink);
+                if (b.MaterialsFraction < 0.999f && T.TownStock(Good.Logs) < 1 && d.Logs > b.Delivered[(int)Good.Logs]) Para("Waiting on logs. Build a lumber camp, or clear trees.", Ui.Bad);
+                if (b.MaterialsFraction < 0.999f && T.TownStock(Good.Stone) < 1 && d.Stone > b.Delivered[(int)Good.Stone]) Para("Waiting on stone. Build a quarry near a hill or boulders.", Ui.Bad);
+                if (T.Policy.Builders == 0) Para("No builders on the crew. Hire some in the Ledger.", Ui.Bad);
+            }
+            else if (d.IsBusiness)
+            {
+                var o = T.GetCitizen(b.OwnerId);
+                Para(o != null ? "Owned by " + o.Name + (o.WorkId != b.Id ? " (away)" : "") : "For sale, waiting for a settler with savings.", o != null ? Ui.Ink : Ui.Warn);
+                Row("Cash", Town.Money(b.Cash));
+                Row("Wage", Town.Money(b.Wage) + "/day");
+                Row("Staff", T.WorkersAt(b) + " working · " + b.Employees.Count + "/" + d.MaxEmployees + " hired");
+                switch (b.Type)
+                {
+                    case BuildingType.Farm:
+                    {
+                        int si = T.Season;
+                        string stage = si == 3 ? "Fallow for winter" : si <= 1 ? "Growing: " + Mathf.RoundToInt(b.CropGrowth * 100) + "%" : b.CropLeft > 1 ? "Harvesting: " + Mathf.FloorToInt(b.CropLeft) + " left" : "Harvested";
+                        Row("Field", stage);
+                        Stocks(b, Good.Food, Good.Tools);
+                        break;
+                    }
+                    case BuildingType.Gatherer: Row("Trees nearby", T.TreesNear(b).ToString(), T.TreesNear(b) < 15 ? Ui.Warn : Ui.Ink); Stocks(b, Good.Food, Good.Tools); break;
+                    case BuildingType.LumberCamp: Row("Trees nearby", T.TreesNear(b).ToString(), T.TreesNear(b) < 6 ? Ui.Warn : Ui.Ink); Stocks(b, Good.Logs, Good.Tools); break;
+                    case BuildingType.Woodcutter: Stocks(b, Good.Logs, Good.Firewood, Good.Tools); break;
+                    case BuildingType.Quarry: case BuildingType.Fishery: Stocks(b, b.Type == BuildingType.Quarry ? Good.Stone : Good.Food, Good.Tools); break;
+                    case BuildingType.Smithy: Stocks(b, Good.Logs, Good.Stone, Good.Tools); break;
+                    case BuildingType.Store: case BuildingType.Stall:
+                        Stocks(b, d.Sells);
+                        Row("Food price", Town.Money(b.Price[0]));
+                        if (b.Type == BuildingType.Store) Row("Firewood price", Town.Money(b.Price[1]));
+                        break;
+                }
+                Row("Made today", b.Today.Made.ToString("0.0"));
+                if (b.Last.Valid)
+                {
+                    Heading("Last week");
+                    Row("Revenue", Town.Money(b.Last.Revenue)); Row("Costs", Town.Money(b.Last.Costs));
+                    Row("Profit", Town.Money(b.Last.Profit), b.Last.Profit < 0 ? Ui.Bad : Ui.Good);
+                    Row("Owner took home", Town.Money(b.Last.OwnerDraw));
+                }
+                var staff = b.Employees.Select(T.GetCitizen).Where(x => x != null).Select(x => x.First + " " + x.Family).ToArray();
+                if (staff.Length > 0) { Heading("Hands"); Para(string.Join(", ", staff), Ui.Ink); }
+            }
+            else if (b.Type == BuildingType.House || b.Type == BuildingType.Estate)
+            {
+                var rs = T.Household(b).ToList();
+                Row("Beds", rs.Count + " / " + Mathf.Max(1, d.Beds));
+                if (b.Type == BuildingType.House) Row("Garden today", b.GardenToday.ToString("0.0") + " food");
+                Stocks(b, Good.Food, Good.Firewood);
+                if (b.ColdToday) Para("Cold: no firewood to burn.", Ui.Bad);
+                Heading("Living here");
+                foreach (var p in rs)
+                {
+                    var rr = new Rect(bx - 2, by - 2, bw + 4, 11);
+                    if (Ui.Hover(rr)) Ui.Fill(rr, Ui.ParchDark);
+                    Ui.Text(bx, by, p.First + " " + p.Family + (p.IsChild ? " (" + Mathf.FloorToInt(p.Age) + ")" : ""), Ui.Ink);
+                    Ui.Text(bx + bw, by, Defs.RoleName(p.Role), Ui.InkSoft, Ui.Align.Right);
+                    if (Ui.Clickable(rr)) { var id = p.Id; Later(() => gc.Select(Selection.Person(id))); }
+                    by += 11;
+                }
+                if (rs.Count == 0) Para("Empty.");
+                if (b.Type == BuildingType.Estate && T.MayorPlatform != Platform.None) Para("Platform: " + Defs.Get(T.MayorPlatform).Name + ". " + Defs.Get(T.MayorPlatform).Description);
+            }
+            else if (d.IsStorage)
+            {
+                Row("Holds", Mathf.FloorToInt(b.Stock.Sum()) + " / " + d.Capacity);
+                Stocks(b, Good.Food, Good.Firewood, Good.Logs, Good.Stone, Good.Tools);
+                Para(d.Blurb);
+            }
+            else if (b.Type == BuildingType.Sheriff)
+            {
+                var st = b.Employees.Select(T.GetCitizen).Where(x => x != null).Select(x => Defs.RoleName(x.Role) + " " + x.First + " " + x.Family).ToArray();
+                Para(st.Length > 0 ? string.Join(", ", st) : "No lawmen hired yet.", Ui.Ink);
+                Row("Crimes this week", T.CrimesWeek.ToString()); Row("Caught", T.CaughtWeek.ToString());
+                Row("Last week", T.CaughtLast + " of " + T.CrimesLast + " caught");
+                var jailed = T.People.Where(x => x.Jail > 0).Select(x => x.First + " " + x.Family).ToArray();
+                Para("Jailhouse: " + (jailed.Length > 0 ? string.Join(", ", jailed) : "empty"));
+            }
+            else if (b.Type == BuildingType.Cemetery)
+            {
+                Row("Graves", b.Graves + " / " + d.Graves);
+                if (T.Unburied > 0) Para(T.Unburied + " recent dead had nowhere to be buried.", Ui.Bad);
+            }
+            if (b.Type != BuildingType.Wagon)
+            {
+                by += 6;
+                bool armed = confirmTearDown == b.Id;
+                string label = !b.Built ? (armed ? "Click to cancel it" : "Cancel construction") : (armed ? "Click to tear it down" : "Tear down");
+                if (Ui.Button(new Rect(bx, by, 128, 15), label))
+                {
+                    if (armed) { var bb = b; Later(() => { if (T.Buildings.Contains(bb)) T.Remove(bb); gc.Select(Selection.None); }); confirmTearDown = -1; }
+                    else confirmTearDown = b.Id;
+                }
+                by += 18;
+                Para("You get back half the materials.");
+            }
+        }
+
+        // ================================================================== map tooltip
+        void MapTooltip()
         {
             if (!gc.PointerOnMap || Input.GetMouseButton(1) || Input.GetMouseButton(2)) return;
-            string s = null; var h = gc.HoverTile;
+            string s = null; Color c = Ui.Ink; var h = gc.HoverTile;
             if (gc.Tool == ToolKind.Inspect)
             {
                 var pick = gc.View.PickAt(gc.HoverPixel);
                 if (pick.Kind == SelectionKind.Person)
                 {
                     var p = T.GetCitizen(pick.Id);
-                    var w = T.GetBuilding(p.WorkId);
-                    s = "<b>" + p.Name + "</b>\n" + Defs.RoleName(p.Role) + (w != null && p.Role != Role.Mayor ? " · " + w.Def.Name : "");
+                    if (p != null) { var w = T.GetBuilding(p.WorkId); s = p.Name + "\n" + Defs.RoleName(p.Role) + (w != null && p.Role != Role.Mayor ? " · " + w.Def.Name : ""); }
                 }
                 else if (pick.Kind == SelectionKind.Building)
                 {
-                    var b = T.GetBuilding(pick.Id); var d = b.Def;
-                    s = "<b>" + d.Name + "</b>";
-                    if (d.IsBusiness) { var o = T.GetCitizen(b.OwnerId); s += "\n" + (o != null ? "Owner: " + o.Name : "For sale") + " · " + T.WorkersAt(b) + " at work"; }
-                    if (b.Type == BuildingType.House || b.Type == BuildingType.Estate)
+                    var b = T.GetBuilding(pick.Id);
+                    if (b != null)
                     {
-                        var names = b.Residents.Select(T.GetCitizen).Where(x => x != null).Select(x => x.Name).ToArray();
-                        s += "\n" + (names.Length > 0 ? string.Join(", ", names) : "Empty");
-                    }
-                    if (b.Type == BuildingType.Sheriff)
-                    {
-                        var names = b.Employees.Select(T.GetCitizen).Where(x => x != null).Select(x => x.Name).ToArray();
-                        s += "\n" + (names.Length > 0 ? string.Join(", ", names) : "No lawmen hired");
+                        s = b.Def.Name + (b.Built ? "" : " (being built, " + Mathf.RoundToInt(b.BuildFraction * 100) + "%)");
+                        if (b.Built && b.Def.IsBusiness) { var o = T.GetCitizen(b.OwnerId); s += "\n" + (o != null ? o.Name : "For sale") + " · " + T.WorkersAt(b) + " working"; }
+                        if (b.Type == BuildingType.House) s += "\n" + b.Residents.Count + " living here";
                     }
                 }
                 else
                 {
                     byte t = T.TerrainAt(h.x, h.y);
-                    if (t == Tile.Hill) s = "Hills · too steep to build";
-                    else if (t == Tile.Tree) s = "Woodland · $3 to clear";
-                    else if (t == Tile.Rock) s = "Boulder · $10 to clear";
-                    else if (t == Tile.Water && T.OccupantAt(h.x, h.y) == null) s = "Water · roads can bridge it";
+                    if (t == Tile.Hill) s = "Hills: too steep to build";
+                    else if (t == Tile.Tree) s = "Woods";
+                    else if (t == Tile.Sapling) s = "Sapling";
+                    else if (t == Tile.Rock) s = "Boulder";
+                    else if (t == Tile.Water && T.OccupantAt(h.x, h.y) == null) s = "Water: roads can bridge it";
                 }
             }
             else if (gc.Tool == ToolKind.Clear)
             {
-                var b = T.OccupantAt(h.x, h.y); byte t = T.TerrainAt(h.x, h.y);
-                if (b != null) s = "Tear down " + b.Def.Name + " · " + Money(b.Def.Cost * 0.25f) + " back";
-                else if (t == Tile.Tree) s = "Clear tree · $3";
-                else if (t == Tile.Rock) s = "Break up boulder · $10";
+                byte t = T.TerrainAt(h.x, h.y); var b = T.OccupantAt(h.x, h.y);
+                if (b != null && b.Type != BuildingType.Road) s = b.Def.Name + ": click to select, then Tear down";
+                else if (t == Tile.Tree) s = "Fell tree · $2 · +2 logs";
+                else if (t == Tile.Sapling) s = "Pull sapling · $2";
+                else if (t == Tile.Rock) s = "Break boulder · $6 · +3 stone";
+                else if (t == Tile.Stump) s = "Pull stump · $0.50";
             }
             else
             {
                 var d = Defs.Get(gc.BuildType);
-                int ax = gc.BuildType == BuildingType.Road ? h.x : h.x - (d.W - 1) / 2, ay = gc.BuildType == BuildingType.Road ? h.y : h.y - (d.H - 1) / 2;
-                string err = T.CanPlace(gc.BuildType, ax, ay); float cc = T.ClearCost(gc.BuildType, ax, ay);
-                s = err != null ? Col(err, BadC) : "<b>" + d.Name + "</b> · " + Money(d.Cost) + (cc > 0 ? " + " + Money(cc) + " clearing" : "");
+                var a = gc.PlacementAnchor;
+                string err = T.CanPlace(gc.BuildType, a.x, a.y);
+                float cc = T.ClearCost(gc.BuildType, a.x, a.y);
+                if (err != null) { s = err; c = Ui.Bad; }
+                else s = d.Name + (d.Type == BuildingType.Road ? " · $1" : " · " + Town.MaterialsText(d)) + (cc > 0 ? "\nClearing the ground: " + Town.Money(cc) : "");
             }
             if (s == null) return;
             var m = Event.current.mousePosition;
-            var content = new GUIContent(s);
-            float width = Mathf.Min(240, sTip.CalcSize(content).x + 4);
-            float height = sTip.CalcHeight(content, width);
-            float W = Screen.width / scale, H = Screen.height / scale;
-            GUI.Label(new Rect(Mathf.Min(m.x + 16, W - width - 8), Mathf.Min(m.y + 18, H - height - 8), width, height), s, sTip);
-        }
-
-        // ---------------------------------------------------------------- right panel
-        void DrawRight(Rect r)
-        {
-            GUI.Box(r, GUIContent.none, sPanel);
-            GUILayout.BeginArea(new Rect(r.x + 1, r.y + 1, r.width - 2, r.height - 2));
-            if (gc.Selected.Kind != SelectionKind.None)
-            {
-                GUILayout.BeginVertical(sPanel2, GUILayout.MaxHeight(r.height * 0.5f));
-                scrollInspector = GUILayout.BeginScrollView(scrollInspector, GUIStyle.none, GUI.skin.verticalScrollbar);
-                DrawInspector();
-                GUILayout.EndScrollView();
-                GUILayout.EndVertical();
-            }
-            GUILayout.BeginHorizontal();
-            for (int i = 0; i < Tabs.Length; i++)
-                if (GUILayout.Button(Tabs[i], tab == i ? sTabOn : sTab, GUILayout.Height(30))) { int t = i; Later(() => { tab = t; scrollTab = Vector2.zero; }); }
-            GUILayout.EndHorizontal();
-            scrollTab = GUILayout.BeginScrollView(scrollTab, GUIStyle.none, GUI.skin.verticalScrollbar);
-            GUILayout.BeginVertical(new GUIStyle { padding = new RectOffset(12, 12, 8, 12) });
-            switch (tab)
-            {
-                case 0: DrawLedger(); break;
-                case 1: DrawCitizens(); break;
-                case 2: DrawTrade(); break;
-                case 3: DrawElection(); break;
-                default: DrawGazette(); break;
-            }
-            GUILayout.EndVertical();
-            GUILayout.EndScrollView();
-            GUILayout.EndArea();
-        }
-
-        void Heading(string s) { GUILayout.Space(8); GUILayout.Label(s.ToUpper(), sSub); }
-        void KV(string k, string v)
-        {
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(Col(k, MutedC), sLabel);
-            GUILayout.FlexibleSpace();
-            GUILayout.Label(v, sNumR);
-            GUILayout.EndHorizontal();
-        }
-
-        // ---------------------------------------------------------------- ledger tab
-        void DrawLedger()
-        {
-            GUILayout.BeginHorizontal();
-            GUILayout.Label("TOWN TREASURY", sSub);
-            GUILayout.FlexibleSpace();
-            GUILayout.Label(T.Treasury < 0 ? Col(Money(T.Treasury), BadC) : Money(T.Treasury), sNum);
-            GUILayout.EndHorizontal();
-            Sparkline(GUILayoutUtility.GetRect(10, 46, GUILayout.ExpandWidth(true)));
-
-            Heading("Taxes & law");
-            var P = T.Policy;
-            P.IncomeTax = Slider("Income tax (wages & salaries)", Mathf.RoundToInt(P.IncomeTax * 100) + "%", P.IncomeTax * 100, 0, 40, 1,
-                "Above 12% settlers grumble. Taken from every paycheck.") / 100f;
-            P.HeadTax = Slider("Head tax (every settler, weekly)", Money(P.HeadTax), P.HeadTax, 0, 3, 0.25f,
-                "Everyone pays on Sunday, jobs or not. Above $1.50 it hurts morale.");
-            P.BusinessTax = Slider("Business tax (weekly profit)", Mathf.RoundToInt(P.BusinessTax * 100) + "%", P.BusinessTax * 100, 0, 50, 1,
-                "Charged on each business's profit every Sunday.") / 100f;
-            float mw = Slider("Minimum daily wage", Money(P.MinWage), P.MinWage, 1, 6, 0.5f, "Owners must pay at least this. Too high and they hire fewer hands.");
-            if (!Mathf.Approximately(mw, P.MinWage)) T.SetMinWage(mw);
-            P.Deputies = Mathf.RoundToInt(Slider("Deputies on the payroll", P.Deputies.ToString(), P.Deputies, 0, 3, 1,
-                "Sheriff earns $4/day, deputies $3, paid from the treasury."));
-            GUILayout.Space(4);
-            bool on = GUILayout.Toggle(P.ElectionsOn, " Hold mayoral elections every 4 weeks", sToggle);
-            if (on != P.ElectionsOn) T.SetElections(on);
-
-            Heading("Town books");
-            var C = T.LedgerThisWeek; var L = T.HasLastWeek ? T.LedgerLastWeek : null;
-            BookRow("", "This week", "Last week", true);
-            BookRow("Income tax", Money(C.IncomeTax), L != null ? Money(L.IncomeTax) : "—");
-            BookRow("Head tax", Money(C.HeadTax), L != null ? Money(L.HeadTax) : "—");
-            BookRow("Business tax", Money(C.BusinessTax), L != null ? Money(L.BusinessTax) : "—");
-            BookRow("Deed sales", Money(C.Deeds), L != null ? Money(L.Deeds) : "—");
-            BookRow("Land claim fees", Money(C.Claims), L != null ? Money(L.Claims) : "—");
-            BookRow("Demolition refunds", Money(C.Refunds), L != null ? Money(L.Refunds) : "—");
-            BookRow("Sheriff & mayor pay", Col("-" + Money(C.Salaries), MutedC), L != null ? Col("-" + Money(L.Salaries), MutedC) : "—");
-            BookRow("Upkeep", Col("-" + Money(C.Upkeep), MutedC), L != null ? Col("-" + Money(L.Upkeep), MutedC) : "—");
-            BookRow("Startup grants", Col("-" + Money(C.Grants), MutedC), L != null ? Col("-" + Money(L.Grants), MutedC) : "—");
-            BookRow("Construction & clearing", Col("-" + Money(C.Construction), MutedC), L != null ? Col("-" + Money(L.Construction), MutedC) : "—");
-            BookRow("<b>Net</b>", Col(Money(C.Net), C.Net < 0 ? BadC : GoodC), L != null ? Col(Money(L.Net), L.Net < 0 ? BadC : GoodC) : "—");
-
-            GUILayout.Space(14);
-            GUILayout.BeginHorizontal();
-            GUILayout.Label("Autosaves every Monday.", sSmall);
-            GUILayout.FlexibleSpace();
-            bool armed = Time.unscaledTime < confirmNewUntil;
-            if (GUILayout.Button(armed ? "Click again to start over" : "New town", sBtn))
-            {
-                if (armed) { Later(gc.NewTown); confirmNewUntil = 0; } else confirmNewUntil = Time.unscaledTime + 3f;
-            }
-            GUILayout.EndHorizontal();
-        }
-
-        float Slider(string label, string value, float v, float min, float max, float step, string help)
-        {
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(label, sLabel);
-            GUILayout.FlexibleSpace();
-            GUILayout.Label(Col(value, BrassC), sNumR, GUILayout.Width(60));
-            GUILayout.EndHorizontal();
-            float nv = GUILayout.HorizontalSlider(v, min, max);
-            nv = Mathf.Round(nv / step) * step;
-            GUILayout.Label(help, sSmall);
-            GUILayout.Space(4);
-            return nv;
-        }
-
-        void BookRow(string a, string b, string c, bool header = false)
-        {
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(a, header ? sHead : sLabel);
-            GUILayout.FlexibleSpace();
-            GUILayout.Label(b, header ? sHead : sNumR, GUILayout.Width(82));
-            GUILayout.Label(c, header ? sHead : sNumR, GUILayout.Width(82));
-            GUILayout.EndHorizontal();
-        }
-
-        void Sparkline(Rect r)
-        {
-            if (Event.current.type != EventType.Repaint) return;
-            var hist = T.History;
-            var old = GUI.color;
-            GUI.color = new Color(0, 0, 0, 0.25f); GUI.DrawTexture(r, Texture2D.whiteTexture);
-            if (hist.Count < 2) { GUI.color = old; return; }
-            float mn = Mathf.Min(0, hist.Min(p => p.Treasury)), mx = Mathf.Max(1, hist.Max(p => p.Treasury) * 1.05f);
-            float bw = r.width / hist.Count;
-            for (int i = 0; i < hist.Count; i++)
-            {
-                float v = hist[i].Treasury, y = r.yMax - (v - mn) / (mx - mn) * (r.height - 4);
-                GUI.color = new Color(Brass.r, Brass.g, Brass.b, 0.18f);
-                GUI.DrawTexture(new Rect(r.x + i * bw, y, Mathf.Max(1, bw), r.yMax - y), Texture2D.whiteTexture);
-                GUI.color = Brass;
-                GUI.DrawTexture(new Rect(r.x + i * bw, y - 1, Mathf.Max(1, bw), 2), Texture2D.whiteTexture);
-            }
-            GUI.color = old;
-        }
-
-        // ---------------------------------------------------------------- citizens tab
-        static readonly Role[] RoleOrder = { Role.Owner, Role.Worker, Role.Unemployed, Role.Sheriff, Role.Deputy, Role.Mayor };
-
-        void DrawCitizens()
-        {
-            GUILayout.BeginHorizontal();
-            foreach (var role in RoleOrder)
-            {
-                int n = T.People.Count(p => p.Role == role); if (n == 0) continue;
-                GUILayout.Label(Col(n + " " + Defs.RoleName(role) + (n > 1 && role != Role.Unemployed ? "s" : ""), NatureArt.RoleColor[role]), sChip);
-            }
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
-            GUILayout.Space(6);
-            GUILayout.BeginHorizontal();
-            GUILayout.Label("NAME", sHead, GUILayout.Width(118)); GUILayout.Label("JOB", sHead, GUILayout.Width(92));
-            GUILayout.Label("SAVINGS", sHead, GUILayout.Width(56)); GUILayout.Label("EATS", sHead, GUILayout.Width(52)); GUILayout.Label("MOOD", sHead);
-            GUILayout.EndHorizontal();
-            foreach (var p in T.People.OrderBy(p => System.Array.IndexOf(RoleOrder, p.Role)).ThenByDescending(p => p.Money))
-            {
-                var w = T.GetBuilding(p.WorkId);
-                string job = (p.Role == Role.Worker || p.Role == Role.Owner) && w != null ? w.Def.Name : Defs.RoleName(p.Role);
-                if (p.Role == Role.Owner) job += " ★";
-                bool sel = gc.Selected.Kind == SelectionKind.Person && gc.Selected.Id == p.Id;
-                var rect = GUILayoutUtility.GetRect(10, 22, GUILayout.ExpandWidth(true));
-                if (sel && Event.current.type == EventType.Repaint) { var o = GUI.color; GUI.color = new Color(Brass.r, Brass.g, Brass.b, 0.18f); GUI.DrawTexture(rect, Texture2D.whiteTexture); GUI.color = o; }
-                if (GUI.Button(rect, GUIContent.none, sRow)) { var id = p.Id; Later(() => { gc.Select(Selection.Person(id)); ResetConfirm(); }); }
-                GUI.Label(new Rect(rect.x, rect.y, 118, 22), p.Name + (p.Jail > 0 ? Col(" (jailed)", BadC) : ""), sMono);
-                GUI.Label(new Rect(rect.x + 122, rect.y, 92, 22), Col(job, NatureArt.RoleColor[p.Role]), sMono);
-                GUI.Label(new Rect(rect.x + 214, rect.y, 56, 22), Money(p.Money), sMono);
-                GUI.Label(new Rect(rect.x + 270, rect.y, 52, 22), FedLabel(p), sMono);
-                GUI.Label(new Rect(rect.x + 322, rect.y, 40, 22), Col(Mathf.RoundToInt(p.Happy).ToString(), MoodColor(p.Happy)), sMono);
-            }
-            GUILayout.Space(6);
-            GUILayout.Label("★ owns the business. Click a settler to inspect them.", sSmall);
-        }
-
-        // ---------------------------------------------------------------- trade tab
-        void DrawTrade()
-        {
-            var m = T.Market;
-            float xF = T.MayorId >= 0 && T.MayorPlatform == Platform.Trade ? 1.25f : 1f;
-            Heading("Food today · " + Defs.Seasons[T.Season]);
-            KV("Grown in back gardens", m.Garden.ToString("0.0"));
-            KV("Still needed from shops", m.Demand.ToString("0.0"));
-            KV("Bought at shops", m.Bought.ToString("0.0"));
-            KV("Went without", m.Shortfall > 0.5f ? Col(m.Shortfall.ToString("0.0"), BadC) : m.Shortfall.ToString("0.0"));
-            KV("Harvested on farms", T.OfType(BuildingType.Farm).Sum(b => b.Today.Made).ToString("0.0"));
-            KV("In farm barns", T.OfType(BuildingType.Farm).Sum(b => b.Food).ToString("0.0"));
-            KV("On shop shelves", T.Buildings.Where(b => b.Def.IsRetail).Sum(b => b.Food).ToString("0.0"));
-            KV("Barns hold up to", Balance.BarnCapacity + " each");
-            KV("Farm → shop price", Money(Balance.Wholesale));
-            KV("Freight wagon pays", Money(Balance.ExportFood * xF) + " food · " + Money(Balance.ExportTools * xF) + " tools");
-            GUILayout.Space(4);
-            GUILayout.Label("Each settler eats 1 food a day. Gardens cover part of it (very little in winter); the rest is bought from stores and stalls, which buy from farms. Surplus leaves on the freight wagon cheaply.", sSmall);
-
-            Heading("Businesses");
-            GUILayout.BeginHorizontal();
-            GUILayout.Label("BUSINESS", sHead, GUILayout.Width(110)); GUILayout.Label("OWNER", sHead, GUILayout.Width(110));
-            GUILayout.Label("STAFF", sHead, GUILayout.Width(40)); GUILayout.Label("LAST WK", sHead);
-            GUILayout.EndHorizontal();
-            foreach (var b in T.Businesses)
-            {
-                var o = T.GetCitizen(b.OwnerId);
-                var rect = GUILayoutUtility.GetRect(10, 22, GUILayout.ExpandWidth(true));
-                if (GUI.Button(rect, GUIContent.none, sRow)) { var id = b.Id; Later(() => { gc.Select(Selection.Building(id)); ResetConfirm(); }); }
-                GUI.Label(new Rect(rect.x, rect.y, 110, 22), b.Def.Name, sMono);
-                GUI.Label(new Rect(rect.x + 110, rect.y, 110, 22), o != null ? o.Name : Col("For sale", WarnC), sMono);
-                GUI.Label(new Rect(rect.x + 220, rect.y, 40, 22), T.WorkersAt(b).ToString(), sMono);
-                GUI.Label(new Rect(rect.x + 260, rect.y, 80, 22), b.Last.Valid ? Col(Money(b.Last.Profit), b.Last.Profit < 0 ? BadC : GoodC) : "—", sMono);
-            }
-        }
-
-        // ---------------------------------------------------------------- election tab
-        void DrawElection()
-        {
-            if (T.Estate == null)
-            {
-                GUILayout.Label("<b>No Mayor's Estate yet.</b>", sLabel);
-                GUILayout.Label("Build the Mayor's Estate (" + Money(Defs.Get(BuildingType.Estate).Cost) + "). Then the town picks a mayor, who moves out of their house and into the estate. The mayor's platform gives the whole town a bonus.", sSmall);
-                return;
-            }
-            var m = T.Mayor;
-            GUILayout.BeginVertical(sPanel2);
-            GUILayout.BeginHorizontal();
-            GUILayout.Label("MAYOR", sSub); GUILayout.FlexibleSpace();
-            if (m != null && !T.Policy.ElectionsOn) GUILayout.Label(Col("For life", WarnC), sSmall);
-            GUILayout.EndHorizontal();
-            if (m != null)
-            {
-                GUILayout.Label(m.Name, sHeading);
-                var pd = Defs.Get(T.MayorPlatform);
-                GUILayout.Label("<b>" + pd.Name + ":</b> " + pd.Description + (T.Policy.ElectionsOn ? "\nTerm ends day " + T.TermEnd + " (" + Mathf.Max(0, T.TermEnd - T.Day) + " days)." : ""), sSmall);
-            }
-            else GUILayout.Label("Vacant.", sSmall);
-            GUILayout.EndVertical();
-
-            if (T.Campaign.Active)
-            {
-                var poll = T.Poll(); int total = Mathf.Max(1, T.People.Count);
-                int days = T.Campaign.VoteDay - T.Day;
-                Heading("Campaign · votes cast in " + days + " day" + (days == 1 ? "" : "s"));
-                foreach (var c in T.Campaign.Candidates.OrderByDescending(c => poll[c.CitizenId]))
-                {
-                    var p = T.GetCitizen(c.CitizenId); if (p == null) continue;
-                    var pd = Defs.Get(c.Platform);
-                    GUILayout.BeginHorizontal();
-                    GUILayout.Label("<b>" + p.Name + "</b>" + (T.MayorId == p.Id ? Col(" (incumbent)", MutedC) : ""), sLabel);
-                    GUILayout.FlexibleSpace();
-                    GUILayout.Label(poll[c.CitizenId] + " votes", sNumR);
-                    GUILayout.EndHorizontal();
-                    GUILayout.Label(pd.Name + ": " + pd.Description, sSmall);
-                    var bar = GUILayoutUtility.GetRect(10, 8, GUILayout.ExpandWidth(true));
-                    var old = GUI.color;
-                    GUI.color = new Color(0, 0, 0, 0.35f); GUI.DrawTexture(bar, Texture2D.whiteTexture);
-                    GUI.color = Brass; GUI.DrawTexture(new Rect(bar.x, bar.y, bar.width * poll[c.CitizenId] / total, bar.height), Texture2D.whiteTexture);
-                    GUI.color = old;
-                    GUILayout.Space(8);
-                }
-                GUILayout.Label("Settlers favor whoever employs them, lives with them, or speaks to their troubles: farmhands like the farm platform, shop workers like trade, the poor like Common Folk, and a crime wave helps Law & Order.", sSmall);
-            }
-            else if (!T.Policy.ElectionsOn) GUILayout.Label("Elections are off. Turn them on in the Ledger tab to put the mayor's seat to a vote.", sSmall);
-
-            if (T.LastElection.Valid)
-            {
-                Heading("Last election · day " + T.LastElection.Day);
-                foreach (var r in T.LastElection.Results)
-                {
-                    GUILayout.BeginHorizontal();
-                    GUILayout.Label(r.Name, sLabel, GUILayout.Width(130));
-                    GUILayout.Label(Col(Defs.Get(r.Platform).Name, MutedC), sLabel);
-                    GUILayout.FlexibleSpace();
-                    GUILayout.Label(r.Votes.ToString(), sNumR);
-                    GUILayout.EndHorizontal();
-                }
-            }
-        }
-
-        // ---------------------------------------------------------------- gazette tab
-        void DrawGazette()
-        {
-            foreach (var l in T.Log)
-            {
-                string c = l.Kind == LogKind.Bad ? BadC : l.Kind == LogKind.Good ? GoodC : l.Kind == LogKind.Vote ? BrassC : "#f0e5d0";
-                GUILayout.BeginHorizontal();
-                GUILayout.Label(Col("Day " + l.Day, MutedC), sSmall, GUILayout.Width(54));
-                GUILayout.Label(Col(l.Message, c), sLabel);
-                GUILayout.EndHorizontal();
-                GUILayout.Space(2);
-            }
-        }
-
-        // ---------------------------------------------------------------- inspector
-        void DrawInspector()
-        {
-            GUILayout.BeginHorizontal();
-            GUILayout.BeginVertical();
-            if (gc.Selected.Kind == SelectionKind.Person)
-            {
-                var p = T.GetCitizen(gc.Selected.Id);
-                if (p == null) { Later(() => gc.Select(Selection.None)); GUILayout.EndVertical(); GUILayout.EndHorizontal(); return; }
-                var own = T.OwnedBusiness(p); var home = T.GetBuilding(p.HomeId); var work = T.GetBuilding(p.WorkId);
-                GUILayout.Label(p.Name, sHeading);
-                GUILayout.Label(Defs.RoleName(p.Role) + (p.Jail > 0 ? " · " + Col("in jail", BadC) : "") + (own != null && p.Role == Role.Mayor ? " · still owns the " + own.Def.Name : ""), sSmall);
-                KV("Works at", p.Role == Role.Mayor ? "Mayor's Estate" : work != null ? work.Def.Name : "—");
-                KV("Lives at", home != null ? (home.Type == BuildingType.Estate ? "Mayor's Estate" : "House #" + home.Id) : Col("Homeless", BadC));
-                KV("Savings", Money(p.Money));
-                KV("Eating", FedLabel(p));
-                KV("Mood", Col(Mathf.RoundToInt(p.Happy) + "%", MoodColor(p.Happy)));
-                if (T.Campaign.Active) { var v = T.VoteOf(p); var vc = v != null ? T.GetCitizen(v.CitizenId) : null; KV("Will vote for", vc != null ? vc.Name : "—"); }
-            }
-            else
-            {
-                var b = T.GetBuilding(gc.Selected.Id);
-                if (b == null) { Later(() => gc.Select(Selection.None)); GUILayout.EndVertical(); GUILayout.EndHorizontal(); return; }
-                var d = b.Def;
-                GUILayout.Label(d.Name, sHeading);
-                if (d.IsBusiness)
-                {
-                    var o = T.GetCitizen(b.OwnerId);
-                    GUILayout.Label(o != null ? "Owned by <b>" + o.Name + "</b>" + (o.WorkId != b.Id ? " (absent)" : "") : Col("For sale, waiting for a settler with savings", WarnC), sSmall);
-                    KV("Cash on hand", Money(b.Cash));
-                    KV("Daily wage", Money(b.Wage));
-                    KV("Staff", T.WorkersAt(b) + " working · " + b.Employees.Count + "/" + d.MaxEmployees + " hired");
-                    if (b.Type == BuildingType.Farm)
-                    {
-                        KV("Food in barn", b.Food.ToString("0.0"));
-                        KV("Tools", b.Tools.ToString("0.0") + (b.Tools > 0.05f ? Col(" +40%", GoodC) : ""));
-                        KV("Grew today", b.Today.Made.ToString("0.0"));
-                    }
-                    if (d.IsRetail)
-                    {
-                        KV("Food on shelves", b.Food.ToString("0.0") + " / " + d.ShelfCapacity);
-                        KV("Retail price", Money(b.Price));
-                        KV("Sold today", b.Today.Sold.ToString("0.0"));
-                    }
-                    if (b.Type == BuildingType.Smithy) { KV("Tools in stock", b.Tools.ToString("0.0")); KV("Forged today", b.Today.Made.ToString("0.0")); }
-                    if (b.Type == BuildingType.Saloon) KV("Drinks poured today", b.Today.Sold.ToString("0"));
-                    if (b.Last.Valid)
-                    {
-                        Heading("Last week");
-                        KV("Revenue", Money(b.Last.Revenue)); KV("Costs", Money(b.Last.Costs));
-                        KV("Profit", Col(Money(b.Last.Profit), b.Last.Profit < 0 ? BadC : GoodC));
-                        KV("Business tax", Money(b.Last.Tax)); KV("Owner took home", Money(b.Last.OwnerDraw));
-                    }
-                    Heading("Payroll");
-                    var staff = b.Employees.Select(T.GetCitizen).Where(x => x != null).Select(x => x.Name + (x.Jail > 0 ? " (jailed)" : "")).ToArray();
-                    GUILayout.Label(staff.Length > 0 ? string.Join(", ", staff) : "No hired hands", sSmall);
-                }
-                else if (b.Type == BuildingType.House || b.Type == BuildingType.Estate)
-                {
-                    var rs = b.Residents.Select(T.GetCitizen).Where(x => x != null).ToList();
-                    GUILayout.Label(b.Type == BuildingType.Estate ? (rs.Count > 0 ? "Home of the mayor" : "Empty, awaiting a mayor")
-                        : rs.Count + " of " + d.Beds + " beds taken · garden gave " + b.GardenToday.ToString("0.0") + " food today", sSmall);
-                    foreach (var p in rs)
-                    {
-                        if (GUILayout.Button(p.Name + "  ·  " + Defs.RoleName(p.Role) + "  ·  " + Money(p.Money) + "  ·  " + FedLabel(p), sRow)) { var id = p.Id; Later(() => gc.Select(Selection.Person(id))); }
-                    }
-                    if (b.Type == BuildingType.Estate && T.MayorPlatform != Platform.None)
-                        GUILayout.Label("Platform: <b>" + Defs.Get(T.MayorPlatform).Name + "</b>. " + Defs.Get(T.MayorPlatform).Description, sSmall);
-                }
-                else if (b.Type == BuildingType.Sheriff)
-                {
-                    var st = b.Employees.Select(T.GetCitizen).Where(x => x != null).Select(x => Defs.RoleName(x.Role) + " " + x.Name).ToArray();
-                    GUILayout.Label(st.Length > 0 ? string.Join(" · ", st) : "No lawmen hired yet", sSmall);
-                    KV("Crimes this week", T.CrimesWeek.ToString());
-                    KV("Caught this week", T.CaughtWeek.ToString());
-                    KV("Last week", T.CaughtLast + " of " + T.CrimesLast + " caught");
-                    var jailed = T.People.Where(x => x.Jail > 0).Select(x => x.Name).ToArray();
-                    KV("In the jailhouse", jailed.Length > 0 ? string.Join(", ", jailed) : "Nobody");
-                }
-                GUILayout.Space(8);
-                bool armed = confirmTearDown == b.Id;
-                if (GUILayout.Button(armed ? "Click again to tear it down" : "Tear down (" + Money(d.Cost * 0.25f) + " back)", sBtn, GUILayout.ExpandWidth(false)))
-                {
-                    if (armed) { var bb = b; Later(() => { if (T.Buildings.Contains(bb)) T.Remove(bb); gc.Select(Selection.None); }); confirmTearDown = -1; }
-                    else confirmTearDown = b.Id;
-                }
-            }
-            GUILayout.EndVertical();
-            if (GUILayout.Button("×", sBtn, GUILayout.Width(26), GUILayout.Height(24))) { Later(() => gc.Select(Selection.None)); confirmTearDown = -1; }
-            GUILayout.EndHorizontal();
+            var lines = s.Split('\n');
+            float tw = lines.Max(l => PixelFont.Width(l)) + 12, ht = lines.Length * PixelFont.LineH + 7;
+            var r = new Rect(Mathf.Min(m.x + 12, W - tw - 4), Mathf.Min(m.y + 14, H - ht - 4), tw, ht);
+            Ui.Tip(r);
+            float y = r.y + 5;
+            foreach (var l in lines) { Ui.Text(r.x + 6, y, l, c); y += PixelFont.LineH; c = Ui.InkSoft; }
         }
     }
 }

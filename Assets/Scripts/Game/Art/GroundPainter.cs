@@ -9,16 +9,16 @@ namespace FrontierLedger.Game.Art
         const string SNOW = "#f2f6f8", SNOW2 = "#cfdde6";
         static readonly string[][] Grass =
         {
-            new[] { "#6f9a45", "#5d8638", "#86b052", "#79a54b" },
-            new[] { "#5f8f3a", "#4f7b30", "#74a646", "#699a40" },
-            new[] { "#8d8f43", "#767a37", "#a6a052", "#9a8a3f" },
+            new[] { "#6aab45", "#559a38", "#88c45c", "#77b54e" },
+            new[] { "#5a9e3c", "#468a30", "#74b84e", "#66aa44" },
+            new[] { "#a29a48", "#8a823a", "#bcb05a", "#b0a24a" },
             new[] { "#e6ecef", "#ccd8df", "#ffffff", "#dbe4e9" },
         };
         public static readonly string[][] HillColors =
         {
-            new[] { "#9ab45e", "#839c4e", "#b4ca78" },
-            new[] { "#a4ab57", "#8b9249", "#bcc46c" },
-            new[] { "#b49a52", "#987f42", "#cab168" },
+            new[] { "#8cc25a", "#74a84a", "#a8d870" },
+            new[] { "#7cb450", "#64983f", "#98cc64" },
+            new[] { "#bcae5a", "#a0924a", "#d0c470" },
             new[] { "#f4f7f9", "#d6e1e8", "#ffffff" },
         };
         static readonly string[] Cliff = { "#8a6d4c", "#a3855f", "#74593e" };
@@ -75,8 +75,8 @@ namespace FrontierLedger.Game.Art
                         }
                         else
                         {
-                            c = gn.Sample(wx / 10f, wy / 10f) > 0.55f ? "#356b88" : "#3d7896";
-                            if (wy % 5 == 0 && ((wx + (wy / 5) * 3) % 9) < 3) c = "#5e9cb9";
+                            c = gn.Sample(wx / 10f, wy / 10f) > 0.55f ? "#336eae" : "#3b7cc0";
+                            if (wy % 5 == 0 && ((wx + (wy / 5) * 3) % 9) < 3) c = "#64a4dc";
                         }
                         int dd = 99;
                         if (lN) dd = Mathf.Min(dd, py);
@@ -87,9 +87,10 @@ namespace FrontierLedger.Game.Art
                         if (lNE && (15 - px) + py <= 2) dd = Mathf.Min(dd, Mathf.Max(15 - px, py));
                         if (lSW && px + (15 - py) <= 2) dd = Mathf.Min(dd, Mathf.Max(px, 15 - py));
                         if (lSE && (15 - px) + (15 - py) <= 2) dd = Mathf.Min(dd, Mathf.Max(15 - px, 15 - py));
-                        if (dd == 0) c = si == 3 ? "#e6e6de" : "#c7ad7c";
-                        else if (dd == 1) c = si == 3 ? "#d2dde2" : "#a88d60";
-                        else if (dd == 2 && si != 3) c = "#4f8aa8";
+                        if (dd == 0) c = si == 3 ? "#e6e6de" : "#e0c488";
+                        else if (dd == 1) c = si == 3 ? "#d2dde2" : "#c4a06a";
+                        else if (dd == 2 && si != 3) c = "#2f6aa4";
+                        else if (dd == 3 && si != 3) c = "#8cc0e8";
                     }
                     else if (t == Tile.Hill)
                     {
@@ -120,7 +121,9 @@ namespace FrontierLedger.Game.Art
                     else
                     {
                         c = gn.Sample(wx / 13f, wy / 13f) > 0.6f ? G[3] : G[0];
-                        if (r < 0.07f) c = G[1]; else if (r > 0.97f) c = G[2];
+                        if (r < 0.03f) c = G[1]; else if (r > 0.988f) c = G[2];
+                        else if (Noise.Hash(wx >> 1, wy, 3) < 0.035f && py < 15) c = G[1];
+                        else if (Noise.Hash(wx, wy >> 1, 9) < 0.02f) c = G[2];
                         if (n == Tile.Hill && (py < 2 || (py < 4 && (wx + wy) % 2 == 0))) c = si == 3 ? "#c3cfd7" : G[1];
                         if (s == Tile.Hill && py == 15) c = G[1];
                     }
@@ -133,6 +136,7 @@ namespace FrontierLedger.Game.Art
             if (tx < 0 || ty < 0 || tx >= Town.Cols || ty >= Town.Rows) return;
             var g = Canvas; int X = tx * 16, Y = ty * 16; byte t = town.TerrainAt(tx, ty);
             if (town.IsRoad(tx, ty)) { if (t == Tile.Water) Bridge(X, Y, tx, ty, si); else Road(X, Y, tx, ty, si); return; }
+            if (t == Tile.Water && NextToFishery(tx, ty)) { Pier(X, Y, si); return; }
             if (t == Tile.Hill)
             {
                 bool sOpen = town.TerrainAt(tx, ty + 1) != Tile.Hill; int lim = sOpen ? 5 : 14;
@@ -150,7 +154,7 @@ namespace FrontierLedger.Game.Art
                 }
                 return;
             }
-            if (t != Tile.Grass && t != Tile.Tree && t != Tile.Rock) return;
+            if (t != Tile.Grass && t != Tile.Tree && t != Tile.Rock && t != Tile.Sapling && t != Tile.Stump) return;
             if (town.OccupantAt(tx, ty) != null) return;
             float r = Noise.Hash(tx, ty, 11);
             string tuft = si == 3 ? "#a9b8ae" : Grass[si][1];
@@ -159,6 +163,15 @@ namespace FrontierLedger.Game.Art
             {
                 int px = 2 + (int)(Noise.Hash(tx, ty, i + 20) * 11), py = 3 + (int)(Noise.Hash(tx, ty, i + 30) * 10);
                 g.D(X + px, Y + py, tuft); g.D(X + px + 2, Y + py, tuft); g.D(X + px + 1, Y + py + 1, tuft);
+            }
+            if (si != 3 && Noise.Hash(tx, ty, 15) < 0.14f)
+            {
+                // a leafy weed tuft
+                int px = 3 + (int)(Noise.Hash(tx, ty, 16) * 9), py = 4 + (int)(Noise.Hash(tx, ty, 17) * 8);
+                string dk = Grass[si][1], lt = Grass[si][2];
+                g.D(X + px, Y + py, dk); g.D(X + px + 1, Y + py + 1, dk); g.D(X + px + 2, Y + py + 1, lt); g.D(X + px + 3, Y + py, lt);
+                g.D(X + px + 4, Y + py - 1, dk); g.D(X + px + 2, Y + py - 1, lt); g.D(X + px + 2, Y + py, dk);
+                g.R(X + px + 1, Y + py + 2, 3, 1, dk);
             }
             if (si < 2 && Noise.Hash(tx, ty, 12) < 0.2f)
             {
@@ -173,6 +186,27 @@ namespace FrontierLedger.Game.Art
             if (si == 2 && Noise.Hash(tx, ty, 14) < 0.45f)
                 for (int i = 0; i < 3; i++)
                     g.D(X + (int)(Noise.Hash(tx, ty, i + 70) * 16), Y + (int)(Noise.Hash(tx, ty, i + 80) * 16), i % 2 == 1 ? "#c8642a" : "#e0a03a");
+        }
+
+        bool NextToFishery(int tx, int ty)
+        {
+            int[] dx = { 1, -1, 0, 0 }, dy = { 0, 0, 1, -1 };
+            for (int i = 0; i < 4; i++)
+            {
+                var b = town.OccupantAt(tx + dx[i], ty + dy[i]);
+                if (b != null && b.Type == BuildingType.Fishery) return true;
+            }
+            return false;
+        }
+
+        void Pier(int X, int Y, int si)
+        {
+            var g = Canvas;
+            g.R(X + 1, Y + 1, 14, 14, "#9a6a3a");
+            for (int y = Y + 1; y < Y + 15; y += 3) { g.R(X + 1, y, 14, 1, "#b8844a"); g.R(X + 1, y + 2, 14, 1, "#7a4e2c"); }
+            g.R(X, Y, 2, 16, "#5a3a22"); g.R(X + 14, Y, 2, 16, "#5a3a22");
+            g.RBlend(X + 1, Y + 15, 14, 1, new Color32(0, 0, 0, 70));
+            if (si == 3) g.R(X + 2, Y + 1, 12, 1, SNOW);
         }
 
         void Road(int X, int Y, int tx, int ty, int si)
