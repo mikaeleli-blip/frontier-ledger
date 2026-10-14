@@ -23,6 +23,9 @@ namespace FrontierLedger.Simulation
             Produce(si);
             Trade(si);
             Households(si);
+            if (DayOfSeason == 1 && si >= 2 && Homeless > 0)
+                AddLog(si == 2 ? "Autumn, and " + Homeless + " settlers still sleep in tents. Without a roof they'll be freezing by winter."
+                               : "Winter. " + Homeless + " settlers have no roof. By the fire with firewood in store they might last; without it they won't.", LogKind.Bad);
             Saloons();
             Payroll();
             int crimes = Crime();
@@ -660,6 +663,8 @@ namespace FrontierLedger.Simulation
                 report.Bought += got;
                 p.FedToday = got / appetite;
                 p.Warm = si <= 1;   // a campfire does in spring and summer
+                // in the cold they huddle by the fire, burning firewood from the town stores
+                p.ByFire = !p.Warm && TakeFromTown(Good.Firewood, 0.3f) > 0.2f;
             }
             foreach (var p in People)
             {
@@ -806,7 +811,7 @@ namespace FrontierLedger.Simulation
             foreach (var p in People.ToList())
             {
                 float dh = p.Fed >= 0.95f ? 2f : -(1 - p.Fed) * 14f;
-                if (!p.Warm) dh -= ColdDamage[si] * (p.HomeId < 0 ? 1.2f : 1f) * (p.IsChild || p.Age > 60 ? 1.3f : 1f) * Rnd(0.6f, 1.4f);
+                if (!p.Warm) dh -= ColdDamage[si] * (p.HomeId < 0 ? (p.ByFire ? 0.9f : 1.2f) : 1f) * (p.IsChild || p.Age > 60 ? 1.3f : 1f) * Rnd(0.6f, 1.4f);
                 else if (p.Fed >= 0.95f) dh += 1.5f;
                 if (p.Age > 60) dh -= (p.Age - 60) * 0.06f;
                 p.Health = Clamp(p.Health + dh, 0, 100);
@@ -857,7 +862,9 @@ namespace FrontierLedger.Simulation
         {
             if (si == 3 || AverageHappiness < 40 || FreeBeds < 2) return;
             // newcomers ask around first: they won't settle where the larders look thin, least of all before winter
-            if (TotalFood() < (People.Count + 3) * (si == 2 ? 14f : 5f)) return;
+            float stock = TotalFood(), need = (People.Count + 3) * (si == 2 ? 14f : 5f);
+            bool rising = History.Count >= 8 && History[History.Count - 1].Food >= History[History.Count - 8].Food;
+            if (stock < need || (!rising && stock < (People.Count + 3) * 14f)) return;   // not while the stores are only running down
             if (!Chance(0.035 + (AverageHappiness - 40) / 1500.0)) return;
             var names = new List<Citizen>();
             if (Chance(0.55))

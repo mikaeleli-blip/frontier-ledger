@@ -128,6 +128,7 @@ namespace FrontierLedger.Simulation
         public int CharityDays;
         public int ColdDays;
         public int EvictedDay = -999;
+        public bool ByFire;              // sleeping rough but huddled by the town fire with firewood to burn
         public string Name { get { return First + " " + Family; } }
         public bool IsChild { get { return Age < Balance.AdultAge; } }
     }

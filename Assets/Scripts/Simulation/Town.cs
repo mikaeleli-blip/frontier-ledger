@@ -35,6 +35,7 @@ namespace FrontierLedger.Simulation
         public bool HasLastWeek;
         public int CrimesWeek, CrimesLast, CaughtWeek, CaughtLast;
         public int Births, Deaths, Unburied;
+        public int FounderBuilderId = -1;        // the builder who came with the wagon; owns the first yard
         public List<HistoryPoint> History = new List<HistoryPoint>();
         public MarketReport Market = new MarketReport();
 
@@ -483,17 +484,6 @@ namespace FrontierLedger.Simulation
             }
             var wagon = t.Place(BuildingType.Wagon, WagonX, WagonY, out err, true);
             for (int g = 0; g < Balance.GoodCount; g++) wagon.Stock[g] = Balance.StartingStock[g];
-            // A builder's family came with the wagon and sets up a yard beside it
-            Building yard = null;
-            for (int r = 2; r <= 9 && yard == null; r++)
-                for (int dy = -r; dy <= r && yard == null; dy++)
-                    for (int dx = -r; dx <= r && yard == null; dx++)
-                    {
-                        if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != r) continue;
-                        int x = WagonX + dx, y = WagonY + dy;
-                        if (y + 1 >= 24 && y <= 24) continue;   // keep off the trail
-                        if (t.CanPlace(BuildingType.BuilderYard, x, y, true) == null) yard = t.Place(BuildingType.BuilderYard, x, y, out err, true);
-                    }
 
             // Four families
             for (int f = 0; f < 4; f++)
@@ -504,11 +494,7 @@ namespace FrontierLedger.Simulation
                 dad.PartnerId = mom.Id; mom.PartnerId = dad.Id;
                 int kids = f == 0 ? 0 : t.Rng.Next(1, 3);
                 for (int k = 0; k < kids; k++) { var c = t.AddPerson(t.Chance(0.5), fam, t.Rnd(1, 9), 0); c.ParentId = c.MotherId = mom.Id; c.FatherId = dad.Id; }
-                if (f == 0 && yard != null)
-                {
-                    yard.OwnerId = dad.Id; dad.Role = Role.Owner; dad.WorkId = yard.Id;
-                    yard.Cash = 40; dad.Money = Math.Max(10, dad.Money - 15);
-                }
+                if (f == 0) t.FounderBuilderId = dad.Id;   // a builder by trade
             }
             // and two single folk
             t.AddPerson(false, t.Pick(Defs.LastNames), t.Rnd(18, 30), (float)Math.Round(t.Rnd(15, 40)));
@@ -518,8 +504,9 @@ namespace FrontierLedger.Simulation
             t.DirtyTiles.Clear();
             t.Log.Clear();
             t.AddLog("Four families and two drifters stopped by the creek with what one wagon could carry.", LogKind.Good);
-            var builder = yard != null ? t.GetCitizen(yard.OwnerId) : null;
-            if (builder != null) t.AddLog(builder.Name + " brought his tools and set up a builder's yard by the wagon. The town pays him by the job.", LogKind.Build);
+            var builder = t.GetCitizen(t.FounderBuilderId);
+            if (builder != null) t.AddLog(builder.Name + " is a builder by trade and brought his tools. Pick a spot for his Builder's Yard (Industry). Until it stands, the town hires settlers by the day to build.", LogKind.Build);
+            t.AddLog("Tents won't keep anyone warm through autumn and winter. Get everyone under a roof before the cold comes.", LogKind.Bad);
             t.AddLog("Get roofs over their heads before winter: a boarding house is quickest, cottages let families grow. A woodcutter keeps them warm. Food runs out faster than you think.", LogKind.Info);
             return t;
         }

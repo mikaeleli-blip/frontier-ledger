@@ -27,14 +27,17 @@ The town saves once a week and when you quit, to `Application.persistentDataPath
 ## The start
 
 Six households arrive by wagon in spring 1852 with food, firewood, logs, stone and tools to last the first few months.
-One of them is a builder's family, who set up a builder's yard beside the wagon. There are no houses yet.
-Families camp in tents by the wagon until cottages go up.
+One of the men is a builder by trade: you pick where his Builder's Yard goes (Industry tab). Until it stands,
+the town hires settlers by the day to build. There are no houses yet; families camp in tents by the wagon.
 
-A town that builds nothing starves or freezes in its first winter.
+A town that builds nothing starves or freezes in its first winter. Tents can't keep anyone warm in autumn or winter;
+people huddled by the fire last longer if there's firewood in store, but not for long. Warnings appear under the
+stores bar when people are in tents as the cold comes, when food or firewood will run out within ten days, and when
+a food business has nobody working it.
 
 A sound opening:
 
-1. Build a boarding house to get people out of the tents, then cottages for the families.
+1. Place the Builder's Yard, then a boarding house to get people out of the tents, then cottages for the families.
 2. Build a gatherer's hut or fishing dock for food.
 3. Build a lumber camp and a woodcutter so there is firewood for winter.
 4. Build a storehouse so the wagon can be unloaded.
@@ -69,7 +72,8 @@ Trade, Election and the Gazette.
 - **Housing:** tents, then a boarding house, then a cottage (large homes to buy are planned).
   - A boarding house sleeps eight cheaply, but has no garden, is cramped, and no babies are born there.
   - Single adults take a boarding-house bed, and grown children move out of their parents' cottage into one.
-  - Families board only when no cottage is free, and move out as soon as one is.
+  - Families board only when no cottage is free, and move out as soon as one is. Two children share a bed,
+    and a single boarder gives up their bed to a family with little ones.
 - **Rent:** cottages pay weekly rent per family, boarders pay per head. Four weeks behind and they're put out.
   Families living on charity pay nothing.
 - **Deeds:** a finished business is sold to the settler with the most savings at what it cost the town.
@@ -104,7 +108,7 @@ Trade, Election and the Gazette.
   - Single men and women marry (never close relatives) when there is an empty cottage for them, have children, and grow old.
   - Births slow down when the town is short of food.
   - The dead are buried in the cemetery if there is room.
-  - Newcomers arrive when there are spare beds and the larders aren't thin, and bring some food with them.
+  - Newcomers arrive when there are spare beds and the larders aren't thin or running down, and bring some food with them.
 - **Law:** broke, hungry settlers steal. The sheriff and deputies catch them and jail them for two days.
 - **Daily life:** settlers open their front doors to go in at night and come out in the morning. Most saloon-goers head inside, and jailed settlers are taken into the sheriff's office.
 - **Mayor:**

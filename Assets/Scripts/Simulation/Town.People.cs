@@ -56,7 +56,14 @@ namespace FrontierLedger.Simulation
             return unit;
         }
 
-        static int FreeIn(Building h) { return h.Def.Beds - h.Residents.Count; }
+        /// <summary>Spare beds. In a boarding house two children share a bed.</summary>
+        float FreeIn(Building h)
+        {
+            if (h.Type != BuildingType.BoardingHouse) return h.Def.Beds - h.Residents.Count;
+            float used = 0; foreach (var id in h.Residents) { var r = GetCitizen(id); used += r != null && r.IsChild ? 0.5f : 1f; }
+            return h.Def.Beds - used;
+        }
+        static float BedsFor(List<Citizen> unit, bool boarding) { return boarding ? unit.Sum(u => u.IsChild ? 0.5f : 1f) : unit.Count; }
 
         /// <summary>
         /// Finds everyone a bed. Families want a cottage of their own and only board when none is free;
@@ -89,7 +96,7 @@ namespace FrontierLedger.Simulation
                     if (a == null || a.IsChild || a.PartnerId >= 0 || ChildrenOf(a).Any() || a.HomeId != h.Id) continue;
                     bool family = h.Residents.Select(GetCitizen).Any(o => o != null && o != a && !o.IsChild && (o.PartnerId >= 0 || ChildrenOf(o).Any()));
                     if (!family) continue;
-                    var bed = boards.FirstOrDefault(b => FreeIn(b) > 0);
+                    var bed = boards.FirstOrDefault(b => FreeIn(b) >= 1);
                     if (bed == null) break;
                     MoveInto(a, bed);
                 }
@@ -108,11 +115,29 @@ namespace FrontierLedger.Simulation
                 {
                     // Partner already housed: join them if there is room
                     var ph = GetBuilding(partner.HomeId);
-                    if (ph != null && IsHome(ph.Type) && FreeIn(ph) >= unit.Count) { foreach (var u in unit) MoveInto(u, ph); continue; }
+                    if (ph != null && IsHome(ph.Type) && FreeIn(ph) >= BedsFor(unit, ph.Type == BuildingType.BoardingHouse)) { foreach (var u in unit) MoveInto(u, ph); continue; }
                 }
                 var empty = houses.FirstOrDefault(h => h.Residents.Count == 0);
                 Building target;
-                if (unit.Count > 1) target = empty ?? boards.Where(b => FreeIn(b) >= unit.Count).OrderBy(b => b.Residents.Count).FirstOrDefault();
+                float need = BedsFor(unit, true);
+                if (unit.Count > 1)
+                {
+                    target = empty ?? boards.Where(b => FreeIn(b) >= need).OrderBy(b => b.Residents.Count).FirstOrDefault();
+                    // children come first: a single boarder gives up their bed to a family with little ones
+                    if (target == null && unit.Any(u => u.IsChild))
+                        foreach (var bh in boards)
+                        {
+                            var singles = Household(bh).Where(x => !x.IsChild && x.PartnerId < 0 && !ChildrenOf(x).Any()).OrderByDescending(x => x.ArrivedDay).ToList();
+                            if (FreeIn(bh) + singles.Count < need) continue;
+                            foreach (var sgl in singles)
+                            {
+                                if (FreeIn(bh) >= need) break;
+                                LeaveHome(sgl);
+                                AddLog(sgl.Name + " gave up a bed in the boarding house so the " + a.Family + " children could sleep indoors.", LogKind.Info);
+                            }
+                            target = bh; break;
+                        }
+                }
                 else target = boards.Where(b => FreeIn(b) >= 1).OrderBy(b => b.Residents.Count).FirstOrDefault()
                               ?? empty ?? houses.Where(h => FreeIn(h) >= 1).OrderBy(h => h.Residents.Count).FirstOrDefault();
                 if (target != null) foreach (var u in unit) MoveInto(u, target);
@@ -122,10 +147,10 @@ namespace FrontierLedger.Simulation
             {
                 var parent = GetCitizen(c.ParentId);
                 var home = parent != null ? GetBuilding(parent.HomeId) : null;
-                if (home != null && IsHome(home.Type) && FreeIn(home) > 0) { MoveInto(c, home); continue; }
+                if (home != null && IsHome(home.Type) && FreeIn(home) >= (home.Type == BuildingType.BoardingHouse ? 0.5f : 1f)) { MoveInto(c, home); continue; }
                 if (parent != null) continue;
-                var spare = houses.Where(h => FreeIn(h) > 0 && h.Residents.Count > 0).OrderBy(h => h.Residents.Count).FirstOrDefault()
-                            ?? boards.FirstOrDefault(b => FreeIn(b) > 0);
+                var spare = houses.Where(h => FreeIn(h) >= 1 && h.Residents.Count > 0).OrderBy(h => h.Residents.Count).FirstOrDefault()
+                            ?? boards.FirstOrDefault(b => FreeIn(b) >= 0.5f);
                 if (spare != null) MoveInto(c, spare);
             }
         }
@@ -312,6 +337,17 @@ namespace FrontierLedger.Simulation
         void AssignOwner(Building b)
         {
             var d = b.Def;
+            var founder = GetCitizen(FounderBuilderId);
+            if (b.Type == BuildingType.BuilderYard && founder != null && !founder.IsChild && founder.Jail == 0 && founder.Role != Role.Mayor && OwnedBusiness(founder) == null)
+            {
+                // the builder who came with the wagon brought his own tools: the first yard is his
+                if (founder.Role == Role.Worker || founder.Role == Role.Sheriff || founder.Role == Role.Deputy) QuitJob(founder);
+                b.OwnerId = founder.Id; founder.Role = Role.Owner; founder.WorkId = b.Id; b.Debt = 0;
+                b.Cash += 40f + founder.Money * 0.3f; founder.Money *= 0.7f; b.LossWeeks = 0; b.BuiltDay = Day;
+                FounderBuilderId = -1;
+                AddLog(founder.Name + " opened his Builder's Yard. From now on the town pays him by the job.", LogKind.Good);
+                return;
+            }
             var c = People.Where(p => !p.IsChild && (p.Role == Role.Laborer || p.Role == Role.Worker) && p.Jail == 0 && p.Money >= 10 && p.Age < 60 && OwnedBusiness(p) == null)
                           .OrderByDescending(p => p.Money).FirstOrDefault();
             if (c == null) return;

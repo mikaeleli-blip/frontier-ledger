@@ -68,6 +68,7 @@ namespace FrontierLedger.Game
 
             DateBox();
             StoresBar();
+            Alerts();
             MoneyAndTabs();
             Hotbar();
             Minimap();
@@ -155,7 +156,7 @@ namespace FrontierLedger.Game
                 "Adults + children",
                 "Average happiness",
                 "Average health. Hunger and cold wear it down.",
-                "Settlers without a roof. Build cottages.",
+                "Settlers without a roof. A boarding house is quickest; tents can't keep anyone warm in autumn or winter.",
             };
             for (int i = 0; i < items.Count; i++)
             {
@@ -171,6 +172,44 @@ namespace FrontierLedger.Game
                 Ui.Text(x + 12, r.y + 9, kv.Value, c);
                 if (Ui.Hover(cell)) hoverTip = tips[Mathf.Min(i, tips.Length - 1)];
                 x += 14 + PixelFont.Width(kv.Value) + 10;
+            }
+        }
+
+        // ---------------------------------------------------------------- warnings under the stores bar
+        /// <summary>Plain warnings before disaster: people in tents as the cold comes, food or firewood running out,
+        /// food businesses with nobody working them.</summary>
+        void Alerts()
+        {
+            var lines = new List<KeyValuePair<string, bool>>();   // text, severe
+            int si = T.Season, homeless = T.Homeless;
+            if (homeless > 0 && si >= 1)
+                lines.Add(new KeyValuePair<string, bool>(si == 1 ? homeless + " in tents. Get them under a roof before autumn." : si == 2 ? homeless + " in tents. They will freeze this winter without a roof." : homeless + " in tents are freezing. Keep firewood in store for their fire.", si >= 2));
+            float eat = T.People.Sum(p => p.IsChild ? Balance.ChildAppetite : 1f);
+            float grow = T.Market.Garden;
+            float daily = Mathf.Max(0.5f, eat - grow);
+            float foodDays = T.TotalFood() / daily;
+            if (T.People.Count > 0 && foodDays < 10) lines.Add(new KeyValuePair<string, bool>("Food for about " + Mathf.FloorToInt(foodDays) + " days.", foodDays < 5));
+            int homes = T.Buildings.Count(h => h.Built && Town.IsHome(h.Type) && h.Residents.Count > 0);
+            float burn = homes * Balance.FirewoodBySeason[si] + (si >= 2 ? homeless * 0.3f : 0f);
+            if (burn > 0.5f)
+            {
+                float woodDays = T.TotalFirewood() / burn;
+                if (woodDays < 10) lines.Add(new KeyValuePair<string, bool>("Firewood for about " + Mathf.FloorToInt(woodDays) + " days.", woodDays < 5 || si == 3));
+            }
+            int idleFood = T.Businesses.Count(b => Town.Produces(b.Type, Good.Food) && T.WorkersAt(b) == 0);
+            if (idleFood > 0) lines.Add(new KeyValuePair<string, bool>(idleFood == 1 ? "A food business has nobody working it." : idleFood + " food businesses have nobody working them.", false));
+            if (lines.Count == 0) return;
+            float w = 0; foreach (var l in lines) w = Mathf.Max(w, PixelFont.Width(l.Key));
+            w += 26;
+            var r = Block(new Rect(Mathf.Round((W - w) / 2), 31, w, lines.Count * 11 + 8));
+            Ui.Fill(r, Ui.Hex("#3b2618"));
+            var bg = Ui.Parch; bg.a = 0.92f; Ui.Fill(new Rect(r.x + 1, r.y + 1, r.width - 2, r.height - 2), bg);
+            float y = r.y + 4;
+            foreach (var l in lines)
+            {
+                Ui.IconAt(r.x + 5, y - 1, Icon.Warning);
+                Ui.Text(r.x + 17, y, l.Key, l.Value ? Ui.Bad : Ui.Warn);
+                y += 11;
             }
         }
 
