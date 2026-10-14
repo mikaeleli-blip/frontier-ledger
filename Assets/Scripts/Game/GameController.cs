@@ -28,7 +28,7 @@ namespace FrontierLedger.Game
 
         public ToolKind Tool { get; private set; }
         public BuildingType BuildType { get; private set; }
-        public Selection Selected = Selection.None;
+        public Selection Selected { get; set; }
 
         /// <summary>Tile under the mouse, or (-1,-1).</summary>
         public Vector2Int HoverTile { get; private set; }
