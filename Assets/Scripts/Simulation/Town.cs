@@ -11,7 +11,8 @@ namespace FrontierLedger.Simulation
     [Serializable]
     public partial class Town
     {
-        public int Version = 5;
+        public const int CurrentVersion = 5;
+        public int Version = CurrentVersion;
         public int Seed;
         public int Day = 1;
         public float TimeOfDay = 0.3f;           // 0 = midnight, 0.5 = noon
