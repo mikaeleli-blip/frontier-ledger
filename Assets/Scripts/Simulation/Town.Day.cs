@@ -6,7 +6,7 @@ namespace FrontierLedger.Simulation
 {
     public partial class Town
     {
-        static readonly Good[] AllGoods = { Good.Food, Good.Firewood, Good.Logs, Good.Stone, Good.Tools };
+        static readonly Good[] AllGoods = { Good.Food, Good.Firewood, Good.Logs, Good.Stone, Good.Tools, Good.Furniture };
 
         /// <summary>One full day: the land, construction, production, trade, households, wages,
         /// crime, health, families, hiring, migration and elections.</summary>
@@ -17,6 +17,7 @@ namespace FrontierLedger.Simulation
             foreach (var p in People) { p.FedToday = 0; p.SaloonToday = -1; p.TaskId = -1; p.Chore = Chore.None; }
 
             GrowLand();
+            Wear(si);
             Construct();
             OddJobs(si);
             Produce(si);
@@ -58,11 +59,159 @@ namespace FrontierLedger.Simulation
         /// <summary>Adults without a job who can take day work.</summary>
         bool DayLaborer(Citizen p) { return !p.IsChild && p.Role == Role.Laborer && p.Jail == 0 && p.Age < 66; }
 
+        public static float LaborDays(BuildingDef d) { return d.Work + (d.Logs + d.Stone) / Balance.HaulPerDay; }
+        public float ContractPriceFor(BuildingDef d) { return (float)Math.Round(LaborDays(d) * Policy.ContractRate, 2); }
+        public IEnumerable<Building> Yards { get { return Businesses.Where(b => b.Type == BuildingType.BuilderYard && b.OwnerId >= 0); } }
+
+        /// <summary>The owner and hands at work in a business today.</summary>
+        List<Citizen> CrewOf(Building y)
+        {
+            var crew = new List<Citizen>();
+            var o = GetCitizen(y.OwnerId);
+            if (o != null && o.WorkId == y.Id && o.Jail == 0) crew.Add(o);
+            foreach (var id in y.Employees) { var p = GetCitizen(id); if (p != null && p.Jail == 0) crew.Add(p); }
+            return crew;
+        }
+
+        /// <summary>One worker-day on a site: build if there are materials to build with, otherwise haul.
+        /// Returns false when there's nothing they can do there.</summary>
+        bool SiteWork(Building s, Citizen p)
+        {
+            var d = s.Def;
+            float cap = d.Work * Math.Min(1f, s.MaterialsFraction) - s.Progress;
+            if (cap > 0.001f) { s.Progress += Math.Min(cap, 1f); p.Chore = Chore.Build; p.TaskId = s.Id; return true; }
+            Good g; float got = Haul(s, out g);
+            if (got <= 0.001f) return false;   // nothing to build with until materials turn up
+            p.Chore = g == Good.Logs ? Chore.HaulLogs : Chore.HaulStone; p.TaskId = s.Id;
+            return true;
+        }
+
         void Construct()
         {
             var sites = Sites.OrderBy(b => b.Id).ToList();
+            var yards = Yards.ToList();
+            if (yards.Count == 0) { DayLabor(sites); return; }
+            // the treasury settles old bills first
+            foreach (var y in yards)
+                if (y.TownOwes > 0.01f && Treasury > 0)
+                {
+                    float pay = Math.Min(y.TownOwes, Treasury);
+                    Treasury -= pay; LedgerThisWeek.Contracts += pay; y.TownOwes -= pay; y.Cash += pay; y.Week.Revenue += pay;
+                }
+            // new jobs go to whichever yard has the least on its books
+            foreach (var s in sites)
+                if (!yards.Any(y => y.Id == s.ContractorId)) Award(s, yards);
+            foreach (var b in Buildings)
+                if (b.Built && Wears(b) && b.Condition < Balance.RepairAt && !yards.Any(y => y.Id == b.RepairBy))
+                {
+                    var y = yards.OrderBy(x => Buildings.Count(q => q.RepairBy == x.Id || q.ContractorId == x.Id)).First();
+                    b.RepairBy = y.Id; b.RepairPaid = false;
+                }
+            foreach (var y in yards)
+            {
+                var crew = CrewOf(y); int ci = 0, want = 0;
+                var repairs = Buildings.Where(b => b.Built && b.RepairBy == y.Id).OrderBy(b => b.Condition).ToList();
+                // badly worn buildings first, then new building, then the other repairs
+                var jobs = new List<Building>();
+                jobs.AddRange(repairs.Where(b => b.Condition < 40));
+                jobs.AddRange(sites.Where(s => s.ContractorId == y.Id));
+                jobs.AddRange(repairs.Where(b => b.Condition >= 40));
+                foreach (var job in jobs)
+                {
+                    bool repair = job.Built;
+                    if (repair ? !StartRepair(job, y) : !StartContract(job, y)) continue;   // waiting on payment
+                    int max = repair ? 2 : Balance.SiteCrew(job.Def), n = 0;
+                    want += max;
+                    while (ci < crew.Count && n < max)
+                    {
+                        if (repair ? !RepairWork(job, crew[ci]) : !SiteWork(job, crew[ci])) break;
+                        ci++; n++;
+                        if (repair && job.RepairBy < 0) break;   // finished
+                    }
+                    if (!repair && job.Progress >= job.Def.Work - 0.001f && job.MaterialsFraction >= 0.999f) OnBuilt(job, false);
+                }
+                for (; ci < crew.Count; ci++) Craft(y, crew[ci]);   // the rest make furniture
+                y.Backlog = want;
+                // hire for the work in hand, as far as the till allows (the owner works too)
+                int hire = Math.Min(y.Def.MaxEmployees, Math.Max(0, want - 1));
+                hire = Math.Min(hire, (int)(y.Cash / Math.Max(0.5f, y.Wage * 3)));
+                y.Desired = Math.Max(y.Desired, hire);
+            }
+        }
+
+        void Award(Building s, List<Building> yards)
+        {
+            var y = yards.OrderBy(x => Buildings.Count(q => q.ContractorId == x.Id || q.RepairBy == x.Id)).ThenBy(x => x.Id).First();
+            s.ContractorId = y.Id;
+            if (s.ContractPaid <= 0) s.ContractPrice = ContractPriceFor(s.Def);
+            var o = GetCitizen(y.OwnerId);
+            AddLog((o != null ? o.Name : "The builder's yard") + " took the contract for the " + s.Def.Name + " at " + Money(s.ContractPrice) + ".", LogKind.Build);
+        }
+
+        /// <summary>The town pays half the contract when work begins.</summary>
+        bool StartContract(Building s, Building y)
+        {
+            if (s.ContractPaid > 0 || s.ContractPrice <= 0) return true;
+            float half = s.ContractPrice * 0.5f;
+            if (Treasury < half) return false;
+            Treasury -= half; LedgerThisWeek.Contracts += half;
+            y.Cash += half; y.Week.Revenue += half; s.ContractPaid = half;
+            return true;
+        }
+
+        /// <summary>Buildings that wear and get repaired.</summary>
+        public static bool Wears(Building b)
+        {
+            var t = b.Type;
+            return t != BuildingType.Road && t != BuildingType.Wagon && t != BuildingType.Farm && t != BuildingType.Cemetery;
+        }
+
+        float RepairDays(Building b) { return Math.Max(0.5f, (100f - b.Condition) / 100f * b.Def.Work * 0.5f); }
+        public float RepairPrice(Building b) { return (float)Math.Round(RepairDays(b) * Policy.ContractRate, 2); }
+
+        /// <summary>Repairs are paid in full before work starts: by the owner for a business,
+        /// by the town for everything else.</summary>
+        bool StartRepair(Building b, Building y)
+        {
+            if (b.RepairPaid) return true;
+            float price = RepairPrice(b);
+            if (b.Def.IsBusiness && b.OwnerId >= 0)
+            {
+                if (b.Cash < price) return false;
+                b.Cash -= price; b.Week.Costs += price;
+            }
+            else
+            {
+                if (Treasury < price) return false;
+                Treasury -= price; LedgerThisWeek.Contracts += price;
+            }
+            y.Cash += price; y.Week.Revenue += price; b.RepairPaid = true;
+            return true;
+        }
+
+        bool RepairWork(Building b, Citizen p)
+        {
+            p.Chore = Chore.Repair; p.TaskId = b.Id;
+            b.Condition = Math.Min(100f, b.Condition + 100f / Math.Max(1f, b.Def.Work * 0.5f));
+            if (b.Condition >= 99.5f) { b.Condition = 100f; b.RepairBy = -1; b.RepairPaid = false; }
+            return true;
+        }
+
+        /// <summary>A quiet day at the yard: turn logs into furniture.</summary>
+        void Craft(Building y, Citizen p)
+        {
+            p.Chore = Chore.Craft; p.TaskId = y.Id;
+            if (y.Stock[(int)Good.Furniture] >= Balance.FurnitureCap) return;
+            float logs = Math.Min(y.Stock[(int)Good.Logs], Balance.FurnitureLogs * Balance.FurniturePerWorker);
+            if (logs < 0.01f) return;
+            y.Stock[(int)Good.Logs] -= logs;
+            Make(y, Good.Furniture, logs / Balance.FurnitureLogs * ToolFactor(y, 1));
+        }
+
+        /// <summary>Without a builder's yard the town hires settlers without a job by the day.</summary>
+        void DayLabor(List<Building> sites)
+        {
             if (sites.Count == 0) return;
-            // The town hires laborers by the day, as many as the ledger allows and the treasury can pay.
             var hands = People.Where(DayLaborer).OrderBy(p => p.Id).ToList();
             int hires = Math.Min(hands.Count, Policy.Builders);
             if (Policy.BuilderWage > 0) hires = Math.Min(hires, (int)(Math.Max(0, Treasury) / Policy.BuilderWage));
@@ -73,24 +222,29 @@ namespace FrontierLedger.Simulation
                 int crew = 0, max = Balance.SiteCrew(d);
                 while (hi < hires && crew < max)
                 {
-                    float cap = d.Work * Math.Min(1f, s.MaterialsFraction) - s.Progress;
-                    var p = hands[hi];
-                    if (cap > 0.001f)
-                    {
-                        s.Progress += Math.Min(cap, 1f);
-                        p.Chore = Chore.Build;
-                    }
-                    else
-                    {
-                        Good g; float got = Haul(s, out g);
-                        if (got <= 0.001f) break;   // nothing to build with until materials turn up
-                        p.Chore = g == Good.Logs ? Chore.HaulLogs : Chore.HaulStone;
-                    }
-                    p.TaskId = s.Id; hi++; crew++;
+                    if (!SiteWork(s, hands[hi])) break;
+                    hi++; crew++;
                 }
                 if (s.Progress >= d.Work - 0.001f && s.MaterialsFraction >= 0.999f) OnBuilt(s, false);
             }
         }
+
+        /// <summary>Wear and tear: a little every day, more in winter. Empty cottages wear slower.</summary>
+        void Wear(int si)
+        {
+            foreach (var b in Buildings)
+            {
+                if (!b.Built || !Wears(b)) continue;
+                float w = Balance.WearPerDay * Balance.WearBySeason[si] * (b.Type == BuildingType.House && b.Residents.Count == 0 ? 0.5f : 1f);
+                float before = b.Condition;
+                b.Condition = Math.Max(0f, b.Condition - w);
+                if (before >= 25f && b.Condition < 25f)
+                    AddLog("The " + b.Def.Name + (b.Type == BuildingType.House ? " #" + b.Id : "") + " is falling apart" + (b.Type == BuildingType.House ? ". The roof leaks." : " and getting little done.") + " It needs a builder.", LogKind.Bad);
+            }
+        }
+
+        /// <summary>Worn buildings get less done.</summary>
+        static float ConditionFactor(Building b) { return b.Condition >= 50f ? 1f : b.Condition >= 25f ? 0.85f : 0.6f; }
 
         /// <summary>One laborer's day of carrying logs (then stone) from the town stores to a site.
         /// Materials the stores lack are bought from producers with town money.</summary>
@@ -152,7 +306,7 @@ namespace FrontierLedger.Simulation
         {
             float f = b.Stock[(int)Good.Tools] > 0.01f ? 1f : Balance.NoToolsFactor;
             b.Stock[(int)Good.Tools] = Math.Max(0, b.Stock[(int)Good.Tools] - workers * Balance.ToolWearPerWorker);
-            return f;
+            return f * ConditionFactor(b);
         }
 
         float FoodBonus { get { return MayorBonus(Platform.Farm) ? 1.15f : 1f; } }
@@ -331,6 +485,8 @@ namespace FrontierLedger.Simulation
             }
         }
 
+        float SpareLogs() { return OfType(BuildingType.LumberCamp).Sum(b => b.Stock[(int)Good.Logs]); }
+
         void Trade(int si)
         {
             float xF = MayorBonus(Platform.Trade) ? 1.25f : 1f;
@@ -343,6 +499,9 @@ namespace FrontierLedger.Simulation
                 if (b.OwnerId < 0) continue;
                 if (b.Type == BuildingType.Woodcutter) BuyFor(b, Good.Logs, 15 - b.Stock[(int)Good.Logs]);
                 if (b.Type == BuildingType.Smithy) { BuyFor(b, Good.Logs, 8 - b.Stock[(int)Good.Logs]); BuyFor(b, Good.Stone, 8 - b.Stock[(int)Good.Stone]); }
+                // the yard only buys logs for furniture when the lumber camps have plenty to spare and homes are warm
+                if (b.Type == BuildingType.BuilderYard && b.Stock[(int)Good.Furniture] < Balance.FurnitureCap && SpareLogs() > 20 && TotalFirewood() > 80)
+                    BuyFor(b, Good.Logs, 6 - b.Stock[(int)Good.Logs]);
                 bool usesTools = !b.Def.IsRetail && b.Type != BuildingType.Saloon && b.Type != BuildingType.Smithy;
                 if (usesTools && w > 0 && b.Stock[(int)Good.Tools] < 0.5f * w) BuyFor(b, Good.Tools, w - b.Stock[(int)Good.Tools]);
             }
@@ -402,6 +561,9 @@ namespace FrontierLedger.Simulation
             foreach (var r in Buildings)
                 if (r.Built && r.Def.IsRetail && IsOpen(r) && Array.IndexOf(r.Def.Sells, g) >= 0 && r.Stock[(int)g] > 0.01f)
                     list.Add(new Source { B = r, Price = r.Price[(int)g] });
+            // Furniture is sold straight from the builder's yards
+            if (g == Good.Furniture)
+                foreach (var y in Yards) if (y.Stock[(int)g] > 0.99f) list.Add(new Source { B = y, Price = y.Price[(int)g] });
             // The storehouse only sells when no shop has any left
             if (list.Count == 0 && Policy.StorehouseSells && Policy.StorehousePrice[(int)g] > 0)
                 foreach (var s in Storages) if (s.Stock[(int)g] > 0.01f) list.Add(new Source { B = s, Price = Policy.StorehousePrice[(int)g], Town = true });
@@ -435,11 +597,14 @@ namespace FrontierLedger.Simulation
         void Households(int si)
         {
             var report = new MarketReport();
-            float heatNeed = Balance.FirewoodBySeason[si];
+            float heatSeason = Balance.FirewoodBySeason[si];
             foreach (var h in Buildings.Where(b => b.Built && (b.Type == BuildingType.House || b.Type == BuildingType.Estate)))
             {
                 var rs = Household(h).ToList();
                 h.ColdToday = false;
+                // a drafty cottage burns more; furniture wears out slowly
+                float heatNeed = heatSeason * (h.Type == BuildingType.House ? (h.Condition < 25 ? 1.6f : h.Condition < 50 ? 1.25f : 1f) : 1f);
+                h.Stock[(int)Good.Furniture] = Math.Max(0, h.Stock[(int)Good.Furniture] * (1 - Balance.FurnitureWear));
                 if (rs.Count == 0) { h.GardenToday = 0; continue; }
                 if (h.Type == BuildingType.House)
                 {
@@ -661,6 +826,13 @@ namespace FrontierLedger.Simulation
                 if (MayorBonus(Platform.People)) d += 0.6f;
                 if (p.Health < 50) d -= 1;
                 if (p.CharityDays > 0) d -= 0.8f;
+                var home = GetBuilding(p.HomeId);
+                if (home != null)
+                {
+                    d += (Math.Min(home.Stock[(int)Good.Furniture], 3f) - 1f) * 0.2f;   // a bare house is dreary, a furnished one homely
+                    if (home.Type == BuildingType.House && home.Condition < 25) d -= 0.6f;
+                    if (!p.IsChild && home.Type == BuildingType.House && Policy.Rent > 3f) d -= (Policy.Rent - 3f) * 0.2f;
+                }
                 d -= p.Grief * 0.04f;
                 d -= Math.Min(3f, Unburied * 0.3f);
                 d -= crimes * 0.4f;
@@ -711,6 +883,13 @@ namespace FrontierLedger.Simulation
         {
             var d = b.Def;
             int n = b.Employees.Count;
+            if (b.Type == BuildingType.BuilderYard)
+            {
+                // keep the crew the jobs need; in quiet weeks one hand stays on to make furniture
+                int want = Math.Min(d.MaxEmployees, Math.Max(0, b.Backlog - 1));
+                if (want == 0 && b.Stock[(int)Good.Furniture] < Balance.FurnitureCap * 0.5f && b.Cash > b.Wage * 10) want = 1;
+                return Math.Min(want, (int)(b.Cash / Math.Max(0.5f, b.Wage * 2)));
+            }
             int nextSeason = (((Day) % Balance.DaysPerYear) / Balance.DaysPerSeason);
             if ((b.Type == BuildingType.Farm || b.Type == BuildingType.Gatherer) && nextSeason == 3) return 0;
             if (b.Type == BuildingType.Farm && nextSeason == 0 && Season == 3) return Math.Min(d.MaxEmployees, 2);
@@ -731,10 +910,68 @@ namespace FrontierLedger.Simulation
         }
 
         // =====================================================================
+        // Rent: families pay the town for their cottage every week
+        // =====================================================================
+        /// <summary>Takes up to amount from a household's adults, richest first. Returns what was paid.</summary>
+        static float Collect(List<Citizen> payers, float amount)
+        {
+            float paid = 0;
+            foreach (var p in payers.OrderByDescending(x => x.Money))
+            {
+                float t = Math.Min(Math.Max(0, p.Money), amount - paid);
+                p.Money -= t; paid += t;
+                if (paid >= amount - 0.001f) break;
+            }
+            return paid;
+        }
+
+        void CollectRent()
+        {
+            if (Policy.Rent <= 0) return;
+            foreach (var h in OfType(BuildingType.House).ToList())
+            {
+                var rs = Household(h).ToList();
+                if (rs.Count == 0) { h.Arrears = 0; continue; }
+                if (Policy.Charity && rs.Any(p => p.CharityDays > 0)) continue;   // the town doesn't charge families it is feeding
+                var payers = rs.Where(p => !p.IsChild).ToList();
+                float due = Policy.Rent + Math.Min(h.Arrears, Policy.Rent);       // catching up a week at a time
+                float paid = Collect(payers, due);
+                Treasury += paid; LedgerThisWeek.Rent += paid;
+                h.Arrears = Math.Max(0, h.Arrears + Policy.Rent - paid);
+                if (h.Arrears <= 0.01f) continue;
+                foreach (var p in payers) p.Happy -= 2;
+                if (h.Arrears >= Policy.Rent * 4 - 0.01f)
+                {
+                    var head = payers.FirstOrDefault();
+                    AddLog("The " + (head != null ? head.Family : "") + " family was put out of Cottage #" + h.Id + ", four weeks behind on rent.", LogKind.Bad);
+                    foreach (var p in rs) { LeaveHome(p); p.EvictedDay = Day; }
+                    h.Arrears = 0;
+                }
+            }
+            RehouseEveryone();
+        }
+
+        /// <summary>Households with savings to spare buy a piece of furniture now and then.</summary>
+        void BuyFurniture()
+        {
+            foreach (var h in Buildings.Where(b => b.Built && (b.Type == BuildingType.House || b.Type == BuildingType.Estate)).ToList())
+            {
+                var payers = Household(h).Where(p => !p.IsChild).ToList();
+                if (payers.Count == 0) continue;
+                float target = h.Type == BuildingType.Estate ? 5f : 3f;
+                if (h.Stock[(int)Good.Furniture] > target - 0.5f) continue;
+                if (payers.Sum(p => p.Money) < Balance.FurnitureSavings) continue;
+                h.Stock[(int)Good.Furniture] += Purchase(Good.Furniture, 1f, payers);
+            }
+        }
+
+        // =====================================================================
         // Sunday: taxes, profits, staffing and prices
         // =====================================================================
         void Weekly()
         {
+            CollectRent();
+            BuyFurniture();
             foreach (var p in Adults)
             {
                 float a = Policy.HeadTax; if (a <= 0) continue;
@@ -751,6 +988,13 @@ namespace FrontierLedger.Simulation
                 float reserve = b.Wage * (b.Employees.Count + 1) * 4 + 25;
                 float draw = 0;
                 if (o != null && b.Cash > reserve) { draw = (b.Cash - reserve) * 0.6f; b.Cash -= draw; o.Money += draw; }
+                // the owner pays down what they owe the town for the deed
+                if (b.Debt > 0.01f && b.Cash > reserve * 0.5f)
+                {
+                    float pay = Math.Min(Math.Min(b.Debt, b.Cash - reserve * 0.5f), Math.Max(1f, Math.Max(0, profit) * 0.35f));
+                    if (pay > 0) { b.Cash -= pay; b.Debt -= pay; Treasury += pay; LedgerThisWeek.Deeds += pay; }
+                    if (b.Debt <= 0.01f && o != null) { b.Debt = 0; AddLog(o.Name + " paid off the deed to the " + d.Name + ".", LogKind.Good); }
+                }
                 b.Last = new WeekReport { Valid = true, Revenue = b.Week.Revenue, Costs = b.Week.Costs, Profit = profit, Tax = tax, OwnerDraw = draw, Sold = b.Week.Sold, Made = b.Week.Made };
                 b.Wage = Math.Max(Policy.MinWage, b.Wage);
                 if (o != null && Day - b.BuiltDay >= 6)

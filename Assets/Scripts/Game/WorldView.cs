@@ -201,7 +201,7 @@ namespace FrontierLedger.Game
                 for (int g = 0; g < 5; g++) if (b.Stock[g] > bv) { bv = b.Stock[g]; best = g; }
                 return best < 0 ? (Good?)null : (Good)best;
             }
-            foreach (Good g in new[] { Good.Food, Good.Firewood, Good.Logs, Good.Stone, Good.Tools }) if (Town.Produces(b.Type, g)) return g;
+            foreach (Good g in new[] { Good.Food, Good.Firewood, Good.Logs, Good.Stone, Good.Tools, Good.Furniture }) if (Town.Produces(b.Type, g)) return g;
             return null;
         }
 
@@ -242,6 +242,9 @@ namespace FrontierLedger.Game
                     if (open) v.Door.sprite = Lit(b) && n > 0.25f ? v.Art.DoorOpenLit : v.Art.DoorOpen;
                 }
                 if (stage < 0) v.Base.sprite = v.Art.Base[frame];
+                // worn buildings look weathered
+                float worn = b.Built && Town.Wears(b) ? Mathf.Clamp01((50f - b.Condition) / 50f) : 0f;
+                v.Top.color = Color.Lerp(Color.white, new Color(0.8f, 0.75f, 0.7f), worn);
                 bool lit = Lit(b) && n > 0.02f;
                 v.Lights.enabled = lit;
                 if (lit) v.Lights.color = new Color(1, 1, 1, Mathf.Clamp01(n * 1.6f));
@@ -273,7 +276,7 @@ namespace FrontierLedger.Game
                 {
                     var g = b.Built ? PileGood(b) : null;
                     int lvl = 0;
-                    if (g.HasValue) lvl = PropArt.PileLevel(b.Stock[(int)g.Value], b.Def.IsStorage ? b.Def.Capacity * 0.5f : (b.Type == BuildingType.Farm ? 160 : 60));
+                    if (g.HasValue) lvl = PropArt.PileLevel(b.Stock[(int)g.Value], b.Def.IsStorage ? b.Def.Capacity * 0.5f : (b.Type == BuildingType.Farm ? 160 : b.Type == BuildingType.BuilderYard ? 16 : 60));
                     v.Pile.enabled = lvl > 0;
                     if (lvl > 0) v.Pile.sprite = PropArt.Pile(g.Value, lvl, si);
                 }
@@ -495,6 +498,7 @@ namespace FrontierLedger.Game
         }
 
         bool HasDoor(Building b) { return b != null && b.Built && ArtFor(b).HasDoor; }
+        static bool Hammering(Citizen p) { return p.Chore == Chore.Build || p.Chore == Chore.Repair || p.Chore == Chore.Craft; }
 
         /// <summary>Just outside a building's door, where a settler waits for it to open.</summary>
         Vector2 DoorStep(Building b, Citizen p)
@@ -544,11 +548,13 @@ namespace FrontierLedger.Game
             if (p.Jail > 0) { var off = town.Office; if (off != null) { visit = off; inside = true; return HasDoor(off) ? DoorStep(off, p) : Front(off, p, 0.3f); } }
             if (workHours && !p.IsChild)
             {
-                if (p.Role == Role.Laborer && p.TaskId >= 0)
+                if (p.TaskId >= 0 && p.Chore != Chore.None)
                 {
                     var s = town.GetBuilding(p.TaskId);
                     if (s != null && s.Type == BuildingType.Farm && s.Built) { visit = s; return WorkSpot(s, p); }
                     if (s != null && !s.Built) { visit = s; return BuildSpot(s, p); }
+                    if (s != null && p.Chore == Chore.Repair) { visit = s; return Front(s, p, 0.8f); }
+                    if (s != null && p.Chore == Chore.Craft) { visit = s; return WorkSpot(s, p); }
                 }
                 var w = town.GetBuilding(p.WorkId);
                 if (w != null && w.Built) { visit = w; return w.Type == BuildingType.Estate ? Front(w, p, 0.3f) : WorkSpot(w, p); }
@@ -607,7 +613,7 @@ namespace FrontierLedger.Game
         {
             int gameSpeed = GameController.Instance != null ? Mathf.Max(1, GameController.Instance.Speed) : 1;
             float dt = Time.deltaTime, anim = dt * Mathf.Min(gameSpeed, 3);
-            float baseSpeed = 34f * gameSpeed * dt;
+            float baseSpeed = 34f * Mathf.Min(gameSpeed, 12) * dt;   // past 12x settlers just hurry
             float ph = town.TimeOfDay;
             bool workHours = ph > 0.24f && ph < 0.7f;
             var alive = new HashSet<int>();
@@ -686,7 +692,7 @@ namespace FrontierLedger.Game
                         v.Pause += anim;
                         if (v.Pause > 0.7f) { v.Pause = 0; v.Carry = !v.Carry; if (!v.Carry) SpawnFx(v.Pos.x, v.Pos.y - 2, FxDust, (Random.value - 0.5f) * 10, 0.6f); }
                     }
-                    else if (arrived) v.Dir = p.Role == Role.Worker ? v.Dir : (p.Chore == Chore.Build && workHours ? PeopleArt.Up : PeopleArt.Down);
+                    else if (arrived) v.Dir = Hammering(p) && workHours ? PeopleArt.Up : p.Role == Role.Worker ? v.Dir : PeopleArt.Down;
                 }
                 else if (v.DoorState == Entering || v.DoorState == Exiting)
                 {
@@ -724,8 +730,7 @@ namespace FrontierLedger.Game
                 else if (workHours && v.PathIdx >= v.Path.Count && !v.Moving)
                 {
                     // workers on the job make a little working motion; builders swing hammers
-                    if (p.Role == Role.Worker) frame = (Mathf.FloorToInt(time * 3 + p.Seed * 5) % 2) * 2;
-                    else if (p.Chore == Chore.Build)
+                    if (Hammering(p))
                     {
                         int hf = Mathf.FloorToInt(time * 3.2f * Mathf.Min(gameSpeed, 2) + p.Seed * 5) % 2;
                         v.Held.enabled = true; v.Held.sprite = PropArt.Hammer(hf);
@@ -733,6 +738,7 @@ namespace FrontierLedger.Game
                         if (hf == 1 && v.LastHammer == 0 && Random.value < 0.5f) SpawnFx(x + 3 + Random.value * 4, y - 12 - Random.value * 4, FxDust, (Random.value - 0.5f) * 12, 0.5f);
                         v.LastHammer = hf;
                     }
+                    else if (p.Role == Role.Worker) frame = (Mathf.FloorToInt(time * 3 + p.Seed * 5) % 2) * 2;
                 }
                 if (v.Carry)
                 {
@@ -782,7 +788,7 @@ namespace FrontierLedger.Game
         float NightAlpha()
         {
             int sp = GameController.Instance != null ? GameController.Instance.Speed : 1;
-            float k = sp >= 4 ? 0.35f : sp >= 2 ? 0.65f : 1f;
+            float k = sp >= 30 ? 0.3f : sp >= 10 ? 0.6f : 1f;   // fast-forward nights flash by, so keep them light
             return town.Nightness * k;
         }
 

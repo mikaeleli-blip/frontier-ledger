@@ -52,6 +52,7 @@ namespace FrontierLedger.Game.Art
                 case BuildingType.Sheriff: return 10;
                 case BuildingType.Estate: return 18;
                 case BuildingType.Wagon: return 8;
+                case BuildingType.BuilderYard: return 8;
                 default: return 0;
             }
         }
@@ -241,6 +242,7 @@ namespace FrontierLedger.Game.Art
                 case BuildingType.Estate: Estate(k); break;
                 case BuildingType.Cemetery: Cemetery(k); break;
                 case BuildingType.Wagon: Wagon(k); break;
+                case BuildingType.BuilderYard: BuilderYard(k); break;
             }
             k.Tg.Outline(OL);
             string n = type + "_" + v + "_" + si;
@@ -685,6 +687,38 @@ namespace FrontierLedger.Game.Art
             for (int x = 21; x < 27; x += 2) tg.R(x, 42, 1, 5, "#3a3a3a");
             // a weeping willow in the corner
             k.M.PileAt = new Vector2Int(-1, -1);
+        }
+
+        static void BuilderYard(Ctx k)
+        {
+            var bg = k.Bg; var tg = k.Tg; bool W = k.Winter; int y0 = k.Y(0);
+            // a sawdusty yard
+            bg.R(0, y0 + 4, 32, 28, W ? "#d8d2c6" : "#b8996a");
+            for (int i = 0; i < 46; i++) bg.D((int)(Hs(i, 21, 3) * 32), y0 + 4 + (int)(Hs(21, i, 4) * 28), W ? "#c4beb2" : (i % 3 == 0 ? "#e8d0a0" : "#a08452"));
+            // workshop shed at the back left
+            Shadow(tg, 2, y0 + 19, 17);
+            Shingles(tg, 0, y0 - 3, 20, 10, new[] { "#9a5a32", "#7a4226", "#b87a4a" }, W);
+            Planks(tg, 2, y0 + 7, 16, 12, "#c49364", "#a07448", "#dcae7c");
+            tg.R(2, y0 + 7, 16, 1, "#a07448");
+            Door(k, 10, y0 + 10, 5, 9, "#6e4428");
+            Window(k, 4, y0 + 10, 3, 3, false);
+            // a sign with a saw on it
+            tg.R(3, y0 + 2, 9, 4, "#e8dcc4"); tg.R(3, y0 + 2, 9, 1, "#c8b89a");
+            tg.R(4, y0 + 4, 6, 1, "#8a8a92"); for (int x = 4; x < 10; x += 2) tg.D(x, y0 + 5, "#8a8a92"); tg.R(10, y0 + 3, 1, 2, "#8a5a34");
+            // lumber rack on the right: boards stacked on two trestles
+            foreach (int tx in new[] { 21, 29 }) { tg.Line(tx - 1, y0 + 19, tx, y0 + 12, "#7a4e2c"); tg.Line(tx + 1, y0 + 19, tx, y0 + 12, "#7a4e2c"); }
+            for (int r = 0; r < 4; r++)
+            {
+                int y = y0 + 11 - r * 2;
+                tg.R(19, y, 13, 2, r % 2 == 0 ? "#e0b878" : "#d0a468"); tg.D(19, y, "#a8804a"); tg.D(31, y + 1, "#a8804a");
+            }
+            if (W) tg.R(19, y0 + 4, 13, 1, SNOW);
+            // sawhorse with a board being cut
+            tg.Line(4, y0 + 27, 6, y0 + 22, "#7a4e2c"); tg.Line(8, y0 + 27, 6, y0 + 22, "#7a4e2c");
+            tg.Line(13, y0 + 27, 15, y0 + 22, "#7a4e2c"); tg.Line(17, y0 + 27, 15, y0 + 22, "#7a4e2c");
+            tg.R(2, y0 + 21, 18, 2, "#e0b878"); tg.R(2, y0 + 22, 18, 1, "#c09058");
+            tg.R(11, y0 + 18, 1, 4, "#9a9aa2"); tg.R(10, y0 + 17, 3, 1, "#8a5a34");   // a saw stuck in the cut
+            k.M.PileAt = new Vector2Int(18, y0 + 31);
         }
 
         static void Wagon(Ctx k)

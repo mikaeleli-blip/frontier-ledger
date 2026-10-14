@@ -53,7 +53,7 @@ namespace FrontierLedger.Simulation
             foreach (var h in Buildings) h.Residents.RemoveAll(id => GetCitizen(id) == null);
             var houses = OfType(BuildingType.House).ToList();
             // Families first (couples and parents with children), then people on their own
-            var adults = People.Where(p => !p.IsChild && p.HomeId < 0 && p.Role != Role.Mayor)
+            var adults = People.Where(p => !p.IsChild && p.HomeId < 0 && p.Role != Role.Mayor && Day - p.EvictedDay >= 14)
                                .OrderBy(p => p.PartnerId >= 0 || ChildrenOf(p).Any() ? 0 : 1).ThenBy(p => p.ArrivedDay).ToList();
             foreach (var a in adults)
             {
@@ -241,11 +241,15 @@ namespace FrontierLedger.Simulation
                           .OrderByDescending(p => p.Money).FirstOrDefault();
             if (c == null) return;
             if (c.Role != Role.Laborer) QuitJob(c);
-            float invest = c.Money * 0.6f, deed = Math.Min(invest * 0.5f, 8f + (d.Logs + d.Stone) * 0.3f);
-            c.Money -= invest; Treasury += deed; LedgerThisWeek.Deeds += deed;
-            float grant = Math.Min(30f, Math.Max(0f, Treasury)); Treasury -= grant; LedgerThisWeek.Grants += grant;
-            b.Cash += grant + invest - deed; b.OwnerId = c.Id; c.Role = Role.Owner; c.WorkId = b.Id; b.LossWeeks = 0; b.BuiltDay = Day;
-            AddLog(c.Name + " bought the deed to the " + d.Name + " for " + Money(deed) + ".", LogKind.Good);
+            // The deed is priced at what the building cost the town. The buyer pays some down and owes the rest,
+            // paid off out of profits; they also put some savings in the till to get going.
+            float cost = b.BuildCost > 0 ? b.BuildCost : 8f + (d.Logs + d.Stone) * 0.3f;
+            float down = Math.Min(c.Money * 0.4f, cost), capital = c.Money * 0.3f;
+            c.Money -= down + capital; Treasury += down; LedgerThisWeek.Deeds += down;
+            float grant = Math.Min(20f, Math.Max(0f, Treasury)); Treasury -= grant; LedgerThisWeek.Grants += grant;
+            b.Debt = cost - down;
+            b.Cash += grant + capital; b.OwnerId = c.Id; c.Role = Role.Owner; c.WorkId = b.Id; b.LossWeeks = 0; b.BuiltDay = Day;
+            AddLog(c.Name + " bought the deed to the " + d.Name + " for " + Money(cost) + (b.Debt > 0.5f ? ", " + Money(down) + " down and the rest owed to the town." : "."), LogKind.Good);
         }
 
         struct Vacancy { public Building B; public float Wage; public Role Role; }
@@ -287,7 +291,9 @@ namespace FrontierLedger.Simulation
                 if (!staff.Any(p => p.Role == Role.Sheriff)) vac.Add(new Vacancy { B = off, Wage = Balance.SalarySheriff, Role = Role.Sheriff });
                 for (int i = staff.Count(p => p.Role == Role.Deputy); i < Policy.Deputies; i++) vac.Add(new Vacancy { B = off, Wage = Balance.SalaryDeputy, Role = Role.Deputy });
             }
-            vac = vac.OrderByDescending(v => v.Wage).ToList();
+            // when food is short, settlers take food jobs first
+            bool hungry = People.Count > 0 && TotalFood() / People.Count < 12f;
+            vac = vac.OrderByDescending(v => v.Wage + (hungry && v.B != null && Produces(v.B.Type, Good.Food) ? 1f : 0f)).ToList();
             var idle = Shuffle(People.Where(Employable).ToList());
             foreach (var v in vac) { if (idle.Count == 0) break; var p = idle[0]; idle.RemoveAt(0); Hire(p, v); }
         }

@@ -6,17 +6,17 @@ namespace FrontierLedger.Simulation
     public enum BuildingType
     {
         Road, House, Storehouse, Farm, Gatherer, Fishery, LumberCamp, Woodcutter, Quarry, Smithy,
-        Store, Stall, Saloon, Sheriff, Estate, Cemetery, Wagon
+        Store, Stall, Saloon, Sheriff, Estate, Cemetery, Wagon, BuilderYard
     }
     public enum Category { Roads, Housing, Food, Industry, Trade, Civic, Hidden }
     public enum Role { Child, Laborer, Worker, Owner, Builder, Sheriff, Deputy, Mayor }   // Builder is unused (old saves)
-    /// <summary>What a laborer is doing today.</summary>
-    public enum Chore { None, HaulLogs, HaulStone, Build, Harvest }
+    /// <summary>What a laborer or a builder's crew is doing today.</summary>
+    public enum Chore { None, HaulLogs, HaulStone, Build, Harvest, Repair, Craft }
     public enum Platform { None = -1, Law, Farm, Trade, People }
     public enum LogKind { Info, Good, Bad, Vote, Build, Death, Birth }
 
-    /// <summary>The five goods that move through the town.</summary>
-    public enum Good { Food, Firewood, Logs, Stone, Tools }
+    /// <summary>The goods that move through the town.</summary>
+    public enum Good { Food, Firewood, Logs, Stone, Tools, Furniture }
 
     /// <summary>Terrain tile kinds. Values are stored in Town.Terrain.</summary>
     public static class Tile
@@ -53,6 +53,7 @@ namespace FrontierLedger.Simulation
     public static class Balance
     {
         public const int Cols = 64, Rows = 44;
+        public const int GoodCount = 6;
         public const int DaysPerSeason = 14, DaysPerYear = 56, StartYear = 1852;
         public const float DaysPerYearF = 56f;
 
@@ -92,11 +93,20 @@ namespace FrontierLedger.Simulation
         public const float NoToolsFactor = 0.6f;
 
         // Wholesale prices paid to producers
-        public static readonly float[] Wholesale = { 0.8f, 0.5f, 1.2f, 1.5f, 6f };
-        public static readonly float[] Export = { 0.4f, 0.25f, 0.6f, 0.7f, 3f };
-        public static readonly float[] StartRetail = { 1.1f, 0.7f, 0f, 0f, 0f };
+        public static readonly float[] Wholesale = { 0.8f, 0.5f, 1.2f, 1.5f, 6f, 5f };
+        public static readonly float[] Export = { 0.4f, 0.25f, 0.6f, 0.7f, 3f, 3f };
+        public static readonly float[] StartRetail = { 1.1f, 0.7f, 0f, 0f, 0f, 8f };
         public const float BarnCapacity = 300f;
         public const float BusinessStockCap = 80f;
+
+        // Builder's yards
+        /// <summary>A building in good repair starts here and wears down day by day, faster in winter.</summary>
+        public const float WearPerDay = 0.45f;
+        public static readonly float[] WearBySeason = { 1f, 0.8f, 1.1f, 1.8f };
+        public const float RepairAt = 70f;                 // a yard is sent for below this condition
+        // Furniture: made by idle yard crews from logs, bought by households for comfort
+        public const float FurnitureLogs = 2f, FurniturePerWorker = 0.5f, FurnitureCap = 20f, FurnitureWear = 0.003f;
+        public const float FurnitureSavings = 25f;         // a household spends on furniture only above this much
 
         // People
         public const float AdultAge = 10f;                 // children join the workforce at this age (in years)
@@ -109,14 +119,14 @@ namespace FrontierLedger.Simulation
 
         // Start
         public const float StartingTreasury = 600f;
-        public static readonly float[] StartingStock = { 420f, 90f, 90f, 40f, 16f };
+        public static readonly float[] StartingStock = { 420f, 90f, 90f, 40f, 16f, 0f };
     }
 
     public static class Defs
     {
         static readonly Dictionary<BuildingType, BuildingDef> map = new Dictionary<BuildingType, BuildingDef>();
-        public static readonly string[] GoodNames = { "Food", "Firewood", "Logs", "Stone", "Tools" };
-        public static readonly string[] GoodColors = { "#e0a03a", "#c8642a", "#a8734a", "#a6a29a", "#7fa6b8" };
+        public static readonly string[] GoodNames = { "Food", "Firewood", "Logs", "Stone", "Tools", "Furniture" };
+        public static readonly string[] GoodColors = { "#e0a03a", "#c8642a", "#a8734a", "#a6a29a", "#7fa6b8", "#b07a4a" };
         public static readonly Category[] PaletteOrder = { Category.Roads, Category.Housing, Category.Food, Category.Industry, Category.Trade, Category.Civic };
         public static readonly string[] CategoryNames = { "Roads", "Housing", "Food", "Industry", "Trade", "Civic", "" };
 
@@ -155,6 +165,8 @@ namespace FrontierLedger.Simulation
                 Blurb = "Breaks boulders nearby, then cuts stone from the hillside. Needs a hill or boulders close by." });
             Add(new BuildingDef { Type = BuildingType.Smithy, Category = Category.Industry, Name = "Blacksmith", W = 2, H = 2, Logs = 14, Stone = 16, Work = 12, IsBusiness = true, MaxEmployees = 2, BaseWage = 2.8f, Color = "#57504a",
                 Blurb = "Turns logs and stone into tools. Workers without tools get 40% less done." });
+            Add(new BuildingDef { Type = BuildingType.BuilderYard, Category = Category.Industry, Name = "Builder's Yard", W = 2, H = 2, Logs = 12, Stone = 4, Work = 8, IsBusiness = true, MaxEmployees = 5, BaseWage = 2.6f, Color = "#b8844a",
+                Blurb = "A master builder and crew. The town pays them by the job to raise what you place and to repair worn buildings. In quiet weeks they make furniture." });
             Add(new BuildingDef { Type = BuildingType.Store, Category = Category.Trade, Name = "General Store", W = 2, H = 2, Logs = 18, Stone = 8, Work = 10, IsBusiness = true, IsRetail = true, MaxEmployees = 2, BaseWage = 2.4f, Capacity = 140, Color = "#2f5d7a",
                 Sells = new[] { Good.Food, Good.Firewood }, Blurb = "Buys food and firewood wholesale and sells them to households." });
             Add(new BuildingDef { Type = BuildingType.Stall, Category = Category.Trade, Name = "Market Stall", W = 1, H = 1, Logs = 4, Work = 2, IsBusiness = true, IsRetail = true, MaxEmployees = 1, BaseWage = 2.0f, Capacity = 40, Color = "#b5432f",

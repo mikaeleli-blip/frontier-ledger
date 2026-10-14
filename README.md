@@ -8,7 +8,7 @@ The town economy is the game:
 - Settlers grow some of their food in back gardens and buy the rest at stores and stalls.
 - Stores and stalls buy wholesale from farms, fishers and gatherers.
 - Whoever owns a business hires hands and pays them wages.
-- You set the taxes and hire settlers without a job as day laborers to build.
+- You set the taxes and cottage rent, and pay a builder's yard by the job to build and repair.
 - The town hires a sheriff and deputies.
 - Settlers elect a mayor, who moves into the Mayor's Estate.
 
@@ -27,7 +27,8 @@ The town saves once a week and when you quit, to `Application.persistentDataPath
 ## The start
 
 Six households arrive by wagon in spring 1852 with food, firewood, logs, stone and tools to last the first few months.
-There are no houses. Families camp in tents by the wagon until cottages go up.
+One of them is a builder's family, who set up a builder's yard beside the wagon. There are no houses yet.
+Families camp in tents by the wagon until cottages go up.
 
 A town that builds nothing starves or freezes in its first winter.
 
@@ -46,28 +47,38 @@ A sound opening:
 | Pan | Left-drag on the map, right/middle-drag, WASD or arrows |
 | Zoom | Mouse wheel, `+` / `-` |
 | Recenter on town | `H` |
-| Pause / speeds | `Space`, `1` / `2` / `3` (1×, 2×, 4×) |
+| Pause / speeds | `Space`, `1`–`4` (1×, 3×, 10×, 30×). A day lasts 3 minutes at 1×. |
 | Tools | `Q` inspect, `R` road, `X` clear trees and rocks, `Esc` or right-click to cancel |
 | Build | Hotbar at the bottom: Roads, Housing, Food, Industry, Trade, Civic |
 | Inspect | Click a settler or building. Tear down is in the building panel. |
 
-The five books at the top right are the Ledger (taxes, wages, day laborers, reserves, the town's books), Citizens,
+The five books at the top right are the Ledger (taxes, wages, contract rate, rent, reserves, the town's books), Citizens,
 Trade, Election and the Gazette.
 
 ## How it works
 
-- **Construction:** placing a building stakes out a site.
-  - The town hires settlers without a job by the day and pays them a day wage from the treasury. You set how many it hires and the wage.
-  - Laborers carry logs and stone from the storehouse or wagon to the site. If the stores run short, the town buys from producers.
+- **Construction:** placing a building stakes out a site, and a builder's yard takes the contract.
+  - The yard is a business like any other: a master builder who owns it and up to five hired hands.
+  - The town pays the contract rate for each day of work the job takes: half when work starts, half when it's done. You set the rate in the Ledger.
+  - The crew carries logs and stone from the storehouse or wagon to the site. If the stores run short, the town buys from producers.
   - Then they lay stone footings, raise a timber frame, and put up the walls and roof behind scaffolding.
-  - If everyone already has a job, nobody is free to build.
+  - More yards means more jobs at once. With no yard at all, the town falls back to hiring settlers without a job by the day.
+- **Wear and repairs:** buildings wear down a little every day, faster in winter.
+  - Below 70% a yard is sent to repair them. The town pays for cottages and public buildings; owners pay for their businesses.
+  - Drafty cottages burn more firewood, and leaking ones make the family miserable. Worn businesses get less done.
+- **Rent:** families pay the town weekly rent for their cottage. Four weeks behind and they're put out.
+  Families living on charity pay nothing. Large homes for families to buy are planned.
+- **Deeds:** a finished business is sold to the settler with the most savings at what it cost the town.
+  They pay some down and the rest out of profits.
+- **Furniture:** in quiet weeks the yard's crew makes furniture from logs and sells it from the yard.
+  Households with savings buy a piece now and then; a furnished home is a happier one.
 - **Food:** each adult eats 1 food a day, each child 0.6.
   - Gardens cover part of it in spring through autumn and nothing in winter.
   - The rest is bought at shops, or from the town storehouse when no shop has stock.
   - With charity on, the town feeds households that can't pay.
 - **Fields:** crops grow while hands work them in spring and summer. They are harvested in autumn, and whatever is still standing at the first frost rots.
 - **Idle hands:**
-  - Laborers with no building work help bring in harvests for a share of a wage.
+  - Laborers without a job help bring in harvests for a share of a wage.
   - The rest of the time they forage and gather deadwood for their own household.
 - **Firewood:**
   - Homes burn firewood every day, most of all in winter.
@@ -124,7 +135,7 @@ Assets/Editor/
   ProjectSetup.cs      Creates and opens the Main scene on first load
 ```
 
-A day lasts 16 seconds at 1× speed. The simulation doesn't depend on frame rate or Unity, so it can be tested on its own.
+A day lasts 3 minutes at 1× speed. The simulation doesn't depend on frame rate or Unity, so it can be tested on its own.
 
 ## Roadmap
 

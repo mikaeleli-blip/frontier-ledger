@@ -35,16 +35,25 @@ namespace FrontierLedger.Simulation
         // Construction
         public bool Built = true;
         public float Progress;                        // builder-days done
-        public float[] Delivered = new float[5];      // materials on site
+        public float[] Delivered = new float[Balance.GoodCount];   // materials on site
+        public int ContractorId = -1;                 // the builder's yard doing the job
+        public float ContractPrice, ContractPaid;     // what the town agreed to pay, and has paid so far
+        public float BuildCost;                       // what it cost to put up, for pricing the deed
 
         // Goods held here: a business's stock, a house's pantry and woodpile, or town storage
-        public float[] Stock = new float[5];
-        public float[] Price = new float[5];          // retail prices (stores and stalls)
+        public float[] Stock = new float[Balance.GoodCount];       // a house keeps its furniture here too
+        public float[] Price = new float[Balance.GoodCount];       // retail prices (stores, stalls, the yard's furniture)
+
+        // Upkeep
+        public float Condition = 100f;                // wears down; a builder's yard repairs it
+        public int RepairBy = -1;                     // yard booked to repair it
+        public bool RepairPaid;
 
         // Houses and the estate
         public List<int> Residents = new List<int>();
         public float GardenToday;
         public bool ColdToday;
+        public float Arrears;                         // unpaid rent
 
         // Businesses and the sheriff's office
         public List<int> Employees = new List<int>();
@@ -52,6 +61,9 @@ namespace FrontierLedger.Simulation
         public float Cash, Wage;
         public int Desired;
         public int LossWeeks;
+        public float Debt;                            // what the owner still owes the town for the deed
+        public float TownOwes;                        // contract money the treasury couldn't pay yet (yards)
+        public int Backlog;                           // crew a yard could use on its jobs today
         public PeriodStats Week = new PeriodStats();
         public WeekReport Last = new WeekReport();
         public DayStats Today = new DayStats();
@@ -113,6 +125,7 @@ namespace FrontierLedger.Simulation
         public Chore Chore;              // and what they did there
         public int CharityDays;
         public int ColdDays;
+        public int EvictedDay = -999;
         public string Name { get { return First + " " + Family; } }
         public bool IsChild { get { return Age < Balance.AdultAge; } }
     }
@@ -151,11 +164,11 @@ namespace FrontierLedger.Simulation
     [Serializable]
     public class TownLedger
     {
-        public float IncomeTax, HeadTax, BusinessTax, Deeds, Claims, Refunds, StoreSales, Exports;   // income
-        public float Salaries, Builders, Relief, Upkeep, Grants, Materials, Construction;             // spending
-        public float CharityGoods;                                                                   // value handed out, not money
-        public float Income { get { return IncomeTax + HeadTax + BusinessTax + Deeds + Claims + Refunds + StoreSales + Exports; } }
-        public float Spending { get { return Salaries + Builders + Relief + Upkeep + Grants + Materials + Construction; } }
+        public float IncomeTax, HeadTax, BusinessTax, Deeds, Claims, Refunds, StoreSales, Exports, Rent;   // income
+        public float Salaries, Builders, Relief, Upkeep, Grants, Materials, Construction, Contracts;         // spending
+        public float CharityGoods;                                                                         // value handed out, not money
+        public float Income { get { return IncomeTax + HeadTax + BusinessTax + Deeds + Claims + Refunds + StoreSales + Exports + Rent; } }
+        public float Spending { get { return Salaries + Builders + Relief + Upkeep + Grants + Materials + Construction + Contracts; } }
         public float Net { get { return Income - Spending; } }
     }
 
@@ -167,14 +180,16 @@ namespace FrontierLedger.Simulation
         public float HeadTax = 1f;         // dollars per adult per week
         public float MinWage = 2f;
         public int Deputies = 1;
-        public int Builders = 5;           // most laborers the town hires for building each day
-        public float BuilderWage = 2f;     // day wage for hauling and building
+        public int Builders = 5;           // without a builder's yard: most laborers the town hires each day
+        public float BuilderWage = 2f;     // and their day wage
+        public float ContractRate = 3.5f;  // paid to a builder's yard per day of work a job takes
+        public float Rent = 2.5f;          // per cottage per week
         public float ReliefWage = 0.6f;    // paid to laborers on days without work
         public bool Charity = true;        // the storehouse feeds and warms those who can't pay
         public bool ElectionsOn = true;
         public bool StorehouseSells = true;
-        public float[] StorehousePrice = { 1.1f, 0.7f, 0f, 0f, 0f };
-        public float[] Reserve = { 150f, 60f, 40f, 20f, 10f };   // the town buys up to these levels
+        public float[] StorehousePrice = { 1.1f, 0.7f, 0f, 0f, 0f, 0f };
+        public float[] Reserve = { 150f, 60f, 40f, 20f, 10f, 0f };   // the town buys up to these levels
     }
 
     [Serializable]

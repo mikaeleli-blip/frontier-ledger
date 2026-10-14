@@ -24,7 +24,8 @@ namespace FrontierLedger.Game
 
         public int Speed { get; private set; }
         int lastSpeed = 1;
-        public const float SecondsPerDay = 16f;
+        public const float SecondsPerDay = 180f;   // three minutes a day at 1x
+        public static readonly int[] Speeds = { 0, 1, 3, 10, 30 };
 
         public ToolKind Tool { get; private set; }
         public BuildingType BuildType { get; private set; }
@@ -126,9 +127,10 @@ namespace FrontierLedger.Game
             if (Input.GetKeyDown(KeyCode.Q)) SetTool(ToolKind.Inspect);
             if (Input.GetKeyDown(KeyCode.R)) SetTool(ToolKind.Build, BuildingType.Road);
             if (Input.GetKeyDown(KeyCode.X)) SetTool(ToolKind.Clear);
-            if (Input.GetKeyDown(KeyCode.Alpha1)) SetSpeed(1);
-            if (Input.GetKeyDown(KeyCode.Alpha2)) SetSpeed(2);
-            if (Input.GetKeyDown(KeyCode.Alpha3)) SetSpeed(4);
+            if (Input.GetKeyDown(KeyCode.Alpha1)) SetSpeed(Speeds[1]);
+            if (Input.GetKeyDown(KeyCode.Alpha2)) SetSpeed(Speeds[2]);
+            if (Input.GetKeyDown(KeyCode.Alpha3)) SetSpeed(Speeds[3]);
+            if (Input.GetKeyDown(KeyCode.Alpha4)) SetSpeed(Speeds[4]);
             if (Input.GetKeyDown(KeyCode.H) || Input.GetKeyDown(KeyCode.Home)) CenterOnTown();
             if (Input.GetKeyDown(KeyCode.Equals) || Input.GetKeyDown(KeyCode.KeypadPlus)) Rig.ZoomAt(1, new Vector2(Screen.width / 2f, Screen.height / 2f));
             if (Input.GetKeyDown(KeyCode.Minus) || Input.GetKeyDown(KeyCode.KeypadMinus)) Rig.ZoomAt(-1, new Vector2(Screen.width / 2f, Screen.height / 2f));
@@ -266,7 +268,7 @@ namespace FrontierLedger.Game
             {
                 if (!File.Exists(SavePath)) return null;
                 var t = JsonUtility.FromJson<Town>(File.ReadAllText(SavePath));
-                if (t == null || t.Version != 2 || t.Terrain == null || t.Terrain.Length != Town.Cols * Town.Rows) return null;
+                if (t == null || t.Version < 2 || t.Version > 3 || t.Terrain == null || t.Terrain.Length != Town.Cols * Town.Rows) return null;
                 t.AfterLoad();
                 return t;
             }

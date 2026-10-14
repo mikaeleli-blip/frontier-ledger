@@ -113,14 +113,14 @@ namespace FrontierLedger.Game
                 Ui.Fill(new Rect(bar.x + 1 + i * (bar.width - 2) / segs, bar.y + 1, (bar.width - 2) / segs + 0.5f, 3), Color.Lerp(Ui.Hex("#9ad0f0"), Ui.Hex("#2a3a6a"), n));
             }
             Ui.Fill(new Rect(bar.x + 1 + T.TimeOfDay * (bar.width - 3), bar.y - 1, 2, 7), Ui.Gold);
-            int[] speeds = { 0, 1, 2, 4 };
-            string[] labels = { "", "1x", "2x", "4x" };
-            for (int i = 0; i < 4; i++)
+            var speeds = GameController.Speeds;
+            string[] labels = { "", "1x", "3x", "10x", "30x" };
+            for (int i = 0; i < speeds.Length; i++)
             {
-                var b = new Rect(r.x + 8 + i * 34, r.y + 31, 32, 15);
+                var b = new Rect(r.x + 8 + i * 27, r.y + 31, 26, 15);
                 bool on = gc.Speed == speeds[i];
                 if (i == 0 ? Ui.Button(b, "", on, true, Icon.Pause) : Ui.Button(b, labels[i], on)) gc.SetSpeed(speeds[i]);
-                if (Ui.Hover(b)) hoverTip = i == 0 ? "Pause (Space)" : "Speed " + labels[i] + " (" + (i == 3 ? 3 : i) + ")";
+                if (Ui.Hover(b)) hoverTip = i == 0 ? "Pause (Space)" : "Speed " + labels[i] + " (" + i + ")";
             }
         }
 
@@ -419,10 +419,16 @@ namespace FrontierLedger.Game
             Heading("Wages & town payroll");
             float mw = SliderRow("Minimum wage", Town.Money(P.MinWage), P.MinWage, 1, 5, 0.25f, null);
             if (!Mathf.Approximately(mw, P.MinWage)) T.SetMinWage(mw);
-            P.Builders = Mathf.RoundToInt(SliderRow("Day laborers for building", P.Builders.ToString(), P.Builders, 0, 12, 1, "Most settlers without a job the town hires each day to haul materials and raise what you place."));
-            P.BuilderWage = SliderRow("Day wage", Town.Money(P.BuilderWage), P.BuilderWage, 1, 5, 0.25f, null);
+            P.ContractRate = SliderRow("Contract rate", Town.Money(P.ContractRate) + "/day", P.ContractRate, 2, 6, 0.25f, "What the town pays a builder's yard for each day of work a job takes. Half when work starts, half when it's done. Too low and yards lay off their crews.");
+            if (!T.Yards.Any())
+            {
+                P.Builders = Mathf.RoundToInt(SliderRow("Day laborers for building", P.Builders.ToString(), P.Builders, 0, 12, 1, "With no builder's yard, the town hires settlers without a job by the day to build."));
+                P.BuilderWage = SliderRow("Day wage", Town.Money(P.BuilderWage), P.BuilderWage, 1, 5, 0.25f, null);
+            }
             P.ReliefWage = SliderRow("Laborer relief", Town.Money(P.ReliefWage), P.ReliefWage, 0, 2, 0.1f, "Daily pay for adults without a job on days there's no work for them.");
             P.Deputies = Mathf.RoundToInt(SliderRow("Deputies", P.Deputies.ToString(), P.Deputies, 0, 3, 1, "Sheriff $4/day, deputies $3, from the treasury."));
+            Heading("Housing");
+            P.Rent = SliderRow("Cottage rent (weekly)", Town.Money(P.Rent), P.Rent, 0, 6, 0.25f, "Every family in a cottage pays on Sunday. Four weeks behind and they're put out. Over $3 hurts morale. Families living on charity pay nothing.");
             Heading("Stores");
             P.Charity = Ui.Toggle(new Rect(bx, by, bw, 11), P.Charity, "Storehouse feeds those who can't pay"); by += 13;
             P.StorehouseSells = Ui.Toggle(new Rect(bx, by, bw, 11), P.StorehouseSells, "Storehouse sells when shops run out"); by += 13;
@@ -441,8 +447,10 @@ namespace FrontierLedger.Game
             Book("Head tax", C.HeadTax, L != null ? L.HeadTax : (float?)null, 1);
             Book("Business tax", C.BusinessTax, L != null ? L.BusinessTax : (float?)null, 1);
             Book("Storehouse sales", C.StoreSales, L != null ? L.StoreSales : (float?)null, 1);
-            Book("Deeds & claims", C.Deeds + C.Claims, L != null ? L.Deeds + L.Claims : (float?)null, 1);
-            Book("Day labor", C.Builders, L != null ? L.Builders : (float?)null, -1);
+            Book("Rent", C.Rent, L != null ? L.Rent : (float?)null, 1);
+            Book("Deeds & payments", C.Deeds + C.Claims, L != null ? L.Deeds + L.Claims : (float?)null, 1);
+            Book("Building contracts", C.Contracts, L != null ? L.Contracts : (float?)null, -1);
+            if (C.Builders > 0 || (L != null && L.Builders > 0)) Book("Day labor", C.Builders, L != null ? L.Builders : (float?)null, -1);
             Book("Relief", C.Relief, L != null ? L.Relief : (float?)null, -1);
             Book("Salaries", C.Salaries, L != null ? L.Salaries : (float?)null, -1);
             Book("Materials & food", C.Materials, L != null ? L.Materials : (float?)null, -1);
@@ -645,7 +653,9 @@ namespace FrontierLedger.Game
                 case Chore.HaulStone: return "hauling stone";
                 case Chore.Build: return "building";
                 case Chore.Harvest: return "harvest hand";
-                default: return "laborer, idle";
+                case Chore.Repair: return "repairing";
+                case Chore.Craft: return "making furniture";
+                default: return "idle";
             }
         }
 
@@ -661,9 +671,13 @@ namespace FrontierLedger.Game
             Row("Warmth", p.Warm ? "warm" : "cold", p.Warm ? Ui.Good : Ui.Bad);
             var home = T.GetBuilding(p.HomeId); var work = T.GetBuilding(p.WorkId);
             Row("Home", home != null ? (home.Type == BuildingType.Estate ? "Mayor's Estate" : "Cottage #" + home.Id) : "tent by the wagon", home == null ? Ui.Bad : Ui.Ink);
-            Row("Work", work != null ? work.Def.Name : p.IsChild ? "too young" : p.Role == Role.Laborer ? ChoreText(p) : "none");
-            var task = p.Role == Role.Laborer ? T.GetBuilding(p.TaskId) : null;
-            if (task != null) Row("At", task.Def.Name);
+            Row("Work", work != null ? work.Def.Name : p.IsChild ? "too young" : p.Role == Role.Laborer ? "laborer" : "none");
+            if (!p.IsChild && (p.Chore != Chore.None || p.Role == Role.Laborer))
+            {
+                Row("Today", ChoreText(p));
+                var task = T.GetBuilding(p.TaskId);
+                if (task != null && task != work) Row("At", task.Def.Name);
+            }
             Row("Savings", Town.Money(p.Money));
             if (p.CharityDays > 0) Row("Living on", "town charity", Ui.Warn);
             var partner = T.GetCitizen(p.PartnerId);
@@ -682,13 +696,34 @@ namespace FrontierLedger.Game
             }
         }
 
+        static Icon GoodIcon(Good g) { return g == Good.Furniture ? Icon.Chair : (Icon)(int)g; }
+
+        /// <summary>Wear and repair state for buildings that wear.</summary>
+        void ConditionRows(Building b)
+        {
+            if (!Town.Wears(b)) return;
+            Ui.Text(bx, by, "Condition", Ui.InkSoft);
+            Ui.Bar(new Rect(bx + 54, by + 1, bw - 54, 6), b.Condition / 100f, b.Condition < 25 ? Ui.Bad : b.Condition < 50 ? Ui.Warn : Ui.Good); by += 10;
+            var y = T.GetBuilding(b.RepairBy);
+            if (y != null)
+            {
+                bool working = T.People.Any(p => p.TaskId == b.Id && p.Chore == Chore.Repair);
+                var o = T.GetCitizen(y.OwnerId);
+                string who = o != null ? o.First + " " + o.Family + "'s yard" : "the builder's yard";
+                Para(working ? "Being repaired by " + who + "." : b.RepairPaid ? "Repair booked with " + who + "." : "Needs repair: " + Town.Money(T.RepairPrice(b)) + (b.Def.IsBusiness && b.OwnerId >= 0 ? ", paid by the owner." : ", paid by the town."), working ? Ui.Good : Ui.Warn);
+            }
+            else if (b.Condition < Balance.RepairAt) Para(T.Yards.Any() ? "Worn. A builder's yard will be sent." : "Worn, and there's no builder's yard to repair it.", Ui.Warn);
+            if (b.Condition < 25) Para(b.Type == BuildingType.House ? "The roof leaks: the family is miserable and burns more firewood." : b.Def.IsBusiness ? "Falling apart: work goes at half pace." : "Falling apart.", Ui.Bad);
+            else if (b.Condition < 50) Para(b.Type == BuildingType.House ? "Drafty: burns more firewood." : b.Def.IsBusiness ? "Worn: work goes a little slower." : "Worn.", Ui.Warn);
+        }
+
         void Stocks(Building b, params Good[] goods)
         {
             float x = bx;
             foreach (var g in goods)
             {
                 string s = Mathf.FloorToInt(b.Stock[(int)g]).ToString();
-                Ui.IconAt(x, by - 1, (Icon)(int)g); Ui.Text(x + 11, by, s, Ui.Ink);
+                Ui.IconAt(x, by - 1, GoodIcon(g)); Ui.Text(x + 11, by, s, Ui.Ink);
                 x += 16 + PixelFont.Width(s) + 4;
             }
             by += 12;
@@ -709,10 +744,22 @@ namespace FrontierLedger.Game
                 if (d.Stone > 0) Row("Stone", Mathf.FloorToInt(b.Delivered[(int)Good.Stone]) + " / " + d.Stone);
                 int crew = T.People.Count(p => p.TaskId == b.Id);
                 Row("Working on it", crew + (crew == 1 ? " person" : " people"), crew == 0 ? Ui.Warn : Ui.Ink);
+                var yard = T.GetBuilding(b.ContractorId);
+                if (yard != null)
+                {
+                    var yo = T.GetCitizen(yard.OwnerId);
+                    Row("Contractor", yo != null ? yo.First + " " + yo.Family : "Builder's Yard");
+                    Row("Contract", Town.Money(b.ContractPrice) + (b.ContractPaid > 0 ? " (" + Town.Money(b.ContractPaid) + " paid)" : ""));
+                    if (b.ContractPaid <= 0 && T.Treasury < b.ContractPrice * 0.5f) Para("Waiting: the treasury can't pay the " + Town.Money(b.ContractPrice * 0.5f) + " deposit.", Ui.Bad);
+                    else if (crew == 0) Para("Queued behind the yard's other jobs.", Ui.InkSoft);
+                }
                 if (b.MaterialsFraction < 0.999f && T.TownStock(Good.Logs) < 1 && d.Logs > b.Delivered[(int)Good.Logs]) Para("Waiting on logs. Build a lumber camp, or clear trees.", Ui.Bad);
                 if (b.MaterialsFraction < 0.999f && T.TownStock(Good.Stone) < 1 && d.Stone > b.Delivered[(int)Good.Stone]) Para("Waiting on stone. Build a quarry near a hill or boulders.", Ui.Bad);
-                if (T.Policy.Builders == 0) Para("The town hires no day laborers. Raise it in the Ledger.", Ui.Bad);
-                else if (crew == 0 && !T.People.Any(p => p.Role == Role.Laborer && !p.IsChild)) Para("Everyone has a job. Nobody is free to build.", Ui.Warn);
+                if (!T.Yards.Any())
+                {
+                    if (T.Policy.Builders == 0) Para("No builder's yard, and the town hires no day laborers. Raise it in the Ledger.", Ui.Bad);
+                    else if (crew == 0 && !T.People.Any(p => p.Role == Role.Laborer && !p.IsChild)) Para("No builder's yard, and everyone has a job. Nobody is free to build.", Ui.Warn);
+                }
             }
             else if (d.IsBusiness)
             {
@@ -721,6 +768,8 @@ namespace FrontierLedger.Game
                 Row("Cash", Town.Money(b.Cash));
                 Row("Wage", Town.Money(b.Wage) + "/day");
                 Row("Staff", T.WorkersAt(b) + " working · " + b.Employees.Count + "/" + d.MaxEmployees + " hired");
+                if (b.Debt > 0.5f) Row("Owes the town", Town.Money(b.Debt), Ui.Warn);
+                ConditionRows(b);
                 switch (b.Type)
                 {
                     case BuildingType.Farm:
@@ -736,6 +785,16 @@ namespace FrontierLedger.Game
                     case BuildingType.Woodcutter: Stocks(b, Good.Logs, Good.Firewood, Good.Tools); break;
                     case BuildingType.Quarry: case BuildingType.Fishery: Stocks(b, b.Type == BuildingType.Quarry ? Good.Stone : Good.Food, Good.Tools); break;
                     case BuildingType.Smithy: Stocks(b, Good.Logs, Good.Stone, Good.Tools); break;
+                    case BuildingType.BuilderYard:
+                    {
+                        int sites = T.Sites.Count(s => s.ContractorId == b.Id), fixes = T.Buildings.Count(x => x.Built && x.RepairBy == b.Id);
+                        Row("Jobs", sites + (sites == 1 ? " building, " : " buildings, ") + fixes + (fixes == 1 ? " repair" : " repairs"));
+                        if (b.TownOwes > 0.5f) Row("Town owes them", Town.Money(b.TownOwes), Ui.Warn);
+                        Stocks(b, Good.Logs, Good.Furniture, Good.Tools);
+                        Row("Furniture price", Town.Money(b.Price[(int)Good.Furniture]));
+                        if (sites + fixes == 0) Para("No jobs on the books: the crew makes furniture.", Ui.InkSoft);
+                        break;
+                    }
                     case BuildingType.Store: case BuildingType.Stall:
                         Stocks(b, d.Sells);
                         Row("Food price", Town.Money(b.Price[0]));
@@ -758,7 +817,14 @@ namespace FrontierLedger.Game
                 var rs = T.Household(b).ToList();
                 Row("Beds", rs.Count + " / " + Mathf.Max(1, d.Beds));
                 if (b.Type == BuildingType.House) Row("Garden today", b.GardenToday.ToString("0.0") + " food");
-                Stocks(b, Good.Food, Good.Firewood);
+                Stocks(b, Good.Food, Good.Firewood, Good.Furniture);
+                if (b.Type == BuildingType.House && rs.Count > 0)
+                {
+                    bool charity = T.Policy.Charity && rs.Any(p => p.CharityDays > 0);
+                    Row("Rent", charity ? "waived (on charity)" : T.Policy.Rent <= 0 ? "free" : Town.Money(T.Policy.Rent) + "/week", Ui.Ink);
+                    if (b.Arrears > 0.01f) Row("Behind on rent", Town.Money(b.Arrears), b.Arrears >= T.Policy.Rent * 3 ? Ui.Bad : Ui.Warn);
+                }
+                ConditionRows(b);
                 if (b.ColdToday) Para("Cold: no firewood to burn.", Ui.Bad);
                 Heading("Living here");
                 foreach (var p in rs)
@@ -776,11 +842,13 @@ namespace FrontierLedger.Game
             else if (d.IsStorage)
             {
                 Row("Holds", Mathf.FloorToInt(b.Stock.Sum()) + " / " + d.Capacity);
+                ConditionRows(b);
                 Stocks(b, Good.Food, Good.Firewood, Good.Logs, Good.Stone, Good.Tools);
                 Para(d.Blurb);
             }
             else if (b.Type == BuildingType.Sheriff)
             {
+                ConditionRows(b);
                 var st = b.Employees.Select(T.GetCitizen).Where(x => x != null).Select(x => Defs.RoleName(x.Role) + " " + x.First + " " + x.Family).ToArray();
                 Para(st.Length > 0 ? string.Join(", ", st) : "No lawmen hired yet.", Ui.Ink);
                 Row("Crimes this week", T.CrimesWeek.ToString()); Row("Caught", T.CaughtWeek.ToString());

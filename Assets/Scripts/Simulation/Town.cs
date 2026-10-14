@@ -11,7 +11,7 @@ namespace FrontierLedger.Simulation
     [Serializable]
     public partial class Town
     {
-        public int Version = 2;
+        public int Version = 3;
         public int Seed;
         public int Day = 1;
         public float TimeOfDay = 0.3f;           // 0 = midnight, 0.5 = noon
@@ -61,10 +61,30 @@ namespace FrontierLedger.Simulation
             foreach (var p in People) if (p.Role == Role.Builder) { p.Role = Role.Laborer; p.WorkId = -1; }   // the old building crew
             foreach (var b in Buildings)
             {
-                if (b.Stock == null || b.Stock.Length != 5) b.Stock = new float[5];
-                if (b.Price == null || b.Price.Length != 5) b.Price = new float[5];
-                if (b.Delivered == null || b.Delivered.Length != 5) b.Delivered = new float[5];
+                b.Stock = Fit(b.Stock, null); b.Price = Fit(b.Price, null); b.Delivered = Fit(b.Delivered, null);
             }
+            if (Policy == null) Policy = new TownPolicy();
+            Policy.StorehousePrice = Fit(Policy.StorehousePrice, new TownPolicy().StorehousePrice);
+            Policy.Reserve = Fit(Policy.Reserve, new TownPolicy().Reserve);
+            if (Version < 3)
+            {
+                // version 3 added upkeep, contracts, rent and deed debts
+                foreach (var b in Buildings) { b.Condition = 100f; b.RepairBy = -1; b.RepairPaid = false; b.ContractorId = -1; b.ContractPaid = 0; b.Debt = 0; b.Arrears = 0; b.TownOwes = 0; }
+                foreach (var p in People) p.EvictedDay = -999;
+                var fresh = new TownPolicy();
+                Policy.ContractRate = fresh.ContractRate; Policy.Rent = fresh.Rent;
+                foreach (var b in Buildings) if (b.Def.IsBusiness && b.Built) b.Price[(int)Good.Furniture] = Balance.StartRetail[(int)Good.Furniture];
+                Version = 3;
+            }
+        }
+
+        /// <summary>Resizes a per-good array to the current number of goods, keeping what's there.</summary>
+        static float[] Fit(float[] a, float[] defaults)
+        {
+            if (a != null && a.Length == Balance.GoodCount) return a;
+            var r = new float[Balance.GoodCount];
+            for (int i = 0; i < r.Length; i++) r[i] = a != null && i < a.Length ? a[i] : defaults != null && i < defaults.Length ? defaults[i] : 0f;
+            return r;
         }
 
         // =====================================================================
@@ -156,7 +176,7 @@ namespace FrontierLedger.Simulation
         // =====================================================================
         public float TownStock(Good g) { float s = 0; foreach (var b in Storages) s += b.Stock[(int)g]; return s; }
         public float TownCapacity { get { float c = 0; foreach (var b in Storages) c += b.Def.Capacity; return c; } }
-        public float TownStored { get { float s = 0; foreach (var b in Storages) for (int i = 0; i < 5; i++) s += b.Stock[i]; return s; } }
+        public float TownStored { get { float s = 0; foreach (var b in Storages) for (int i = 0; i < Balance.GoodCount; i++) s += b.Stock[i]; return s; } }
         public float TownSpace { get { return Math.Max(0, TownCapacity - TownStored); } }
 
         float TakeFromTown(Good g, float q)
@@ -195,6 +215,7 @@ namespace FrontierLedger.Simulation
                 case Good.Logs: return t == BuildingType.LumberCamp;
                 case Good.Stone: return t == BuildingType.Quarry;
                 case Good.Tools: return t == BuildingType.Smithy;
+                case Good.Furniture: return t == BuildingType.BuilderYard;
             }
             return false;
         }
@@ -361,9 +382,22 @@ namespace FrontierLedger.Simulation
         {
             var d = b.Def;
             b.Built = true; b.BuiltDay = Day; MarkDirty(b);
+            b.Condition = 100f;
+            // settle the contract and note what the building cost, so its deed can be priced
+            float materials = d.Logs * Balance.Wholesale[(int)Good.Logs] + d.Stone * Balance.Wholesale[(int)Good.Stone];
+            var yard = GetBuilding(b.ContractorId);
+            if (yard != null && b.ContractPrice > 0)
+            {
+                float rest = Math.Max(0, b.ContractPrice - b.ContractPaid), pay = Math.Min(rest, Math.Max(0, Treasury));
+                Treasury -= pay; LedgerThisWeek.Contracts += pay; b.ContractPaid += pay;
+                yard.Cash += pay; yard.Week.Revenue += pay; yard.TownOwes += rest - pay;
+                b.BuildCost = b.ContractPrice + materials;
+            }
+            else if (!quiet) b.BuildCost = LaborDays(d) * Policy.BuilderWage + materials;
+            b.ContractorId = -1;
             if (d.IsBusiness)
             {
-                for (int i = 0; i < 5; i++) b.Price[i] = Balance.StartRetail[i];
+                for (int i = 0; i < Balance.GoodCount; i++) b.Price[i] = Balance.StartRetail[i];
                 b.Wage = Math.Max(Policy.MinWage, d.BaseWage);
                 b.Desired = d.MaxEmployees > 1 ? 1 : 0;
             }
@@ -392,7 +426,8 @@ namespace FrontierLedger.Simulation
             // Salvage: half the materials go back to town stores, plus anything that was stored here
             PutInTown(Good.Logs, b.Delivered[(int)Good.Logs] * 0.5f);
             PutInTown(Good.Stone, b.Delivered[(int)Good.Stone] * 0.5f);
-            if (d.IsStorage) for (int g = 0; g < 5; g++) PutInTown((Good)g, b.Stock[g]);
+            if (d.IsStorage) for (int g = 0; g < Balance.GoodCount; g++) PutInTown((Good)g, b.Stock[g]);
+            foreach (var x in Buildings) { if (x.ContractorId == b.Id) x.ContractorId = -1; if (x.RepairBy == b.Id) { x.RepairBy = -1; x.RepairPaid = false; } }
             if (b.Type != BuildingType.Road) AddLog("The " + d.Name + (b.Built ? " was torn down." : " site was cleared."), LogKind.Bad);
             RehouseEveryone();
         }
@@ -438,7 +473,18 @@ namespace FrontierLedger.Simulation
                 t.Place(BuildingType.Road, x, 24, out err, true);
             }
             var wagon = t.Place(BuildingType.Wagon, WagonX, WagonY, out err, true);
-            for (int g = 0; g < 5; g++) wagon.Stock[g] = Balance.StartingStock[g];
+            for (int g = 0; g < Balance.GoodCount; g++) wagon.Stock[g] = Balance.StartingStock[g];
+            // A builder's family came with the wagon and sets up a yard beside it
+            Building yard = null;
+            for (int r = 2; r <= 9 && yard == null; r++)
+                for (int dy = -r; dy <= r && yard == null; dy++)
+                    for (int dx = -r; dx <= r && yard == null; dx++)
+                    {
+                        if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != r) continue;
+                        int x = WagonX + dx, y = WagonY + dy;
+                        if (y + 1 >= 24 && y <= 24) continue;   // keep off the trail
+                        if (t.CanPlace(BuildingType.BuilderYard, x, y, true) == null) yard = t.Place(BuildingType.BuilderYard, x, y, out err, true);
+                    }
 
             // Four families
             for (int f = 0; f < 4; f++)
@@ -449,6 +495,11 @@ namespace FrontierLedger.Simulation
                 dad.PartnerId = mom.Id; mom.PartnerId = dad.Id;
                 int kids = f == 0 ? 0 : t.Rng.Next(1, 3);
                 for (int k = 0; k < kids; k++) { var c = t.AddPerson(t.Chance(0.5), fam, t.Rnd(1, 9), 0); c.ParentId = mom.Id; }
+                if (f == 0 && yard != null)
+                {
+                    yard.OwnerId = dad.Id; dad.Role = Role.Owner; dad.WorkId = yard.Id;
+                    yard.Cash = 40; dad.Money = Math.Max(10, dad.Money - 15);
+                }
             }
             // and two single folk
             t.AddPerson(false, t.Pick(Defs.LastNames), t.Rnd(18, 30), (float)Math.Round(t.Rnd(15, 40)));
@@ -458,6 +509,8 @@ namespace FrontierLedger.Simulation
             t.DirtyTiles.Clear();
             t.Log.Clear();
             t.AddLog("Four families and two drifters stopped by the creek with what one wagon could carry.", LogKind.Good);
+            var builder = yard != null ? t.GetCitizen(yard.OwnerId) : null;
+            if (builder != null) t.AddLog(builder.Name + " brought his tools and set up a builder's yard by the wagon. The town pays him by the job.", LogKind.Build);
             t.AddLog("Get cottages up before winter, and a woodcutter to keep them warm. Food runs out faster than you think.", LogKind.Info);
             return t;
         }

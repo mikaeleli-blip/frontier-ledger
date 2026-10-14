@@ -114,6 +114,24 @@ namespace FrontierLedger.Game.Art
                         }
                         if (level >= 3) { g.R(22, 10, 5, 7, "#e0a03a"); g.D(23, 9, "#5a9a3a"); }
                         break;
+                    case Good.Furniture:
+                        for (int i = 0; i < level && i < 4; i++)
+                        {
+                            int x = 1 + i * 6, y = 16;
+                            if (i % 3 == 0)
+                            {   // chair
+                                g.R(x, y - 10, 2, 10, "#8a5a34"); g.R(x, y - 5, 5, 2, "#b8844a"); g.R(x + 4, y - 3, 1, 3, "#8a5a34"); g.R(x + 1, y - 3, 1, 3, "#6e4428");
+                            }
+                            else if (i % 3 == 1)
+                            {   // table
+                                g.R(x - 1, y - 6, 7, 2, "#c49364"); g.R(x - 1, y - 6, 7, 1, "#dcae7c"); g.R(x, y - 4, 1, 4, "#8a5a34"); g.R(x + 4, y - 4, 1, 4, "#8a5a34");
+                            }
+                            else
+                            {   // chest
+                                g.R(x, y - 5, 6, 5, "#a0683a"); g.R(x, y - 6, 6, 2, "#b87a4a"); g.R(x + 2, y - 4, 2, 1, "#f2cf4a");
+                            }
+                        }
+                        break;
                     case Good.Tools:
                         g.R(2, 10, 20, 6, "#8a5a34"); g.R(2, 10, 20, 1, "#b8844a");
                         for (int i = 0; i < level + 1; i++) { g.R(4 + i * 4, 4, 1, 7, "#a8734a"); g.R(3 + i * 4, 3, 3, 2, "#9a9aa2"); }
