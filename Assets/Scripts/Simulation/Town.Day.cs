@@ -64,7 +64,7 @@ namespace FrontierLedger.Simulation
 
         public static float LaborDays(BuildingDef d) { return d.Work + (d.Logs + d.Stone) / Balance.HaulPerDay; }
         public float ContractPriceFor(BuildingDef d) { return (float)Math.Round(LaborDays(d) * Policy.ContractRate, 2); }
-        public IEnumerable<Building> Yards { get { return Businesses.Where(b => b.Type == BuildingType.BuilderYard && b.OwnerId >= 0); } }
+        public IEnumerable<Building> Yards { get { return Businesses.Where(b => b.Type == BuildingType.BuilderYard && (b.OwnerId >= 0 || b.Employees.Count > 0)); } }
 
         /// <summary>The owner and hands at work in a business today.</summary>
         List<Citizen> CrewOf(Building y)
@@ -490,16 +490,29 @@ namespace FrontierLedger.Simulation
 
         float SpareLogs() { return OfType(BuildingType.LumberCamp).Sum(b => b.Stock[(int)Good.Logs]); }
 
+        /// <summary>The treasury keeps the tills of town-run businesses stocked for wages and supplies.</summary>
+        void TownTopUp(List<Building> biz)
+        {
+            foreach (var b in biz)
+            {
+                if (b.OwnerId >= 0 || Treasury <= 0) continue;
+                float need = b.Wage * Math.Max(1, Math.Max(b.Employees.Count, b.Desired)) * 2 + (b.Type == BuildingType.Woodcutter || b.Type == BuildingType.Smithy || b.Def.IsRetail || b.Type == BuildingType.BuilderYard ? 25 : 8);
+                if (b.Cash >= need) continue;
+                float put = Math.Min(need - b.Cash, Treasury);
+                Treasury -= put; LedgerThisWeek.TownTills += put; b.Cash += put;
+            }
+        }
+
         void Trade(int si)
         {
             float xF = MayorBonus(Platform.Trade) ? 1.25f : 1f;
             var biz = Businesses.ToList();
             OwnersTopUp(biz);
+            TownTopUp(biz);
             // Inputs and tools
             foreach (var b in biz)
             {
                 int w = WorkersAt(b);
-                if (b.OwnerId < 0) continue;
                 if (b.Type == BuildingType.Woodcutter) BuyFor(b, Good.Logs, 15 - b.Stock[(int)Good.Logs]);
                 if (b.Type == BuildingType.Smithy) { BuyFor(b, Good.Logs, 8 - b.Stock[(int)Good.Logs]); BuyFor(b, Good.Stone, 8 - b.Stock[(int)Good.Stone]); }
                 // the yard only buys logs for furniture when the lumber camps have plenty to spare and homes are warm
@@ -564,6 +577,11 @@ namespace FrontierLedger.Simulation
             foreach (var r in Buildings)
                 if (r.Built && r.Def.IsRetail && IsOpen(r) && Array.IndexOf(r.Def.Sells, g) >= 0 && r.Stock[(int)g] > 0.01f)
                     list.Add(new Source { B = r, Price = r.Price[(int)g] });
+            // With no shop open, farmers, fishers and woodcutters sell at their own gate
+            if (list.Count == 0)
+                foreach (var b in Businesses)
+                    if (Produces(b.Type, g) && b.Stock[(int)g] > 0.5f && (b.OwnerId >= 0 || WorkersAt(b) > 0))
+                        list.Add(new Source { B = b, Price = Balance.Wholesale[(int)g] * 1.4f });
             // Furniture is sold straight from the builder's yards
             if (g == Good.Furniture)
                 foreach (var y in Yards) if (y.Stock[(int)g] > 0.99f) list.Add(new Source { B = y, Price = y.Price[(int)g] });
@@ -722,7 +740,7 @@ namespace FrontierLedger.Simulation
             {
                 foreach (var id in b.Employees.ToList())
                 {
-                    var p = GetCitizen(id); if (p == null || p.Jail > 0) continue;
+                    var p = GetCitizen(id); if (p == null || p.Jail > 0 || p.FamilyHand) continue;
                     if (b.Cash >= b.Wage)
                     {
                         b.Cash -= b.Wage; b.Week.Costs += b.Wage;
@@ -733,7 +751,7 @@ namespace FrontierLedger.Simulation
                     {
                         QuitJob(p); b.Desired = Math.Min(b.Desired, b.Employees.Count);
                         var o = GetCitizen(b.OwnerId);
-                        AddLog((o != null ? o.Name : "The " + b.Def.Name) + " couldn't make payroll and let " + p.Name + " go.", LogKind.Bad);
+                        AddLog((o != null ? o.Name : "The town") + " couldn't make payroll at the " + b.Def.Name + " and let " + p.Name + " go.", LogKind.Bad);
                     }
                 }
             }
@@ -894,17 +912,28 @@ namespace FrontierLedger.Simulation
         {
             var d = b.Def;
             int n = b.Employees.Count;
+            bool townRun = b.OwnerId < 0;   // the treasury covers the wages, so cash doesn't hold it back
+            int afford = townRun ? d.MaxEmployees : (int)(b.Cash / Math.Max(0.5f, b.Wage * 2));
             if (b.Type == BuildingType.BuilderYard)
             {
-                // keep the crew the jobs need; in quiet weeks one hand stays on to make furniture
-                int want = Math.Min(d.MaxEmployees, Math.Max(0, b.Backlog - 1));
+                // keep the crew the jobs need, but no builder takes more than one in four of the town's adults;
+                // in quiet weeks one hand stays on to make furniture
+                int want = Math.Min(Math.Min(d.MaxEmployees, Math.Max(1, Adults.Count() / 4)), Math.Max(0, b.Backlog - 1));
                 if (want == 0 && b.Stock[(int)Good.Furniture] < Balance.FurnitureCap * 0.5f && b.Cash > b.Wage * 10) want = 1;
-                return Math.Min(want, (int)(b.Cash / Math.Max(0.5f, b.Wage * 2)));
+                return Math.Min(want, afford);
             }
             int nextSeason = (((Day) % Balance.DaysPerYear) / Balance.DaysPerSeason);
-            if ((b.Type == BuildingType.Farm || b.Type == BuildingType.Gatherer) && nextSeason == 3) return 0;
-            if (b.Type == BuildingType.Farm && nextSeason == 0 && Season == 3) return Math.Min(d.MaxEmployees, 2);
-            if (b.Cash < b.Wage * (n + 1) * 2) return Math.Max(0, n - 1);
+            if (b.Type == BuildingType.Farm)
+            {
+                // two hands tend the field; harvest needs every hand there is; nothing to do in winter
+                int want;
+                if (Season == 3) want = nextSeason == 0 ? 2 : 0;
+                else if (Season == 2) want = b.CropLeft > 1 ? d.MaxEmployees : 0;
+                else want = Season == 1 && DayOfSeason > 7 ? d.MaxEmployees : 2;
+                return Math.Min(want, Math.Max(afford, 1));
+            }
+            if (b.Type == BuildingType.Gatherer && nextSeason == 3) return 0;
+            if (!townRun && b.Cash < b.Wage * (n + 1) * 2) return Math.Max(0, n - 1);
             float fill = 0;
             if (d.IsRetail) fill = d.Sells.Average(g => b.Stock[(int)g]) / (d.Capacity / (float)d.Sells.Length);
             else
@@ -915,9 +944,53 @@ namespace FrontierLedger.Simulation
                 else fill = profit > 0 ? 0.3f : 0.7f;
             }
             if (d.IsRetail) return fill < 0.3f || profit < 0 ? Math.Max(0, n - 1) : (b.Week.Sold > 30 * (n + 1) ? Math.Min(d.MaxEmployees, n + 1) : n);
-            if (fill < 0.5f && b.Cash > b.Wage * (n + 1) * 4) return Math.Min(d.MaxEmployees, n + 1);
+            if (fill < 0.5f && (townRun || b.Cash > b.Wage * (n + 1) * 4)) return Math.Min(d.MaxEmployees, n + 1);
             if (fill > 0.9f) return Math.Max(0, n - 1);
             return Math.Max(n, Math.Min(b.Desired, d.MaxEmployees));
+        }
+
+        // =====================================================================
+        // Paying for a business: bank loans (and deeds owed to the town in older saves)
+        // =====================================================================
+        void PayLoan(Building b, Citizen o, float profit, float reserve)
+        {
+            if (b.Debt <= 0.01f) { b.Debt = 0; return; }
+            var bank = GetBuilding(b.LenderId);
+            if (bank == null)
+            {
+                // owed to the town (older saves): paid down out of profits, no interest
+                if (b.Cash <= reserve * 0.5f) return;
+                float p = Math.Min(Math.Min(b.Debt, b.Cash - reserve * 0.5f), Math.Max(1f, Math.Max(0, profit) * 0.35f));
+                b.Cash -= p; b.Debt -= p; Treasury += p; LedgerThisWeek.Deeds += p;
+                if (b.Debt <= 0.01f) { b.Debt = 0; AddLog(o.Name + " paid off the " + b.Def.Name + ".", LogKind.Good); }
+                return;
+            }
+            float interest = b.Debt * Balance.LoanInterest;
+            float due = Math.Min(b.Debt + interest, interest + b.Debt / Balance.LoanTerm + Math.Max(0, profit) * 0.2f);
+            float paid = Math.Min(due, Math.Max(0, b.Cash - b.Wage * 2));
+            b.Cash -= paid; b.Week.Costs += Math.Min(paid, interest);
+            bank.Cash += paid; bank.Week.Revenue += Math.Min(paid, interest);
+            b.Debt = Math.Max(0, b.Debt + interest - paid);
+            var banker = GetCitizen(bank.OwnerId);
+            if (b.Debt <= 0.01f) { b.Debt = 0; b.LenderId = -1; b.MissedPayments = 0; AddLog(o.Name + " paid off the bank loan on the " + b.Def.Name + ".", LogKind.Good); return; }
+            if (paid >= due * 0.75f) { b.MissedPayments = 0; return; }
+            // the bank gives seasonal work its season: farms settle up at harvest, gatherers outside winter
+            if ((b.Type == BuildingType.Farm && Season != 2) || (b.Type == BuildingType.Gatherer && Season == 3)) return;
+            b.MissedPayments++;
+            o.Happy -= 4;
+            if (b.MissedPayments < 4)
+            {
+                AddLog(o.Name + " fell behind on the bank loan for the " + b.Def.Name + ".", LogKind.Bad);
+                return;
+            }
+            // foreclosure: the bank takes the business back and sells it on; what's left owing is the bank's loss
+            AddLog((banker != null ? banker.Name : "The bank") + " took the " + b.Def.Name + " from " + o.Name + " after four missed payments. The town runs it until it sells again.", LogKind.Bad);
+            o.Money += Math.Max(0, b.Cash) * 0.5f;
+            Treasury += Math.Max(0, b.Cash) * 0.5f; b.Cash = 0;
+            foreach (var id in b.Employees) { var e = GetCitizen(id); if (e != null && e.FamilyHand) { e.FamilyHand = false; } }
+            foreach (var id in b.Employees.ToList()) { var e = GetCitizen(id); if (e != null && (e.PartnerId == o.Id || e.MotherId == o.Id || e.FatherId == o.Id)) QuitJob(e); }
+            b.OwnerId = -1; b.Debt = 0; b.LenderId = -1; b.MissedPayments = 0;
+            o.Role = Role.Laborer; o.WorkId = -1;
         }
 
         // =====================================================================
@@ -1013,32 +1086,39 @@ namespace FrontierLedger.Simulation
             {
                 var d = b.Def;
                 float profit = b.Week.Revenue - b.Week.Costs;
-                float tax = Math.Min(Math.Max(0, b.Cash), Math.Max(0, profit) * Policy.BusinessTax);
-                b.Cash -= tax; Treasury += tax; LedgerThisWeek.BusinessTax += tax;
                 var o = GetCitizen(b.OwnerId);
+                float tax = 0, draw = 0;
                 float reserve = b.Wage * (b.Employees.Count + 1) * 4 + 25;
-                float draw = 0;
-                if (o != null && b.Cash > reserve) { draw = (b.Cash - reserve) * 0.6f; b.Cash -= draw; o.Money += draw; }
-                // the owner pays down what they owe the town for the deed
-                if (b.Debt > 0.01f && b.Cash > reserve * 0.5f)
+                if (o != null)
                 {
-                    float pay = Math.Min(Math.Min(b.Debt, b.Cash - reserve * 0.5f), Math.Max(1f, Math.Max(0, profit) * 0.35f));
-                    if (pay > 0) { b.Cash -= pay; b.Debt -= pay; Treasury += pay; LedgerThisWeek.Deeds += pay; }
-                    if (b.Debt <= 0.01f && o != null) { b.Debt = 0; AddLog(o.Name + " paid off the deed to the " + d.Name + ".", LogKind.Good); }
+                    tax = Math.Min(Math.Max(0, b.Cash), Math.Max(0, profit) * Policy.BusinessTax);
+                    b.Cash -= tax; Treasury += tax; LedgerThisWeek.BusinessTax += tax;
+                    PayLoan(b, o, profit, reserve);
+                    if (b.OwnerId >= 0 && b.Cash > reserve) { draw = (b.Cash - reserve) * 0.6f; b.Cash -= draw; o.Money += draw; }
+                }
+                else if (b.Cash > reserve)
+                {
+                    // a town-run business: the takings go to the treasury
+                    float sweep = b.Cash - reserve; b.Cash -= sweep; Treasury += sweep; LedgerThisWeek.TownTakings += sweep;
                 }
                 b.Last = new WeekReport { Valid = true, Revenue = b.Week.Revenue, Costs = b.Week.Costs, Profit = profit, Tax = tax, OwnerDraw = draw, Sold = b.Week.Sold, Made = b.Week.Made };
                 b.Wage = Math.Max(Policy.MinWage, b.Wage);
-                if (o != null && Day - b.BuiltDay >= 6)
+                if (Day - b.BuiltDay >= 6)
                 {
                     b.Desired = StaffingDecision(b, profit);
+                    if (o == null && b.Def.MaxEmployees >= 1 && b.Type != BuildingType.Bank) b.Desired = Math.Max(1, b.Desired);   // a town-run business always has someone minding it
                     if (profit >= 0) b.LossWeeks = 0; else b.LossWeeks++;
+                    // hired hands go first when business is slow; then family go and look for paid work
+                    b.Employees.RemoveAll(id => GetCitizen(id) == null);
                     while (b.Employees.Count > b.Desired)
                     {
-                        var p = GetCitizen(b.Employees[b.Employees.Count - 1]);
-                        if (p == null) { b.Employees.RemoveAt(b.Employees.Count - 1); continue; }
+                        var p = b.Employees.Select(GetCitizen).LastOrDefault(x => !x.FamilyHand) ?? GetCitizen(b.Employees[b.Employees.Count - 1]);
+                        bool family = p.FamilyHand;
                         QuitJob(p);
-                        AddLog(o.Name + " laid off " + p.Name + " at the " + d.Name + ". Business is slow.", LogKind.Bad);
+                        AddLog(family ? p.Name + " left the family " + d.Name.ToLower() + " to look for paid work. There isn't enough to do."
+                                      : (o != null ? o.Name : "The town") + " laid off " + p.Name + " at the " + d.Name + ". Business is slow.", LogKind.Bad);
                     }
+
                 }
                 if (d.IsRetail)
                     foreach (var g in d.Sells)

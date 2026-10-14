@@ -490,6 +490,7 @@ namespace FrontierLedger.Game
             Book("Rent", C.Rent, L != null ? L.Rent : (float?)null, 1);
             Book("Deeds & payments", C.Deeds + C.Claims, L != null ? L.Deeds + L.Claims : (float?)null, 1);
             Book("Building contracts", C.Contracts, L != null ? L.Contracts : (float?)null, -1);
+            Book("Town-run businesses", C.TownTakings - C.TownTills, L != null ? L.TownTakings - L.TownTills : (float?)null, 0);
             if (C.Builders > 0 || (L != null && L.Builders > 0)) Book("Day labor", C.Builders, L != null ? L.Builders : (float?)null, -1);
             Book("Relief", C.Relief, L != null ? L.Relief : (float?)null, -1);
             Book("Salaries", C.Salaries, L != null ? L.Salaries : (float?)null, -1);
@@ -712,7 +713,7 @@ namespace FrontierLedger.Game
             var home = T.GetBuilding(p.HomeId); var work = T.GetBuilding(p.WorkId);
             Row("Home", home != null ? (home.Type == BuildingType.Estate ? "Mayor's Estate" : home.Type == BuildingType.BoardingHouse ? "Boarding House" : "Cottage #" + home.Id) : "tent by the wagon", home == null ? Ui.Bad : Ui.Ink);
             if (p.RentOwed > 0.01f) Row("Behind on rent", Town.Money(p.RentOwed), Ui.Warn);
-            Row("Work", work != null ? work.Def.Name : p.IsChild ? "too young" : p.Role == Role.Laborer ? "laborer" : "none");
+            Row("Work", work != null ? work.Def.Name + (p.FamilyHand ? " (family)" : work.OwnerId < 0 && work.Def.IsBusiness ? " (town)" : "") : p.IsChild ? "too young" : p.Role == Role.Laborer ? "laborer" : "none");
             if (!p.IsChild && (p.Chore != Chore.None || p.Role == Role.Laborer))
             {
                 Row("Today", ChoreText(p));
@@ -806,11 +807,22 @@ namespace FrontierLedger.Game
             else if (d.IsBusiness)
             {
                 var o = T.GetCitizen(b.OwnerId);
-                Para(o != null ? "Owned by " + o.Name + (o.WorkId != b.Id ? " (away)" : "") : "For sale, waiting for a settler with savings.", o != null ? Ui.Ink : Ui.Warn);
+                if (o != null) Para("Owned by " + o.Name + (o.WorkId != b.Id ? " (away)" : ""), Ui.Ink);
+                else if (b.Type == BuildingType.Bank) Para("No banker. The town doesn't lend.", Ui.Warn);
+                else
+                {
+                    float price = T.DeedPrice(b);
+                    Para("Run by the town until a family buys it, for " + Town.Money(price) + (T.Banks.Any() ? " (or " + Town.Money(price * Balance.MinDown) + " down with a bank loan)." : " in full."), Ui.Warn);
+                }
                 Row("Cash", Town.Money(b.Cash));
                 Row("Wage", Town.Money(b.Wage) + "/day");
                 Row("Staff", T.WorkersAt(b) + " working · " + b.Employees.Count + "/" + d.MaxEmployees + " hired");
-                if (b.Debt > 0.5f) Row("Owes the town", Town.Money(b.Debt), Ui.Warn);
+                if (b.Debt > 0.5f)
+                {
+                    var lender = T.GetBuilding(b.LenderId);
+                    Row(lender != null ? "Owes the bank" : "Owes the town", Town.Money(b.Debt), b.MissedPayments > 0 ? Ui.Bad : Ui.Warn);
+                    if (b.MissedPayments > 0) Para(b.MissedPayments + (b.MissedPayments == 1 ? " missed payment." : " missed payments.") + " Four and the bank takes it.", Ui.Bad);
+                }
                 ConditionRows(b);
                 switch (b.Type)
                 {
@@ -827,6 +839,15 @@ namespace FrontierLedger.Game
                     case BuildingType.Woodcutter: Stocks(b, Good.Logs, Good.Firewood, Good.Tools); break;
                     case BuildingType.Quarry: case BuildingType.Fishery: Stocks(b, b.Type == BuildingType.Quarry ? Good.Stone : Good.Food, Good.Tools); break;
                     case BuildingType.Smithy: Stocks(b, Good.Logs, Good.Stone, Good.Tools); break;
+                    case BuildingType.Bank:
+                    {
+                        var loans = T.Buildings.Where(x => x.LenderId == b.Id && x.Debt > 0.01f).ToList();
+                        Row("To lend", Town.Money(Mathf.Max(0, b.Cash - 20)));
+                        Row("Loans out", loans.Count + (loans.Count > 0 ? ", " + Town.Money(loans.Sum(x => x.Debt)) + " owed" : ""));
+                        Row("Interest", Mathf.RoundToInt(Balance.LoanInterest * 1000) / 10f + "% a week");
+                        Para("Lends a family the rest of a business's price once they have a quarter of it.", Ui.InkSoft);
+                        break;
+                    }
                     case BuildingType.BuilderYard:
                     {
                         int sites = T.Sites.Count(s => s.ContractorId == b.Id), fixes = T.Buildings.Count(x => x.Built && x.RepairBy == b.Id);
@@ -851,7 +872,7 @@ namespace FrontierLedger.Game
                     Row("Profit", Town.Money(b.Last.Profit), b.Last.Profit < 0 ? Ui.Bad : Ui.Good);
                     Row("Owner took home", Town.Money(b.Last.OwnerDraw));
                 }
-                var staff = b.Employees.Select(T.GetCitizen).Where(x => x != null).Select(x => x.First + " " + x.Family).ToArray();
+                var staff = b.Employees.Select(T.GetCitizen).Where(x => x != null).Select(x => x.First + " " + x.Family + (x.FamilyHand ? " (family)" : "")).ToArray();
                 if (staff.Length > 0) { Heading("Hands"); Para(string.Join(", ", staff), Ui.Ink); }
             }
             else if (Town.IsHome(b.Type))

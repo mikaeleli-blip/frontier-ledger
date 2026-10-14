@@ -61,7 +61,9 @@ namespace FrontierLedger.Simulation
         public float Cash, Wage;
         public int Desired;
         public int LossWeeks;
-        public float Debt;                            // what the owner still owes the town for the deed
+        public float Debt;                            // what the owner still owes for the deed
+        public int LenderId = -1;                     // the bank it's owed to (-1: the town, from older saves)
+        public int MissedPayments;
         public float TownOwes;                        // contract money the treasury couldn't pay yet (yards)
         public int Backlog;                           // crew a yard could use on its jobs today
         public PeriodStats Week = new PeriodStats();
@@ -128,7 +130,8 @@ namespace FrontierLedger.Simulation
         public int CharityDays;
         public int ColdDays;
         public int EvictedDay = -999;
-        public bool ByFire;              // sleeping rough but huddled by the town fire with firewood to burn
+        public bool ByFire;
+        public bool FamilyHand;          // works the family business for no wage              // sleeping rough but huddled by the town fire with firewood to burn
         public string Name { get { return First + " " + Family; } }
         public bool IsChild { get { return Age < Balance.AdultAge; } }
     }
@@ -167,11 +170,11 @@ namespace FrontierLedger.Simulation
     [Serializable]
     public class TownLedger
     {
-        public float IncomeTax, HeadTax, BusinessTax, Deeds, Claims, Refunds, StoreSales, Exports, Rent;   // income
-        public float Salaries, Builders, Relief, Upkeep, Grants, Materials, Construction, Contracts;         // spending
+        public float IncomeTax, HeadTax, BusinessTax, Deeds, Claims, Refunds, StoreSales, Exports, Rent, TownTakings;   // income
+        public float Salaries, Builders, Relief, Upkeep, Grants, Materials, Construction, Contracts, TownTills;         // spending
         public float CharityGoods;                                                                         // value handed out, not money
-        public float Income { get { return IncomeTax + HeadTax + BusinessTax + Deeds + Claims + Refunds + StoreSales + Exports + Rent; } }
-        public float Spending { get { return Salaries + Builders + Relief + Upkeep + Grants + Materials + Construction + Contracts; } }
+        public float Income { get { return IncomeTax + HeadTax + BusinessTax + Deeds + Claims + Refunds + StoreSales + Exports + Rent + TownTakings; } }
+        public float Spending { get { return Salaries + Builders + Relief + Upkeep + Grants + Materials + Construction + Contracts + TownTills; } }
         public float Net { get { return Income - Spending; } }
     }
 

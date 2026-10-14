@@ -6,7 +6,7 @@ namespace FrontierLedger.Simulation
     public enum BuildingType
     {
         Road, House, Storehouse, Farm, Gatherer, Fishery, LumberCamp, Woodcutter, Quarry, Smithy,
-        Store, Stall, Saloon, Sheriff, Estate, Cemetery, Wagon, BuilderYard, BoardingHouse
+        Store, Stall, Saloon, Sheriff, Estate, Cemetery, Wagon, BuilderYard, BoardingHouse, Bank
     }
     public enum Category { Roads, Housing, Food, Industry, Trade, Civic, Hidden }
     public enum Role { Child, Laborer, Worker, Owner, Builder, Sheriff, Deputy, Mayor }   // Builder is unused (old saves)
@@ -104,6 +104,12 @@ namespace FrontierLedger.Simulation
         public const float WearPerDay = 0.45f;
         public static readonly float[] WearBySeason = { 1f, 0.8f, 1.1f, 1.8f };
         public const float RepairAt = 70f;                 // a yard is sent for below this condition
+
+        // Owning a business
+        public const float LoanInterest = 0.015f;          // a bank charges this much a week on what's owed
+        public const float MinDown = 0.25f;                // a bank wants this share of the price paid down
+        public const float LoanTerm = 12f;                 // weeks a loan is meant to be paid back over
+        public const float BankCapital = 300f;             // what a new banker brings out from back east to lend
         // Furniture: made by idle yard crews from logs, bought by households for comfort
         public const float FurnitureLogs = 2f, FurniturePerWorker = 0.5f, FurnitureCap = 20f, FurnitureWear = 0.003f;
         public const float FurnitureSavings = 25f;         // a household spends on furniture only above this much
@@ -173,6 +179,8 @@ namespace FrontierLedger.Simulation
                 Sells = new[] { Good.Food, Good.Firewood }, Blurb = "Buys food and firewood wholesale and sells them to households." });
             Add(new BuildingDef { Type = BuildingType.Stall, Category = Category.Trade, Name = "Market Stall", W = 1, H = 1, Logs = 4, Work = 2, IsBusiness = true, IsRetail = true, MaxEmployees = 1, BaseWage = 2.0f, Capacity = 40, Color = "#b5432f",
                 Sells = new[] { Good.Food }, Blurb = "A small food stand. Cheap to build." });
+            Add(new BuildingDef { Type = BuildingType.Bank, Category = Category.Trade, Name = "Bank", W = 2, H = 2, Logs = 14, Stone = 18, Work = 12, IsBusiness = true, MaxEmployees = 1, BaseWage = 3f, Color = "#8a5a4a",
+                Blurb = "The banker lends settlers what they lack to buy a business: a quarter down, the rest paid back weekly with interest. Miss four payments and the bank takes it back. Without a bank, a business only sells to a family that can pay in full." });
             Add(new BuildingDef { Type = BuildingType.Saloon, Category = Category.Trade, Name = "Saloon", W = 2, H = 2, Logs = 20, Stone = 8, Work = 12, IsBusiness = true, MaxEmployees = 2, BaseWage = 2.4f, Color = "#8a5a32",
                 Blurb = "Drinks and company. Cheers settlers up." });
             Add(new BuildingDef { Type = BuildingType.Sheriff, Category = Category.Civic, Name = "Sheriff's Office", W = 2, H = 2, Logs = 16, Stone = 14, Work = 12, IsPublic = true, Unique = true, Color = "#9c8b74",

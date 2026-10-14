@@ -76,8 +76,15 @@ Trade, Election and the Gazette.
     and a single boarder gives up their bed to a family with little ones.
 - **Rent:** cottages pay weekly rent per family, boarders pay per head. Four weeks behind and they're put out.
   Families living on charity pay nothing.
-- **Deeds:** a finished business is sold to the settler with the most savings at what it cost the town.
-  They pay some down and the rest out of profits.
+- **Owning a business:** a finished business is run by the town until a family can buy it at what it cost to build.
+  - The town hires and pays its hands and keeps its takings meanwhile.
+  - A family buys with its own savings, in full. Once a Bank is open, the banker lends the rest to a family with a
+    quarter of the price, at 1.5% a week. Four missed payments and the bank takes the business back (farms settle at harvest).
+  - When a Bank is finished, a banker comes out from back east with money to lend and buys it from the town.
+  - One business to a family. The owner's wife or husband and grown children at home work it alongside them for no wage,
+    and only leave it for paid work when it isn't paying its way or the town needs food.
+- **Jobs:** settlers take the best-paying work going, and food work first while the town has less than a month's food
+  put by. A hired hand will leave for clearly better pay, or for a food job when food is short.
 - **Furniture:** in quiet weeks the yard's crew makes furniture from logs and sells it from the yard.
   Households with savings buy a piece now and then; a furnished home is a happier one.
 - **Food:** each adult eats 1 food a day, each child 0.6.
@@ -95,10 +102,10 @@ Trade, Election and the Gazette.
 - **Tools:**
   - The blacksmith turns logs and stone into tools.
   - Workers without tools produce 40% less.
-- **Jobs:**
-  - When a business is finished, the settler with the most savings buys the deed and runs it.
-  - Owners hire when trade is good and lay hands off when it isn't.
+- **Running a business:**
+  - Owners hire when trade is good and lay hands off when it isn't. Fields take on hands for the harvest.
   - Owners take home the weekly profit above a reserve.
+  - When no shop is open, farmers, fishers and woodcutters sell at their own gate.
 - **Taxes:**
   - Income tax on wages.
   - A weekly head tax on every adult.

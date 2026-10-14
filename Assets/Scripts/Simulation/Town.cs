@@ -11,7 +11,7 @@ namespace FrontierLedger.Simulation
     [Serializable]
     public partial class Town
     {
-        public int Version = 4;
+        public int Version = 5;
         public int Seed;
         public int Day = 1;
         public float TimeOfDay = 0.3f;           // 0 = midnight, 0.5 = noon
@@ -84,6 +84,13 @@ namespace FrontierLedger.Simulation
                 foreach (var p in People) { p.MotherId = p.ParentId; p.FatherId = -1; p.RentOwed = 0; var m = GetCitizen(p.ParentId); if (m != null && m.PartnerId >= 0) p.FatherId = m.PartnerId; }
                 Version = 4;
             }
+            if (Version < 5)
+            {
+                // version 5: family hands, bank loans, the town running unsold businesses
+                foreach (var p in People) p.FamilyHand = false;
+                foreach (var b in Buildings) { b.LenderId = -1; b.MissedPayments = 0; }
+                Version = 5;
+            }
         }
 
         /// <summary>Resizes a per-good array to the current number of goods, keeping what's there.</summary>
@@ -140,6 +147,14 @@ namespace FrontierLedger.Simulation
         public Building Office { get { return OfType(BuildingType.Sheriff).FirstOrDefault(); } }
         public Building Estate { get { return OfType(BuildingType.Estate).FirstOrDefault(); } }
         public Building OwnedBusiness(Citizen p) { return Buildings.FirstOrDefault(b => b.Def.IsBusiness && b.OwnerId == p.Id); }
+        /// <summary>The business a settler's household owns, if any (theirs or their spouse's).</summary>
+        public Building FamilyBusiness(Citizen p)
+        {
+            var own = OwnedBusiness(p); if (own != null) return own;
+            var sp = GetCitizen(p.PartnerId); return sp != null ? OwnedBusiness(sp) : null;
+        }
+        public IEnumerable<Building> Banks { get { return Businesses.Where(b => b.Type == BuildingType.Bank && b.OwnerId >= 0); } }
+        public float DeedPrice(Building b) { var d = b.Def; return (float)Math.Round(b.BuildCost > 0 ? b.BuildCost : 8f + (d.Logs + d.Stone) * 0.6f, 2); }
         public Citizen Mayor { get { return GetCitizen(MayorId); } }
         bool MayorBonus(Platform p) { return MayorId >= 0 && MayorPlatform == p; }
 
@@ -409,10 +424,26 @@ namespace FrontierLedger.Simulation
             {
                 for (int i = 0; i < Balance.GoodCount; i++) b.Price[i] = Balance.StartRetail[i];
                 b.Wage = Math.Max(Policy.MinWage, d.BaseWage);
-                b.Desired = d.MaxEmployees > 1 ? 1 : 0;
+                b.Desired = d.MaxEmployees >= 1 ? 1 : 0;   // until it's sold, the town hires someone to run it
             }
             if (!quiet && b.Type != BuildingType.Road) AddLog("The " + d.Name + " is finished.", LogKind.Build);
+            if (b.Type == BuildingType.Bank && b.OwnerId < 0 && !quiet) BankerArrives(b);
             if (b.Type == BuildingType.House || b.Type == BuildingType.BoardingHouse) RehouseEveryone();
+        }
+
+        /// <summary>A banker comes out from back east with money to lend, buys the new bank from the town and opens it.</summary>
+        void BankerArrives(Building bank)
+        {
+            string fam = Pick(Defs.LastNames);
+            var banker = AddPerson(Chance(0.8) ? false : true, fam, Rnd(34, 52), 0);
+            var spouse = AddPerson(!banker.Female, fam, Rnd(30, 48), 10);
+            banker.PartnerId = spouse.Id; spouse.PartnerId = banker.Id;
+            float price = DeedPrice(bank);
+            Treasury += price; LedgerThisWeek.Deeds += price;
+            bank.OwnerId = banker.Id; banker.Role = Role.Owner; banker.WorkId = bank.Id;
+            bank.Cash = Balance.BankCapital; bank.Desired = 1; bank.BuiltDay = Day;
+            AddLog(banker.Name + " came out from back east with " + Money(Balance.BankCapital) + " to lend, paid the town " + Money(price) + " for the Bank and opened its doors.", LogKind.Good);
+            RehouseEveryone();
         }
 
         public void Remove(Building b)
@@ -431,6 +462,8 @@ namespace FrontierLedger.Simulation
                 var o = GetCitizen(b.OwnerId);
                 if (o != null) { o.Money += b.Cash * 0.5f; if (o.WorkId == b.Id) { o.WorkId = -1; o.Role = Role.Laborer; } }
             }
+            else if (d.IsBusiness) Treasury += Math.Max(0, b.Cash);   // a town-run business: its till comes back
+            foreach (var p in People) if (p.WorkId == b.Id) p.FamilyHand = false;
             Buildings.Remove(b);
             MarkDirty(b);
             // Salvage: half the materials go back to town stores, plus anything that was stored here

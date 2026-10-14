@@ -54,6 +54,7 @@ namespace FrontierLedger.Game.Art
                 case BuildingType.Wagon: return 8;
                 case BuildingType.BuilderYard: return 8;
                 case BuildingType.BoardingHouse: return 22;
+                case BuildingType.Bank: return 14;
                 default: return 0;
             }
         }
@@ -245,6 +246,7 @@ namespace FrontierLedger.Game.Art
                 case BuildingType.Wagon: Wagon(k); break;
                 case BuildingType.BuilderYard: BuilderYard(k); break;
                 case BuildingType.BoardingHouse: BoardingHouse(k); break;
+                case BuildingType.Bank: Bank(k); break;
             }
             k.Tg.Outline(OL);
             string n = type + "_" + v + "_" + si;
@@ -363,6 +365,41 @@ namespace FrontierLedger.Game.Art
             tg.R(8, y0 + 21, 6, 1, "#8a5a34"); tg.D(8, y0 + 22, "#6e4428"); tg.D(13, y0 + 22, "#6e4428");
             tg.R(35, y0 + 21, 5, 3, "#9a9aa2"); tg.R(35, y0 + 21, 5, 1, "#c8c8d0");
             Foundation(tg, 2, y0 + 24, 44);
+        }
+
+        static void Bank(Ctx k)
+        {
+            var bg = k.Bg; var tg = k.Tg; bool W = k.Winter; int y0 = k.Y(0);
+            // stone steps and a swept front
+            bg.R(0, y0 + 27, 32, 5, W ? "#d8d2c6" : "#c8c1b4");
+            for (int x = 1; x < 32; x += 5) bg.D(x, y0 + 29, "#a39c90");
+            Shadow(tg, 2, y0 + 26, 28);
+            // flat roof with a cornice
+            tg.R(0, y0 - 14, 32, 4, "#6e6860"); tg.R(0, y0 - 14, 32, 1, "#a39c90"); tg.R(0, y0 - 11, 32, 1, "#4e4840");
+            if (W) tg.R(0, y0 - 15, 32, 1, SNOW);
+            // dark red brick
+            tg.R(1, y0 - 10, 30, 36, "#8a4a3a");
+            for (int r = 0; r < 36; r += 3)
+            {
+                tg.R(1, y0 - 10 + r, 30, 1, "#6e3a2c");
+                for (int x = ((r / 3) % 2 == 1 ? 2 : 5); x < 31; x += 6) tg.R(x, y0 - 10 + r, 1, 3, "#6e3a2c");
+            }
+            // sign
+            tg.R(5, y0 - 8, 22, 6, "#2e2a26"); tg.R(6, y0 - 7, 20, 4, "#e8d8a8"); Letters(tg, 8, y0 - 7, 16, "#2e2a26");
+            // tall barred windows
+            foreach (int x in new[] { 4, 23 })
+            {
+                tg.R(x - 1, y0 + 1, 7, 12, "#c8c1b4");
+                tg.R(x, y0 + 2, 5, 10, "#3a4e5e"); k.Wins.Add(new RectInt(x, y0 + 2, 5, 10));
+                for (int i = x + 1; i < x + 5; i += 2) tg.R(i, y0 + 2, 1, 10, "#7a7a7a");
+                tg.R(x - 1, y0 + 13, 7, 1, "#a39c90");
+            }
+            // columns flanking the door, under a little pediment
+            for (int r = 0; r < 4; r++) tg.R(15 - r - 3, y0 + 2 + r, 8 + 2 * r, 1, "#e8e2d4");
+            foreach (int x in new[] { 10, 20 }) { tg.R(x, y0 + 6, 2, 19, "#efe9dc"); tg.R(x + 1, y0 + 6, 1, 19, "#c8c1b4"); }
+            Door(k, 13, y0 + 15, 6, 10, "#3a2a1e");
+            tg.R(9, y0 + 25, 14, 1, "#c8c1b4");
+            Foundation(tg, 1, y0 + 25, 30);
         }
 
         static void Storehouse(Ctx k)

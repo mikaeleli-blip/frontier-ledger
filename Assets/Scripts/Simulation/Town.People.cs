@@ -180,7 +180,7 @@ namespace FrontierLedger.Simulation
         {
             var b = GetBuilding(p.WorkId);
             if (b != null) b.Employees.Remove(p.Id);
-            p.WorkId = -1;
+            p.WorkId = -1; p.FamilyHand = false;
             p.Role = p.IsChild ? Role.Child : Role.Laborer;
         }
 
@@ -232,7 +232,14 @@ namespace FrontierLedger.Simulation
                     own.OwnerId = heir.Id; heir.Role = Role.Owner; heir.WorkId = own.Id; heir.Money += p.Money; p.Money = 0;
                     AddLog(heir.Name + " takes over the " + own.Def.Name + ".");
                 }
-                else { own.OwnerId = -1; AddLog("The " + own.Def.Name + " is up for sale."); }
+                else
+                {
+                    own.OwnerId = -1;
+                    if (own.Debt > 0.01f && GetBuilding(own.LenderId) != null) AddLog("The bank wrote off " + Money(own.Debt) + " still owed on the " + own.Def.Name + ".", LogKind.Bad);
+                    own.Debt = 0; own.LenderId = -1; own.MissedPayments = 0;
+                    foreach (var id in own.Employees) { var e = GetCitizen(id); if (e != null) e.FamilyHand = false; }
+                    AddLog("The " + own.Def.Name + " is up for sale. The town runs it until someone buys it.");
+                }
             }
             var partner = GetCitizen(p.PartnerId);
             if (partner != null) { partner.PartnerId = -1; partner.Money += p.Money; }
@@ -348,22 +355,43 @@ namespace FrontierLedger.Simulation
                 AddLog(founder.Name + " opened his Builder's Yard. From now on the town pays him by the job.", LogKind.Good);
                 return;
             }
-            var c = People.Where(p => !p.IsChild && (p.Role == Role.Laborer || p.Role == Role.Worker) && p.Jail == 0 && p.Money >= 10 && p.Age < 60 && OwnedBusiness(p) == null)
-                          .OrderByDescending(p => p.Money).FirstOrDefault();
-            if (c == null) return;
-            if (c.Role != Role.Laborer) QuitJob(c);
-            // The deed is priced at what the building cost the town. The buyer pays some down and owes the rest,
-            // paid off out of profits; they also put some savings in the till to get going.
-            float cost = b.BuildCost > 0 ? b.BuildCost : 8f + (d.Logs + d.Stone) * 0.3f;
-            float down = Math.Min(c.Money * 0.4f, cost), capital = c.Money * 0.3f;
-            c.Money -= down + capital; Treasury += down; LedgerThisWeek.Deeds += down;
+            // Families buy businesses with their own savings, in full, or with a bank loan for the rest.
+            // Until someone can, the town runs it.
+            float price = DeedPrice(b);
+            var bank = b.Type == BuildingType.Bank ? null : Banks.Where(k => IsOpen(k)).OrderByDescending(k => k.Cash).FirstOrDefault();
+            Citizen buyer = null; float best = 0, loan = 0;
+            foreach (var p in People)
+            {
+                if (p.IsChild || p.Jail > 0 || p.Age >= 60 || (p.Role != Role.Laborer && p.Role != Role.Worker) || p.FamilyHand) continue;
+                if (FamilyBusiness(p) != null) continue;   // one business to a family
+                var sp = GetCitizen(p.PartnerId);
+                float savings = p.Money + (sp != null ? sp.Money : 0f);
+                float need = 0;
+                if (savings - 5f >= price) need = 0;
+                else if (bank != null && savings - 5f >= price * Balance.MinDown && bank.Cash - 20f >= price - (savings - 5f)) need = price - (savings - 5f);
+                else continue;
+                if (savings > best) { best = savings; buyer = p; loan = need; }
+            }
+            if (buyer == null) return;
+            if (buyer.Role != Role.Laborer) QuitJob(buyer);
+            var partner = GetCitizen(buyer.PartnerId);
+            var payers = new List<Citizen> { buyer }; if (partner != null) payers.Add(partner);
+            Collect(payers, price - loan);
+            if (loan > 0) { bank.Cash -= loan; b.Debt = loan; b.LenderId = bank.Id; b.MissedPayments = 0; }
+            else { b.Debt = 0; b.LenderId = -1; }
+            Treasury += price; LedgerThisWeek.Deeds += price;
+            // the town takes back what's in its till; the family puts some savings in, and the town a little start-up money
+            Treasury += Math.Max(0, b.Cash); LedgerThisWeek.TownTakings += Math.Max(0, b.Cash); b.Cash = 0;
+            float capital = Collect(payers, payers.Sum(x => Math.Max(0, x.Money)) * (b.Type == BuildingType.Bank ? 0.8f : 0.3f));
             float grant = Math.Min(20f, Math.Max(0f, Treasury)); Treasury -= grant; LedgerThisWeek.Grants += grant;
-            b.Debt = cost - down;
-            b.Cash += grant + capital; b.OwnerId = c.Id; c.Role = Role.Owner; c.WorkId = b.Id; b.LossWeeks = 0; b.BuiltDay = Day;
-            AddLog(c.Name + " bought the deed to the " + d.Name + " for " + Money(cost) + (b.Debt > 0.5f ? ", " + Money(down) + " down and the rest owed to the town." : "."), LogKind.Good);
+            b.Cash = capital + grant; b.OwnerId = buyer.Id; buyer.Role = Role.Owner; buyer.WorkId = b.Id; b.LossWeeks = 0; b.BuiltDay = Day;
+            foreach (var id in b.Employees) { var e = GetCitizen(id); if (e != null) e.FamilyHand = false; }
+            var banker = bank != null ? GetCitizen(bank.OwnerId) : null;
+            AddLog(buyer.Name + " bought the " + d.Name + " from the town for " + Money(price) +
+                   (loan > 0 ? ", borrowing " + Money(loan) + " from " + (banker != null ? banker.Name + "'s bank." : "the bank.") : ", paid in full."), LogKind.Good);
         }
 
-        struct Vacancy { public Building B; public float Wage; public Role Role; }
+                struct Vacancy { public Building B; public float Wage; public Role Role; }
 
         void Hire(Citizen p, Vacancy v)
         {
@@ -372,7 +400,7 @@ namespace FrontierLedger.Simulation
             p.WorkId = v.B.Id; v.B.Employees.Add(p.Id);
             string label = v.Role == Role.Worker ? "a hand at the " + v.B.Def.Name : v.Role == Role.Sheriff ? "the new Sheriff" : "a deputy";
             var boss = GetCitizen(v.B.OwnerId);
-            AddLog(p.Name + " was hired as " + label + (boss != null && v.Role == Role.Worker ? " by " + boss.Name : "") + " at " + Money(v.Wage) + "/day.");
+            AddLog(p.Name + " was hired as " + label + (v.Role == Role.Worker ? (boss != null ? " by " + boss.Name : " by the town") : "") + " at " + Money(v.Wage) + "/day.");
         }
 
         void Hiring()
@@ -389,10 +417,27 @@ namespace FrontierLedger.Simulation
                 }
             }
 
+            // The owner's family works the business with them: spouse and grown children at home, no wages
+            foreach (var b in Businesses.ToList())
+            {
+                var o = GetCitizen(b.OwnerId);
+                if (o == null || o.WorkId != b.Id || b.Employees.Count >= b.Def.MaxEmployees) continue;
+                var sp = GetCitizen(o.PartnerId);
+                var kin = new List<Citizen>(); if (sp != null) kin.Add(sp);
+                kin.AddRange(People.Where(c => !c.IsChild && c.PartnerId < 0 && (c.MotherId == o.Id || c.FatherId == o.Id || (sp != null && (c.MotherId == sp.Id || c.FatherId == sp.Id)))));
+                foreach (var k in kin)
+                {
+                    if (b.Employees.Count >= b.Def.MaxEmployees) break;
+                    if (k.Role != Role.Laborer || k.Jail > 0 || k.Age >= 66 || k.HomeId != o.HomeId) continue;
+                    k.Role = Role.Worker; k.WorkId = b.Id; k.FamilyHand = true; b.Employees.Add(k.Id);
+                    AddLog(k.Name + " works the family " + b.Def.Name.ToLower() + " alongside " + o.First + ".", LogKind.Good);
+                }
+            }
+
             var vac = new List<Vacancy>();
             foreach (var b in Businesses)
             {
-                if (b.OwnerId < 0) continue;
+                if (b.Type == BuildingType.Bank && b.OwnerId < 0) continue;   // a bank needs a banker; the town doesn't lend
                 int want = Math.Min(b.Def.MaxEmployees, b.Desired);
                 for (int i = b.Employees.Count; i < want; i++) vac.Add(new Vacancy { B = b, Wage = b.Wage, Role = Role.Worker });
             }
@@ -403,14 +448,31 @@ namespace FrontierLedger.Simulation
                 for (int i = staff.Count(p => p.Role == Role.Deputy); i < Policy.Deputies; i++) vac.Add(new Vacancy { B = off, Wage = Balance.SalaryDeputy, Role = Role.Deputy });
             }
             // when food is short, settlers take food jobs first
-            bool hungry = People.Count > 0 && TotalFood() / People.Count < 12f;
+            bool hungry = People.Count > 0 && TotalFood() / People.Count < 30f;   // less than a month's food put by
             int homes = Buildings.Count(h => h.Built && IsHome(h.Type) && h.Residents.Count > 0);
             bool cold = TotalFirewood() < homes * 8f;
             vac = vac.OrderByDescending(v => v.Wage + (v.B == null ? 0f :
                         (hungry && Produces(v.B.Type, Good.Food) ? 1f : 0f) +
                         (cold && (v.B.Type == BuildingType.Woodcutter || v.B.Type == BuildingType.LumberCamp) ? 1f : 0f))).ToList();
             var idle = Shuffle(People.Where(Employable).ToList());
-            foreach (var v in vac) { if (idle.Count == 0) break; var p = idle[0]; idle.RemoveAt(0); Hire(p, v); }
+            int filled = 0;
+            foreach (var v in vac) { if (idle.Count == 0) break; var p = idle[0]; idle.RemoveAt(0); Hire(p, v); filled++; }
+            // a hired hand leaves for a job that pays clearly better (or for food work when food is short) - one a day
+            foreach (var v in vac.Skip(filled))
+            {
+                if (v.Role != Role.Worker || v.B == null) continue;
+                bool urgent = hungry && Produces(v.B.Type, Good.Food);
+                // family hands only leave the family business for urgent food work, or when it isn't paying its way
+                var mover = People.Where(p => p.Role == Role.Worker && p.Jail == 0 && p.WorkId != v.B.Id &&
+                                              (!p.FamilyHand || urgent || (GetBuilding(p.WorkId) != null && GetBuilding(p.WorkId).Last.Valid && GetBuilding(p.WorkId).Last.Profit <= 0)))
+                                  .Select(p => new { p, w = GetBuilding(p.WorkId) })
+                                  .Where(x => x.w != null && !(urgent && Produces(x.w.Type, Good.Food)) && (urgent || x.p.FamilyHand || x.w.Wage + 0.4f < v.Wage))
+                                  .OrderBy(x => x.w.Wage).FirstOrDefault();
+                if (mover == null) continue;
+                var from = mover.w; bool fam = mover.p.FamilyHand; QuitJob(mover.p); Hire(mover.p, v);
+                AddLog(mover.p.Name + " left the " + from.Def.Name + " for " + (urgent ? "the " + v.B.Def.Name + ": the town needs food." : "better pay at the " + v.B.Def.Name + "."));
+                break;
+            }
         }
 
         public void SetMinWage(float v)
