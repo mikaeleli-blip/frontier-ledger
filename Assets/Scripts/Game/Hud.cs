@@ -262,7 +262,7 @@ namespace FrontierLedger.Game
             {
                 if (d.Logs > 0) { Ui.IconAt(x, y - 1, Icon.Logs); x += 11; x += Ui.Text(x, y, d.Logs.ToString(), T.TownStock(Good.Logs) >= d.Logs ? Ui.Ink : Ui.Bad) + 6; }
                 if (d.Stone > 0) { Ui.IconAt(x, y - 1, Icon.Stone); x += 11; x += Ui.Text(x, y, d.Stone.ToString(), T.TownStock(Good.Stone) >= d.Stone ? Ui.Ink : Ui.Bad) + 6; }
-                Ui.IconAt(x, y - 1, Icon.Hammer); x += 11; Ui.Text(x, y, d.Work + " builder-days", Ui.InkSoft);
+                Ui.IconAt(x, y - 1, Icon.Hammer); x += 11; Ui.Text(x, y, d.Work + " work-days", Ui.InkSoft);
             }
             float by = r.y + 28;
             if (d.IsBusiness) { Ui.Text(r.x + 7, by, "Up to " + d.MaxEmployees + " workers · wage " + Town.Money(d.BaseWage), Ui.InkSoft); by += 11; }
@@ -419,9 +419,9 @@ namespace FrontierLedger.Game
             Heading("Wages & town payroll");
             float mw = SliderRow("Minimum wage", Town.Money(P.MinWage), P.MinWage, 1, 5, 0.25f, null);
             if (!Mathf.Approximately(mw, P.MinWage)) T.SetMinWage(mw);
-            P.Builders = Mathf.RoundToInt(SliderRow("Builders on the crew", P.Builders.ToString(), P.Builders, 0, 8, 1, "Paid by the treasury. They raise everything you place."));
-            P.BuilderWage = SliderRow("Builder wage", Town.Money(P.BuilderWage), P.BuilderWage, 1, 5, 0.25f, null);
-            P.ReliefWage = SliderRow("Laborer relief", Town.Money(P.ReliefWage), P.ReliefWage, 0, 2, 0.1f, "Daily pay for adults without a job. They haul for the builders.");
+            P.Builders = Mathf.RoundToInt(SliderRow("Day laborers for building", P.Builders.ToString(), P.Builders, 0, 12, 1, "Most settlers without a job the town hires each day to haul materials and raise what you place."));
+            P.BuilderWage = SliderRow("Day wage", Town.Money(P.BuilderWage), P.BuilderWage, 1, 5, 0.25f, null);
+            P.ReliefWage = SliderRow("Laborer relief", Town.Money(P.ReliefWage), P.ReliefWage, 0, 2, 0.1f, "Daily pay for adults without a job on days there's no work for them.");
             P.Deputies = Mathf.RoundToInt(SliderRow("Deputies", P.Deputies.ToString(), P.Deputies, 0, 3, 1, "Sheriff $4/day, deputies $3, from the treasury."));
             Heading("Stores");
             P.Charity = Ui.Toggle(new Rect(bx, by, bw, 11), P.Charity, "Storehouse feeds those who can't pay"); by += 13;
@@ -442,7 +442,7 @@ namespace FrontierLedger.Game
             Book("Business tax", C.BusinessTax, L != null ? L.BusinessTax : (float?)null, 1);
             Book("Storehouse sales", C.StoreSales, L != null ? L.StoreSales : (float?)null, 1);
             Book("Deeds & claims", C.Deeds + C.Claims, L != null ? L.Deeds + L.Claims : (float?)null, 1);
-            Book("Builders", C.Builders, L != null ? L.Builders : (float?)null, -1);
+            Book("Day labor", C.Builders, L != null ? L.Builders : (float?)null, -1);
             Book("Relief", C.Relief, L != null ? L.Relief : (float?)null, -1);
             Book("Salaries", C.Salaries, L != null ? L.Salaries : (float?)null, -1);
             Book("Materials & food", C.Materials, L != null ? L.Materials : (float?)null, -1);
@@ -484,7 +484,7 @@ namespace FrontierLedger.Game
             }
         }
 
-        static readonly Role[] RoleOrder = { Role.Mayor, Role.Owner, Role.Worker, Role.Builder, Role.Sheriff, Role.Deputy, Role.Laborer, Role.Child };
+        static readonly Role[] RoleOrder = { Role.Mayor, Role.Owner, Role.Worker, Role.Sheriff, Role.Deputy, Role.Laborer, Role.Child };
 
         void CitizensTab()
         {
@@ -637,6 +637,18 @@ namespace FrontierLedger.Game
             ScrollIndicator(view, inspScroll.y, inspContentH);
         }
 
+        static string ChoreText(Citizen p)
+        {
+            switch (p.Chore)
+            {
+                case Chore.HaulLogs: return "hauling logs";
+                case Chore.HaulStone: return "hauling stone";
+                case Chore.Build: return "building";
+                case Chore.Harvest: return "harvest hand";
+                default: return "laborer, idle";
+            }
+        }
+
         void PersonPanel()
         {
             var p = T.GetCitizen(gc.Selected.Id);
@@ -649,7 +661,9 @@ namespace FrontierLedger.Game
             Row("Warmth", p.Warm ? "warm" : "cold", p.Warm ? Ui.Good : Ui.Bad);
             var home = T.GetBuilding(p.HomeId); var work = T.GetBuilding(p.WorkId);
             Row("Home", home != null ? (home.Type == BuildingType.Estate ? "Mayor's Estate" : "Cottage #" + home.Id) : "tent by the wagon", home == null ? Ui.Bad : Ui.Ink);
-            Row("Work", p.Role == Role.Builder ? "town building crew" : work != null ? work.Def.Name : p.IsChild ? "too young" : "laborer");
+            Row("Work", work != null ? work.Def.Name : p.IsChild ? "too young" : p.Role == Role.Laborer ? ChoreText(p) : "none");
+            var task = p.Role == Role.Laborer ? T.GetBuilding(p.TaskId) : null;
+            if (task != null) Row("At", task.Def.Name);
             Row("Savings", Town.Money(p.Money));
             if (p.CharityDays > 0) Row("Living on", "town charity", Ui.Warn);
             var partner = T.GetCitizen(p.PartnerId);
@@ -697,7 +711,8 @@ namespace FrontierLedger.Game
                 Row("Working on it", crew + (crew == 1 ? " person" : " people"), crew == 0 ? Ui.Warn : Ui.Ink);
                 if (b.MaterialsFraction < 0.999f && T.TownStock(Good.Logs) < 1 && d.Logs > b.Delivered[(int)Good.Logs]) Para("Waiting on logs. Build a lumber camp, or clear trees.", Ui.Bad);
                 if (b.MaterialsFraction < 0.999f && T.TownStock(Good.Stone) < 1 && d.Stone > b.Delivered[(int)Good.Stone]) Para("Waiting on stone. Build a quarry near a hill or boulders.", Ui.Bad);
-                if (T.Policy.Builders == 0) Para("No builders on the crew. Hire some in the Ledger.", Ui.Bad);
+                if (T.Policy.Builders == 0) Para("The town hires no day laborers. Raise it in the Ledger.", Ui.Bad);
+                else if (crew == 0 && !T.People.Any(p => p.Role == Role.Laborer && !p.IsChild)) Para("Everyone has a job. Nobody is free to build.", Ui.Warn);
             }
             else if (d.IsBusiness)
             {

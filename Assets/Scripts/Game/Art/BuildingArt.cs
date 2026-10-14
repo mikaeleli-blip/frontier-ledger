@@ -19,6 +19,10 @@ namespace FrontierLedger.Game.Art
         public RectInt Forge;
         public bool HasForge;
         public Vector2Int PileAt = new Vector2Int(-1, -1);              // where the goods pile sits (sprite pixels, bottom-left)
+        public PixelCanvas BaseCanvas;         // ground layer, for construction sites of flat buildings
+        public bool HasDoor;
+        public RectInt Door;                   // the doorway, sprite pixels
+        public Sprite DoorOpen, DoorOpenLit;   // overlays: the door swung open on a dark or lamplit room
     }
 
     /// <summary>
@@ -154,8 +158,10 @@ namespace FrontierLedger.Game.Art
             }
         }
 
-        static void Door(PixelCanvas g, int x, int y, int w, int h, string wood = "#8a5a34")
+        static void Door(Ctx k, int x, int y, int w, int h, string wood = "#8a5a34")
         {
+            var g = k.Tg;
+            k.M.HasDoor = true; k.M.Door = new RectInt(x, y, w, h);
             g.R(x - 1, y - 1, w + 2, h + 1, "#5a3a22");
             g.R(x, y, w, h, wood);
             g.R(x + 1, y + 1, w - 2, h / 2 - 1, "#6e4428");
@@ -244,7 +250,9 @@ namespace FrontierLedger.Game.Art
                 b.Draw(k.Bg, 0, 0);
                 foreach (var row in k.Crops) GardenRow(b, row, si, f);
                 m.Base[f] = b.ToSprite(n + "_base" + f);
+                if (f == 0) m.BaseCanvas = b;
             }
+            if (m.HasDoor) { m.DoorOpen = OpenDoor(m, false, n); m.DoorOpenLit = OpenDoor(m, true, n); }
             m.Top = k.Tg.ToSprite(n + "_top");
             m.TopTexture = m.Top.texture;
             m.TopCanvas = k.Tg;
@@ -256,6 +264,19 @@ namespace FrontierLedger.Game.Art
             if (m.HasForge) lights.RBlend(m.Forge.x - 4, m.Forge.y - 4, m.Forge.width + 8, m.Forge.height + 8, PixelCanvas.C("#ff8c32", 80));
             m.Lights = lights.ToSprite(n + "_lights");
             return m;
+        }
+
+        /// <summary>The door swung in against the left jamb, showing the room behind.</summary>
+        static Sprite OpenDoor(BuildingSprites m, bool lit, string n)
+        {
+            var g = new PixelCanvas(m.W, m.H); var r = m.Door;
+            g.R(r.x, r.y, r.width, r.height, lit ? "#f0a848" : "#24160e");
+            g.R(r.x, r.y, r.width, Mathf.Max(1, r.height / 3), lit ? "#d88838" : "#1a0f0a");
+            g.R(r.x, r.y + r.height - 2, r.width, 2, lit ? "#ffd27a" : "#3a2418");     // floorboards catch the light
+            if (lit) g.R(r.x + r.width / 2, r.y + r.height / 3, Mathf.Max(1, r.width / 3), r.height / 3, "#ffe2a0");
+            g.R(r.x, r.y, Mathf.Min(2, r.width - 1), r.height, "#6e4428");                 // the door leaf, edge-on
+            g.R(r.x, r.y, 1, r.height, "#8a5a34");
+            return g.ToSprite(n + (lit ? "_doorlit" : "_door"));
         }
 
         /// <summary>Vegetable rows in a house garden.</summary>
@@ -308,7 +329,7 @@ namespace FrontierLedger.Game.Art
             tg.R(3, y0 + 30, 26, 1, walls[v][1]);
             Foundation(tg, 3, y0 + 43, 26);
             Window(k, 6, y0 + 33, 5, 4); Window(k, 21, y0 + 33, 5, 4);
-            Door(tg, 13, y0 + 33, 6, 10);
+            Door(k, 13, y0 + 33, 6, 10);
         }
 
         static void Storehouse(Ctx k)
@@ -381,7 +402,7 @@ namespace FrontierLedger.Game.Art
             }
             if (W) for (int r = 0; r < 4; r++) tg.R(12 - r, y0 + 2 + r, 8 + 2 * r, 1, SNOW);
             Planks(tg, 6, y0 + 16, 20, 11, "#9a6a3a", "#7a4e2c", "#b8844a");
-            Door(tg, 14, y0 + 19, 4, 7, "#6e4428");
+            Door(k, 14, y0 + 19, 4, 7, "#6e4428");
             Window(k, 8, y0 + 19, 3, 3, false);
             // baskets of berries and mushrooms
             if (!W)
@@ -402,7 +423,7 @@ namespace FrontierLedger.Game.Art
             Shadow(tg, 3, y0 + 20, 20);
             Shingles(tg, 2, y0 + 3, 20, 9, new[] { "#6e7a82", "#4e5a62", "#8e9aa2" }, W);
             Planks(tg, 3, y0 + 12, 18, 9, "#7a9aa8", "#5e7e8c", "#98b8c4");
-            Door(tg, 10, y0 + 14, 4, 6, "#5a3a22");
+            Door(k, 10, y0 + 14, 4, 6, "#5a3a22");
             Window(k, 5, y0 + 14, 3, 3, false);
             Window(k, 16, y0 + 14, 3, 3, false);
             Foundation(tg, 3, y0 + 19, 18);
@@ -430,7 +451,7 @@ namespace FrontierLedger.Game.Art
                 tg.R(3, y, 18, 2, "#8a5a34"); tg.R(3, y + 1, 18, 1, "#6e4428");
                 tg.R(2, y, 2, 2, "#d8b07a"); tg.D(2, y, "#a8804a"); tg.R(20, y, 2, 2, "#d8b07a"); tg.D(21, y + 1, "#a8804a");
             }
-            Door(tg, 10, y0 + 14, 4, 6, "#5a3a22");
+            Door(k, 10, y0 + 14, 4, 6, "#5a3a22");
             Window(k, 5, y0 + 14, 3, 3, false);
             Chimney(k, 16, y0 - 2, 6);
             // axe in a stump
@@ -505,7 +526,7 @@ namespace FrontierLedger.Game.Art
             // tools on the wall
             tg.D(14, y0 + 18, "#9a9aa2"); tg.R(14, y0 + 19, 1, 2, "#a8734a"); tg.D(16, y0 + 18, "#9a9aa2"); tg.R(16, y0 + 19, 1, 2, "#a8734a");
             Window(k, 23, y0 + 17, 4, 4, false);
-            Door(tg, 22, y0 + 22, 5, 5, "#6e4428");
+            Door(k, 22, y0 + 22, 5, 5, "#6e4428");
             k.M.PileAt = new Vector2Int(-1, -1);
         }
 
@@ -530,7 +551,7 @@ namespace FrontierLedger.Game.Art
             Window(k, 3, y0 + 17, 7, 6, false, "#2f5d7a"); Window(k, 22, y0 + 17, 7, 6, false, "#2f5d7a");
             string[] goods = { "#e84a3a", "#f2cf4a", "#7fb05a", "#e8dcc4", "#c87a3a" };
             for (int i = 0; i < 6; i++) { tg.D(3 + i + (i > 2 ? 1 : 0), y0 + 22, goods[i % 5]); tg.D(22 + i + (i > 2 ? 1 : 0), y0 + 22, goods[(i + 2) % 5]); }
-            Door(tg, 13, y0 + 17, 6, 10, "#6e4428");
+            Door(k, 13, y0 + 17, 6, 10, "#6e4428");
             tg.R(14, y0 + 18, 4, 3, "#5a86a8");
             Barrel(tg, 25, y0 + 25); Crate(tg, 1, y0 + 25, 5);
         }
@@ -568,6 +589,7 @@ namespace FrontierLedger.Game.Art
             tg.R(0, y0 + 12, 2, 15, "#4b2e1a"); tg.R(30, y0 + 12, 2, 15, "#4b2e1a");
             Window(k, 4, y0 + 16, 5, 5, false, "#c9a46a"); Window(k, 23, y0 + 16, 5, 5, false, "#c9a46a");
             tg.R(11, y0 + 14, 10, 13, "#1e1410");
+            k.M.HasDoor = true; k.M.Door = new RectInt(12, y0 + 17, 8, 7);
             k.Glow.Add(new RectInt(12, y0 + 15, 8, 4));
             tg.R(12, y0 + 18, 3, 5, "#a8734a"); tg.R(17, y0 + 18, 3, 5, "#a8734a");
             tg.R(12, y0 + 18, 3, 1, "#c49364"); tg.R(17, y0 + 18, 3, 1, "#c49364");
@@ -600,7 +622,7 @@ namespace FrontierLedger.Game.Art
                 k.Wins.Add(new RectInt(x, y0 + 17, 6, 5));
                 for (int i = x + 1; i < x + 6; i += 2) tg.R(i, y0 + 17, 1, 5, "#9a9a9a");
             }
-            Door(tg, 13, y0 + 16, 6, 11, "#5a3a22");
+            Door(k, 13, y0 + 16, 6, 11, "#5a3a22");
         }
 
         static void Estate(Ctx k)
@@ -640,7 +662,7 @@ namespace FrontierLedger.Game.Art
             for (int r = 0; r < 6; r++) tg.R(23 - r, y0 + 2 + r, 2 + 2 * r, 1, "#fffaf0");
             tg.R(17, y0 + 8, 14, 2, "#e8dfcc");
             foreach (int x in new[] { 18, 21, 25, 28 }) { tg.R(x, y0 + 10, 2, 14, "#fffaf0"); tg.R(x + 1, y0 + 10, 1, 14, "#d6ccb6"); }
-            Door(tg, 22, y0 + 15, 4, 9, "#3a4a3a");
+            Door(k, 22, y0 + 15, 4, 9, "#3a4a3a");
             tg.R(18, y0 + 24, 12, 1, "#c8c1b4"); tg.R(17, y0 + 25, 14, 1, "#a8a090");
         }
 
@@ -694,52 +716,146 @@ namespace FrontierLedger.Game.Art
         }
 
         // ================================================================== construction sites
-        static readonly Dictionary<int, Sprite[]> siteCache = new Dictionary<int, Sprite[]>();
-
-        /// <summary>A construction site: stone footings, timber scaffolding and the building rising
-        /// from the ground with progress. Returns {base, top}.</summary>
-        public static Sprite[] Site(BuildingType type, int variant, int season, int stage)
+        /// <summary>A construction site at one step of progress.</summary>
+        public sealed class SiteSprites
         {
-            int key = (((int)type * 16 + variant) * 4 + season) * 8 + stage;
-            Sprite[] s;
+            public Sprite Base, Top;
+            public int PlankY = -1, PlankX0, PlankX1;   // scaffold plank the builders stand on (sprite pixels), -1 if none
+            public int WorkY;                           // where the work is happening (top of the finished part)
+        }
+
+        public const int SiteSteps = 24;
+        static readonly Dictionary<int, SiteSprites> siteCache = new Dictionary<int, SiteSprites>();
+        const string TIMBER = "#d8b07a", TIMBER_D = "#a07a48", ROPE = "#efe6d2";
+
+        /// <summary>Progress (0-1) to a cached step.</summary>
+        public static int SiteStep(float progress) { return Mathf.Clamp(Mathf.FloorToInt(progress * SiteSteps), 0, SiteSteps); }
+
+        /// <summary>
+        /// A building going up: stakes and string on cleared ground, then stone footings laid left to right,
+        /// a timber frame rising, and finally walls and roof filling in from the ground up behind scaffolding.
+        /// </summary>
+        public static SiteSprites Site(BuildingType type, int variant, int season, int step)
+        {
+            int key = (((int)type * 16 + variant) * 4 + season) * 32 + step;
+            SiteSprites s;
             if (siteCache.TryGetValue(key, out s)) return s;
             var full = Get(type, variant, season);
             var d = Defs.Get(type);
-            int W = full.W, H = full.H, L = full.Lift;
-            var bg = new PixelCanvas(W, H);
+            int W = full.W, H = full.H, L = full.Lift, fh = d.H * 16;
+            float f = step / (float)SiteSteps;
             bool winter = season == 3;
-            // trampled ground and footings
-            bg.R(1, L + 1, W - 2, d.H * 16 - 2, winter ? "#d8d2c6" : "#9e7a4d");
-            for (int i = 0; i < W * d.H / 2; i++) bg.D(1 + (int)(Hs(i, (int)type, 3) * (W - 2)), L + 1 + (int)(Hs((int)type, i, 4) * (d.H * 16 - 2)), winter ? "#c4beb2" : "#8a6a42");
-            for (int x = 1; x < W - 1; x += 3) { bg.D(x, L + 1, "#8d877d"); bg.D(x, L + d.H * 16 - 2, "#8d877d"); }
-            for (int y = L + 1; y < L + d.H * 16 - 1; y += 3) { bg.D(1, y, "#8d877d"); bg.D(W - 2, y, "#8d877d"); }
-            // the building rising from the bottom
+            s = new SiteSprites();
+
+            // ---- ground: trampled dirt, corner stakes and string lines
+            var bg = new PixelCanvas(W, H);
+            bool flat = type == BuildingType.Farm || type == BuildingType.Cemetery;
+            if (!flat) bg.R(1, L + 1, W - 2, fh - 2, winter ? "#d8d2c6" : "#9e7a4d");
+            if (!flat) for (int i = 0; i < W * d.H / 2; i++) bg.D(1 + (int)(Hs(i, (int)type, 3) * (W - 2)), L + 1 + (int)(Hs((int)type, i, 4) * (fh - 2)), winter ? "#c4beb2" : "#8a6a42");
+            if (flat)
+            {
+                // fields and graveyards are laid out from the far side toward the road
+                int upto = L + Mathf.RoundToInt(fh * Mathf.Clamp01(f / 0.9f));
+                for (int y = L; y < upto; y++) for (int x = 0; x < W; x++) { var c = full.BaseCanvas.Get(x, y); if (c.a > 0) bg.Set(x, y, c); }
+            }
+            for (int x = 2; x < W - 2; x += 2) { bg.D(x, L + 1, ROPE); bg.D(x, L + fh - 2, ROPE); }
+            for (int y = L + 2; y < L + fh - 2; y += 2) { bg.D(1, y, ROPE); bg.D(W - 2, y, ROPE); }
+            foreach (var c in new[] { new Vector2Int(0, L), new Vector2Int(W - 2, L), new Vector2Int(0, L + fh - 3), new Vector2Int(W - 2, L + fh - 3) })
+            { bg.R(c.x, c.y, 2, 3, "#8a5a34"); bg.D(c.x, c.y, TIMBER); }
+
             var tg = new PixelCanvas(W, H);
-            float frac = stage / 4f;
-            int topVisible = Mathf.RoundToInt(H - (H * frac));
-            if (stage > 0)
+            if (flat)
             {
-                for (int y = topVisible; y < H; y++)
-                    for (int x = 0; x < W; x++)
-                    {
-                        var c = full.TopCanvas.Get(x, y);
-                        if (c.a == 0) continue;
-                        // unfinished walls show as bare timber
-                        if (stage < 4 && y < topVisible + 3) c = PixelCanvas.C("#c49a62");
-                        tg.Set(x, y, c);
-                    }
+                if (f >= 0.9f) tg.Draw(full.TopCanvas, 0, 0);
+                s.Base = bg.ToSprite("site_base" + key); s.Top = tg.ToSprite("site_top" + key); s.WorkY = L + fh / 2;
+                siteCache[key] = s; return s;
             }
-            // scaffolding poles and planks around the frame
-            if (stage < 4)
+
+            // ---- the finished building's silhouette, column by column
+            var top = new int[W]; var bot = new int[W];
+            int x0 = W, x1 = -1, yTop = H, yBot = 0;
+            for (int x = 0; x < W; x++)
             {
-                int top = Mathf.Max(0, topVisible - 6);
-                for (int x = 2; x < W - 2; x += 10) tg.R(x, top, 1, H - top - 1, "#a8734a");
-                tg.R(2, top, W - 4, 1, "#a8734a");
-                for (int y = top + 8; y < H - 2; y += 8) tg.R(2, y, W - 4, 1, "#8a5a34");
-                tg.Line(2, H - 2, Mathf.Min(W - 3, 12), top, "#8a5a34");
+                top[x] = -1; bot[x] = -1;
+                for (int y = 0; y < H; y++) if (full.TopCanvas.Get(x, y).a == 255) { if (top[x] < 0) top[x] = y; bot[x] = y; }
+                if (top[x] < 0) continue;
+                x0 = Mathf.Min(x0, x); x1 = Mathf.Max(x1, x);
+                yTop = Mathf.Min(yTop, top[x]); yBot = Mathf.Max(yBot, bot[x]);
             }
-            tg.Outline(OL);
-            s = new[] { bg.ToSprite("site_base" + key), tg.ToSprite("site_top" + key) };
+            if (x1 < 0) { s.Base = bg.ToSprite("site_base" + key); s.Top = tg.ToSprite("site_top" + key); siteCache[key] = s; return s; }
+
+            const float footEnd = 0.12f, frameEnd = 0.4f;
+            var fr = new PixelCanvas(W, H);   // footings, frame and scaffold, outlined on their own
+            // footings: grey stones laid left to right
+            float lay = Mathf.Clamp01(f / footEnd);
+            int laid = x0 + Mathf.RoundToInt((x1 - x0 + 1) * lay);
+            for (int x = x0; x < laid; x++)
+            {
+                if (bot[x] < 0) continue;
+                bool joint = ((x - x0) % 5) == 4;
+                fr.Set(x, bot[x] - 1, PixelCanvas.C(joint ? "#6e6860" : "#a39c90"));
+                fr.Set(x, bot[x], PixelCanvas.C(joint ? "#5e5850" : "#8d877d"));
+            }
+            // timber frame: posts rising, then cross beams and the line of the roof
+            if (f > footEnd)
+            {
+                float rise = Mathf.Clamp01((f - footEnd) / (frameEnd - footEnd - 0.04f));
+                var posts = new List<int>();
+                for (int x = x0 + 1; x < x1 - 3; x += 9) posts.Add(x);
+                posts.Add(x1 - 2);
+                var reach = new Dictionary<int, int>();
+                foreach (int px in posts)
+                {
+                    int b = Mathf.Max(bot[px], bot[Mathf.Min(px + 1, W - 1)]) - 2, t = Mathf.Min(top[px], top[Mathf.Min(px + 1, W - 1)]) + 1;
+                    int y = b - Mathf.RoundToInt((b - t) * rise);
+                    reach[px] = y;
+                    for (int yy = y; yy <= b; yy++) { fr.Set(px, yy, PixelCanvas.C(TIMBER)); fr.Set(px + 1, yy, PixelCanvas.C(TIMBER_D)); }
+                }
+                for (int i = 0; i + 1 < posts.Count; i++)
+                {
+                    int a = posts[i], b2 = posts[i + 1];
+                    for (int by = yBot - 10; by > yTop + 2; by -= 10)
+                        if (reach[a] <= by && reach[b2] <= by)
+                            for (int x = a + 2; x < b2; x++) if (by >= top[x] && by <= bot[x]) fr.Set(x, by, PixelCanvas.C(TIMBER_D));
+                }
+                if (rise >= 1f)
+                    for (int x = x0 + 1; x < x1; x++) if (top[x] >= 0) fr.Set(x, top[x] + 1, PixelCanvas.C(TIMBER));
+            }
+            // walls and roof fill in from the ground up
+            int reveal = H;
+            if (f >= frameEnd)
+            {
+                float k = Mathf.Clamp01((f - frameEnd) / (1f - frameEnd));
+                reveal = yBot + 1 - Mathf.RoundToInt((yBot + 1 - yTop) * k);
+            }
+            s.WorkY = Mathf.Min(reveal, yBot - 2);
+            // scaffolding once the frame is up: poles, a ladder and a plank just under the work
+            bool scaffold = f >= frameEnd - 0.06f && f < 1f && yBot - yTop > 14;
+            var sc = new PixelCanvas(W, H);
+            if (scaffold)
+            {
+                int plank = Mathf.Clamp(reveal + 6, yTop + 6, yBot - 4);
+                int pa = x0 + 1, pb = x1 - 1;
+                for (int y = plank - 8; y <= yBot; y++) { sc.Set(pa, y, PixelCanvas.C("#a8734a")); sc.Set(pb, y, PixelCanvas.C("#a8734a")); }
+                for (int x = pa; x <= pb; x++) { sc.Set(x, plank, PixelCanvas.C("#c49364")); sc.Set(x, plank + 1, PixelCanvas.C("#7a4e2c")); }
+                int lx = pa + 3;
+                for (int y = plank; y <= yBot; y++) { sc.Set(lx, y, PixelCanvas.C("#8a5a34")); sc.Set(lx + 3, y, PixelCanvas.C("#8a5a34")); if ((y - plank) % 3 == 2) { sc.Set(lx + 1, y, PixelCanvas.C(TIMBER)); sc.Set(lx + 2, y, PixelCanvas.C(TIMBER)); } }
+                s.PlankY = plank; s.PlankX0 = pa + 6; s.PlankX1 = pb - 2;
+            }
+            fr.Outline(OL);
+            tg.Draw(fr, 0, 0);
+            // the finished part
+            for (int y = Mathf.Max(0, reveal); y < H; y++)
+                for (int x = 0; x < W; x++)
+                {
+                    var c = full.TopCanvas.Get(x, y);
+                    if (c.a == 0) continue;
+                    if (y < reveal + 2 && c.a == 255 && f < 1f) c = PixelCanvas.C((x + y) % 4 == 0 ? TIMBER_D : TIMBER);   // fresh boards on the top course
+                    tg.Set(x, y, c);
+                }
+            // scaffolding stands in front of the new walls
+            if (scaffold) { sc.Outline(OL); tg.Draw(sc, 0, 0); }
+            s.Base = bg.ToSprite("site_base" + key); s.Top = tg.ToSprite("site_top" + key);
             siteCache[key] = s;
             return s;
         }

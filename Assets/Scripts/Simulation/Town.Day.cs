@@ -14,7 +14,7 @@ namespace FrontierLedger.Simulation
         {
             int si = Season;
             foreach (var b in Buildings) b.Today.Clear();
-            foreach (var p in People) { p.FedToday = 0; p.SaloonToday = -1; p.TaskId = -1; }
+            foreach (var p in People) { p.FedToday = 0; p.SaloonToday = -1; p.TaskId = -1; p.Chore = Chore.None; }
 
             GrowLand();
             Construct();
@@ -55,45 +55,65 @@ namespace FrontierLedger.Simulation
         // =====================================================================
         // Construction: materials come from town stores (or are bought), builders do the work
         // =====================================================================
+        /// <summary>Adults without a job who can take day work.</summary>
+        bool DayLaborer(Citizen p) { return !p.IsChild && p.Role == Role.Laborer && p.Jail == 0 && p.Age < 66; }
+
         void Construct()
         {
             var sites = Sites.OrderBy(b => b.Id).ToList();
             if (sites.Count == 0) return;
+            // The town hires laborers by the day, as many as the ledger allows and the treasury can pay.
+            var hands = People.Where(DayLaborer).OrderBy(p => p.Id).ToList();
+            int hires = Math.Min(hands.Count, Policy.Builders);
+            if (Policy.BuilderWage > 0) hires = Math.Min(hires, (int)(Math.Max(0, Treasury) / Policy.BuilderWage));
+            int hi = 0;
             foreach (var s in sites)
             {
                 var d = s.Def;
-                foreach (var g in new[] { Good.Logs, Good.Stone })
+                int crew = 0, max = Balance.SiteCrew(d);
+                while (hi < hires && crew < max)
                 {
-                    float need = (g == Good.Logs ? d.Logs : d.Stone) - s.Delivered[(int)g];
-                    if (need <= 0.001f) continue;
-                    float got = TakeFromTown(g, need);
-                    if (need - got > 0.001f && Treasury > 0)
+                    float cap = d.Work * Math.Min(1f, s.MaterialsFraction) - s.Progress;
+                    var p = hands[hi];
+                    if (cap > 0.001f)
                     {
-                        float budget = Treasury;
-                        float bought = BuyFromProducers(g, need - got, ref budget, null);
-                        LedgerThisWeek.Materials += Treasury - budget; Treasury = budget;
-                        got += bought;
+                        s.Progress += Math.Min(cap, 1f);
+                        p.Chore = Chore.Build;
                     }
-                    s.Delivered[(int)g] += got;
-                }
-            }
-            var crew = People.Where(p => p.Role == Role.Builder && p.Jail == 0).ToList();
-            var helpers = People.Where(p => p.Role == Role.Laborer && p.Jail == 0 && p.Age < 66).ToList();
-            int bi = 0, hi = 0;
-            foreach (var s in sites)
-            {
-                var d = s.Def;
-                float cap = d.Work * Math.Min(1f, s.MaterialsFraction) - s.Progress;
-                while (cap > 0.001f && (bi < crew.Count || hi < helpers.Count))
-                {
-                    float w;
-                    if (bi < crew.Count) { crew[bi].TaskId = s.Id; bi++; w = 1f; }
-                    else { helpers[hi].TaskId = s.Id; hi++; w = 0.25f; }
-                    float use = Math.Min(cap, w);
-                    s.Progress += use; cap -= use;
+                    else
+                    {
+                        Good g; float got = Haul(s, out g);
+                        if (got <= 0.001f) break;   // nothing to build with until materials turn up
+                        p.Chore = g == Good.Logs ? Chore.HaulLogs : Chore.HaulStone;
+                    }
+                    p.TaskId = s.Id; hi++; crew++;
                 }
                 if (s.Progress >= d.Work - 0.001f && s.MaterialsFraction >= 0.999f) OnBuilt(s, false);
             }
+        }
+
+        /// <summary>One laborer's day of carrying logs (then stone) from the town stores to a site.
+        /// Materials the stores lack are bought from producers with town money.</summary>
+        float Haul(Building s, out Good carried)
+        {
+            var d = s.Def; float load = Balance.HaulPerDay, total = 0; carried = Good.Logs;
+            foreach (var g in new[] { Good.Logs, Good.Stone })
+            {
+                float need = Math.Min(load, (g == Good.Logs ? d.Logs : d.Stone) - s.Delivered[(int)g]);
+                if (need <= 0.001f) continue;
+                float got = TakeFromTown(g, need);
+                if (need - got > 0.001f && Treasury > 0)
+                {
+                    float budget = Treasury;
+                    got += BuyFromProducers(g, need - got, ref budget, null);
+                    LedgerThisWeek.Materials += Treasury - budget; Treasury = budget;
+                }
+                if (got <= 0.001f) continue;
+                if (total <= 0.001f) carried = g;
+                s.Delivered[(int)g] += got; load -= got; total += got;
+                if (load <= 0.001f) break;
+            }
+            return total;
         }
 
         // =====================================================================
@@ -102,7 +122,7 @@ namespace FrontierLedger.Simulation
         // =====================================================================
         void OddJobs(int si)
         {
-            var idle = People.Where(p => !p.IsChild && p.Jail == 0 && p.Age < 66 && p.TaskId < 0 && (p.Role == Role.Laborer || p.Role == Role.Builder)).ToList();
+            var idle = People.Where(p => DayLaborer(p) && p.TaskId < 0).ToList();
             if (idle.Count == 0) return;
             int k = 0;
             if (si == 2)
@@ -110,7 +130,7 @@ namespace FrontierLedger.Simulation
                     for (int hands = 0; hands < 4 && k < idle.Count && f.CropLeft > 1; hands++)
                     {
                         var p = idle[k++];
-                        p.TaskId = f.Id;
+                        p.TaskId = f.Id; p.Chore = Chore.Harvest;
                         float h = Math.Min(f.CropLeft, Balance.HarvestPerWorker * Balance.HelperHarvest * FoodBonus);
                         f.CropLeft -= h; Make(f, Good.Food, h);
                         float pay = Math.Max(0, Math.Min(f.Cash, f.Wage * Balance.HelperPay));
@@ -556,9 +576,9 @@ namespace FrontierLedger.Simulation
                     case Role.Mayor: PayFromTreasury(p, Balance.SalaryMayor, ref L.Salaries); break;
                     case Role.Sheriff: PayFromTreasury(p, Balance.SalarySheriff, ref L.Salaries); break;
                     case Role.Deputy: PayFromTreasury(p, Balance.SalaryDeputy, ref L.Salaries); break;
-                    case Role.Builder: PayFromTreasury(p, Policy.BuilderWage, ref L.Builders); break;
                     case Role.Laborer:
-                        if (p.Age < 66 && Policy.ReliefWage > 0) PayFromTreasury(p, Policy.ReliefWage, ref L.Relief);
+                        if (p.Chore != Chore.None && p.Chore != Chore.Harvest) PayFromTreasury(p, Policy.BuilderWage, ref L.Builders);
+                        else if (p.Age < 66 && Policy.ReliefWage > 0) PayFromTreasury(p, Policy.ReliefWage, ref L.Relief);
                         break;
                 }
             }

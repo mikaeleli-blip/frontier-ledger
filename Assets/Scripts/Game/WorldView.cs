@@ -36,8 +36,10 @@ namespace FrontierLedger.Game
 
         sealed class BuildingView
         {
-            public Building B; public GameObject Go; public SpriteRenderer Base, Top, Lights, Forge, Overlay, Pile;
+            public Building B; public GameObject Go; public SpriteRenderer Base, Top, Lights, Forge, Overlay, Pile, Door, SiteLogs, SiteStone;
             public List<SpriteRenderer> Chickens = new List<SpriteRenderer>(); public int Season = -1, Stage = -2; public BuildingSprites Art;
+            public BuildingArt.SiteSprites Site;   // while under construction
+            public float DoorUntil;                // the door stands open until this time
         }
         sealed class PersonView
         {
@@ -45,8 +47,14 @@ namespace FrontierLedger.Game
             public Vector2 Pos = new Vector2(float.NaN, 0), Goal = new Vector2(float.NaN, 0);
             public List<Vector2> Path = new List<Vector2>(); public int PathIdx;
             public int Dir; public float Step; public bool Moving; public bool Inside;
+            public SpriteRenderer Held;            // log, stone or hammer in hand
+            public int DoorState, DoorB = -1;      // Out / Entering / In / Exiting, and which building
+            public float DoorT, Pause; public bool Carry; public int LastHammer;
         }
-        sealed class Particle { public SpriteRenderer Sr; public float X, Y, Life, Max, Vx; public bool Dark; }
+        const int Out = 0, Entering = 1, In = 2, Exiting = 3;
+        const float DoorTime = 0.8f;
+        const int FxSmoke = 0, FxSmokeDark = 1, FxDust = 2, FxSpark = 3;
+        sealed class Particle { public SpriteRenderer Sr; public float X, Y, Life, Max, Vx; public int Kind; }
         sealed class Cloud { public SpriteRenderer Sr; public float X, Y; public int Rx; }
 
         readonly Dictionary<int, BuildingView> buildings = new Dictionary<int, BuildingView>();
@@ -209,17 +217,29 @@ namespace FrontierLedger.Game
                 BuildingView v;
                 if (!buildings.TryGetValue(b.Id, out v)) { v = CreateBuildingView(b); buildings[b.Id] = v; }
                 var d = b.Def;
-                int stage = b.Built ? -1 : Mathf.Clamp(Mathf.FloorToInt(b.BuildFraction * 4), 0, 3);
+                int stage = b.Built ? -1 : BuildingArt.SiteStep(b.BuildFraction);
                 if (v.Season != si || v.Stage != stage)
                 {
+                    if (v.Stage >= 0 && stage < 0) Burst(b);
                     v.Art = ArtFor(b); v.Season = si; v.Stage = stage;
                     if (stage >= 0)
                     {
-                        var site = BuildingArt.Site(b.Type, BuildingArt.VariantOf(b), si, stage);
-                        v.Base.sprite = site[0]; v.Top.sprite = site[1];
+                        v.Site = BuildingArt.Site(b.Type, BuildingArt.VariantOf(b), si, stage);
+                        v.Base.sprite = v.Site.Base; v.Top.sprite = v.Site.Top;
                     }
-                    else { v.Top.sprite = v.Art.Top; }
+                    else { v.Site = null; v.Top.sprite = v.Art.Top; }
                     v.Lights.sprite = v.Art.Lights;
+                }
+                if (v.SiteLogs != null)
+                {
+                    SitePile(v.SiteLogs, b, Good.Logs, d.Logs, si);
+                    SitePile(v.SiteStone, b, Good.Stone, d.Stone, si);
+                }
+                if (v.Door != null)
+                {
+                    bool open = b.Built && v.Art.HasDoor && time < v.DoorUntil;
+                    v.Door.enabled = open;
+                    if (open) v.Door.sprite = Lit(b) && n > 0.25f ? v.Art.DoorOpenLit : v.Art.DoorOpen;
                 }
                 if (stage < 0) v.Base.sprite = v.Art.Base[frame];
                 bool lit = Lit(b) && n > 0.02f;
@@ -278,6 +298,31 @@ namespace FrontierLedger.Game
             }
         }
 
+        /// <summary>Logs and stone waiting at a building site, used up as the work goes on.</summary>
+        static void SitePile(SpriteRenderer sr, Building b, Good g, float total, int si)
+        {
+            float left = b.Built || total <= 0 ? 0 : b.Delivered[(int)g] - b.BuildFraction * total;
+            int lvl = PropArt.PileLevel(left, Mathf.Max(8f, total * 0.6f));
+            sr.enabled = lvl > 0;
+            if (lvl > 0) sr.sprite = PropArt.Pile(g, lvl, si);
+        }
+
+        /// <summary>A puff of dust and a few sparkles when a building is finished.</summary>
+        void Burst(Building b)
+        {
+            var d = b.Def; float foot = (b.Y + d.H) * 16, top = b.Y * 16 - BuildingArt.LiftOf(b.Type);
+            for (int i = 0; i < 26; i++)
+                SpawnFx(b.X * 16 + Random.value * d.W * 16, foot - Random.value * 8, FxDust, (Random.value - 0.5f) * 30, 0.9f + Random.value * 0.9f);
+            for (int i = 0; i < 10; i++)
+                SpawnFx(b.X * 16 + 2 + Random.value * (d.W * 16 - 4), top + Random.value * 14, FxSpark, (Random.value - 0.5f) * 10, 0.8f + Random.value * 0.6f);
+        }
+
+        void OpenDoor(Building b)
+        {
+            BuildingView v;
+            if (b != null && buildings.TryGetValue(b.Id, out v)) v.DoorUntil = Mathf.Max(v.DoorUntil, time + 0.35f);
+        }
+
         BuildingView CreateBuildingView(Building b)
         {
             var d = b.Def;
@@ -306,6 +351,14 @@ namespace FrontierLedger.Game
                 v.Forge.transform.localScale = new Vector3(v.Art.Forge.width, v.Art.Forge.height, 1);
             }
             foreach (var c in v.Art.Chickens) v.Chickens.Add(MakeSr("Chicken", v.Go.transform, NatureArt.Chicken(0), 0));
+            if (b.Type != BuildingType.Wagon)
+            {
+                v.Door = MakeSr("Door", v.Go.transform, null, SortOrder(foot, 1)); v.Door.enabled = false;
+                v.SiteLogs = MakeSr("SiteLogs", v.Go.transform, null, SortOrder(foot, 1));
+                v.SiteLogs.transform.position = Pixels.ToWorld(b.X * 16 + 1, foot);
+                v.SiteStone = MakeSr("SiteStone", v.Go.transform, null, SortOrder(foot, 1));
+                v.SiteStone.transform.position = Pixels.ToWorld(b.X * 16 + Mathf.Max(d.W * 16 - 27, 8), foot);
+            }
             return v;
         }
 
@@ -441,30 +494,80 @@ namespace FrontierLedger.Game
             return Front(b, p);
         }
 
+        bool HasDoor(Building b) { return b != null && b.Built && ArtFor(b).HasDoor; }
+
+        /// <summary>Just outside a building's door, where a settler waits for it to open.</summary>
+        Vector2 DoorStep(Building b, Citizen p)
+        {
+            var art = ArtFor(b); var r = art.Door; float foot = (b.Y + b.Def.H) * 16;
+            return new Vector2(b.X * 16 + r.x + r.width / 2f + (p.Seed - 0.5f) * 2, Mathf.Max(foot + 1, b.Y * 16 - art.Lift + r.y + r.height + 2));
+        }
+
+        /// <summary>Feet just inside the doorway.</summary>
+        float DoorInsideY(Building b)
+        {
+            var art = ArtFor(b); var r = art.Door;
+            return b.Y * 16 - art.Lift + r.y + r.height - 1;
+        }
+
+        /// <summary>Where a builder stands: in front of the site, or up on the scaffold plank.</summary>
+        Vector2 BuildSpot(Building s, Citizen p)
+        {
+            var d = s.Def; float foot = (s.Y + d.H) * 16;
+            float h = Noise.Hash(p.Id, (int)Mathf.Floor(time / 7f + p.Seed * 10), 11);
+            BuildingView v;
+            if (buildings.TryGetValue(s.Id, out v) && v.Site != null && v.Site.PlankY >= 0 && p.Id % 2 == 1)
+                return new Vector2(s.X * 16 + v.Site.PlankX0 + Mathf.Round(h * (v.Site.PlankX1 - v.Site.PlankX0)), s.Y * 16 - BuildingArt.LiftOf(s.Type) + v.Site.PlankY);
+            return new Vector2(s.X * 16 + 4 + Mathf.Round(h * (d.W * 16 - 8)), foot + 1 + (p.Id % 2) * 2);
+        }
+
+        Building NearestStore(Building site)
+        {
+            Building best = null; float bd = float.MaxValue;
+            foreach (var s in town.Storages) { float dd = Mathf.Abs(s.X - site.X) + Mathf.Abs(s.Y - site.Y); if (dd < bd) { bd = dd; best = s; } }
+            return best;
+        }
+
+        Vector2 SiteDrop(Building site, Citizen p)
+        {
+            var d = site.Def; float foot = (site.Y + d.H) * 16;
+            float x = p.Chore == Chore.HaulLogs ? site.X * 16 + 14 : site.X * 16 + Mathf.Max(d.W * 16 - 13, 10);
+            return new Vector2(x + (p.Seed - 0.5f) * 6, foot + 2);
+        }
+
         /// <summary>Where a settler wants to be right now, and whether they're indoors there.</summary>
         Vector2 TargetFor(Citizen p, out bool inside, out Building visit)
         {
             inside = false; visit = null;
             float ph = town.TimeOfDay;
             bool workHours = ph > 0.24f && ph < 0.7f, evening = ph >= 0.7f && ph < 0.86f, nightTime = ph >= 0.86f || ph < 0.2f;
-            if (p.Jail > 0) { var off = town.Office; if (off != null) { visit = off; inside = true; return Front(off, p, 0.3f); } }
+            if (p.Jail > 0) { var off = town.Office; if (off != null) { visit = off; inside = true; return HasDoor(off) ? DoorStep(off, p) : Front(off, p, 0.3f); } }
             if (workHours && !p.IsChild)
             {
-                if ((p.Role == Role.Builder || p.Role == Role.Laborer) && p.TaskId >= 0)
+                if (p.Role == Role.Laborer && p.TaskId >= 0)
                 {
                     var s = town.GetBuilding(p.TaskId);
                     if (s != null && s.Type == BuildingType.Farm && s.Built) { visit = s; return WorkSpot(s, p); }
-                    if (s != null) { visit = s; float a = p.Seed; return new Vector2(s.X * 16 + 2 + a * (s.Def.W * 16 - 4), (s.Y + s.Def.H) * 16 + 2 - (p.Id % 3) * 6); }
+                    if (s != null && !s.Built) { visit = s; return BuildSpot(s, p); }
                 }
                 var w = town.GetBuilding(p.WorkId);
                 if (w != null && w.Built) { visit = w; return w.Type == BuildingType.Estate ? Front(w, p, 0.3f) : WorkSpot(w, p); }
             }
-            if (evening && p.SaloonToday >= 0) { var s = town.GetBuilding(p.SaloonToday); if (s != null) { visit = s; return Front(s, p); } }
+            if (evening && p.SaloonToday >= 0)
+            {
+                var s = town.GetBuilding(p.SaloonToday);
+                if (s != null)
+                {
+                    visit = s;
+                    if (p.Seed > 0.35f && HasDoor(s)) { inside = true; return DoorStep(s, p); }   // most go in, a few lean on the rail
+                    return Front(s, p);
+                }
+            }
             var home = town.GetBuilding(p.HomeId);
             if (home != null)
             {
                 visit = home;
-                if (nightTime) inside = true;
+                if (nightTime) { inside = true; if (HasDoor(home)) return DoorStep(home, p); }
                 var f = Front(home, p, 0.5f);
                 if (p.IsChild && !nightTime)
                 {
@@ -503,7 +606,10 @@ namespace FrontierLedger.Game
         void SyncPeople()
         {
             int gameSpeed = GameController.Instance != null ? Mathf.Max(1, GameController.Instance.Speed) : 1;
-            float baseSpeed = 34f * gameSpeed * Time.deltaTime;
+            float dt = Time.deltaTime, anim = dt * Mathf.Min(gameSpeed, 3);
+            float baseSpeed = 34f * gameSpeed * dt;
+            float ph = town.TimeOfDay;
+            bool workHours = ph > 0.24f && ph < 0.7f;
             var alive = new HashSet<int>();
             foreach (var p in town.People)
             {
@@ -513,43 +619,141 @@ namespace FrontierLedger.Game
                 {
                     v = new PersonView { P = p };
                     v.Sr = MakeSr(p.Name, layerPeople, null, 0);
+                    v.Held = MakeSr("Held", v.Sr.transform, null, 0); v.Held.enabled = false;
                     people[p.Id] = v;
                 }
                 v.P = p;
                 bool inside; Building visit;
                 var goal = TargetFor(p, out inside, out visit);
-                if (float.IsNaN(v.Pos.x)) { v.Pos = goal; v.Goal = goal; v.Path.Clear(); }
-                if (float.IsNaN(v.Goal.x) || (goal - v.Goal).sqrMagnitude > 9f) Repath(v, goal, visit);
 
-                v.Moving = false;
-                if (v.PathIdx < v.Path.Count)
+                // haulers shuttle between the town stores and the site, a load at a time
+                bool hauling = false;
+                if (workHours && p.Jail == 0 && (p.Chore == Chore.HaulLogs || p.Chore == Chore.HaulStone) && v.DoorState == Out)
                 {
-                    int tx = Mathf.FloorToInt(v.Pos.x / 16), ty = Mathf.FloorToInt((v.Pos.y - 1) / 16);
-                    float speed = baseSpeed * (nav.IsRoad(tx, ty) ? 1.5f : 1f) * (p.IsChild ? 1.1f : 1f) * (p.Age > 60 ? 0.8f : 1f);
-                    var target = v.Path[v.PathIdx];
-                    var delta = target - v.Pos;
-                    float dist = delta.magnitude;
-                    if (dist <= speed) { v.Pos = target; v.PathIdx++; }
-                    else
+                    var site = town.GetBuilding(p.TaskId);
+                    var src = site != null && !site.Built ? NearestStore(site) : null;
+                    if (src != null)
                     {
-                        v.Pos += delta / dist * speed;
-                        v.Moving = true; v.Step += speed;
-                        v.Dir = Mathf.Abs(delta.x) > Mathf.Abs(delta.y) ? (delta.x < 0 ? PeopleArt.Left : PeopleArt.Right) : (delta.y < 0 ? PeopleArt.Up : PeopleArt.Down);
+                        hauling = true; inside = false;
+                        if (v.Carry) { goal = SiteDrop(site, p); visit = site; } else { goal = Front(src, p, 0.6f); visit = src; }
                     }
                 }
-                bool arrived = v.PathIdx >= v.Path.Count;
-                v.Inside = inside && arrived;
-                if (arrived && !v.Moving) v.Dir = p.Role == Role.Worker || p.Role == Role.Builder ? v.Dir : PeopleArt.Down;
+                if (!hauling) { v.Carry = false; v.Pause = 0; }
+
+                if (float.IsNaN(v.Pos.x))
+                {
+                    v.Pos = goal; v.Goal = goal; v.Path.Clear(); v.PathIdx = 0;
+                    if (inside) { v.DoorState = In; v.DoorB = visit != null ? visit.Id : -1; }
+                }
+
+                // time to come out?
+                if (v.DoorState == In && !(inside && (visit != null ? visit.Id : -1) == v.DoorB))
+                {
+                    var db = town.GetBuilding(v.DoorB);
+                    v.DoorState = Exiting; v.DoorT = 0;
+                    if (HasDoor(db)) { v.Pos = DoorStep(db, p); OpenDoor(db); }
+                    v.Goal = new Vector2(float.NaN, 0);
+                }
+
+                v.Moving = false;
+                if (v.DoorState == Out)
+                {
+                    if (float.IsNaN(v.Goal.x) || (goal - v.Goal).sqrMagnitude > 9f) Repath(v, goal, visit);
+                    if (v.PathIdx < v.Path.Count)
+                    {
+                        int tx = Mathf.FloorToInt(v.Pos.x / 16), ty = Mathf.FloorToInt((v.Pos.y - 1) / 16);
+                        float speed = baseSpeed * (nav.IsRoad(tx, ty) ? 1.5f : 1f) * (p.IsChild ? 1.1f : 1f) * (p.Age > 60 ? 0.8f : 1f);
+                        var target = v.Path[v.PathIdx];
+                        var delta = target - v.Pos;
+                        float dist = delta.magnitude;
+                        if (dist <= speed) { v.Pos = target; v.PathIdx++; }
+                        else
+                        {
+                            v.Pos += delta / dist * speed;
+                            v.Moving = true; v.Step += speed;
+                            v.Dir = Mathf.Abs(delta.x) > Mathf.Abs(delta.y) ? (delta.x < 0 ? PeopleArt.Left : PeopleArt.Right) : (delta.y < 0 ? PeopleArt.Up : PeopleArt.Down);
+                        }
+                    }
+                    bool arrived = v.PathIdx >= v.Path.Count && !v.Moving;
+                    if (arrived && inside)
+                    {
+                        v.DoorState = Entering; v.DoorT = 0; v.DoorB = visit != null ? visit.Id : -1;
+                        if (HasDoor(visit)) OpenDoor(visit);
+                    }
+                    else if (arrived && hauling)
+                    {
+                        v.Dir = PeopleArt.Up;
+                        v.Pause += anim;
+                        if (v.Pause > 0.7f) { v.Pause = 0; v.Carry = !v.Carry; if (!v.Carry) SpawnFx(v.Pos.x, v.Pos.y - 2, FxDust, (Random.value - 0.5f) * 10, 0.6f); }
+                    }
+                    else if (arrived) v.Dir = p.Role == Role.Worker ? v.Dir : (p.Chore == Chore.Build && workHours ? PeopleArt.Up : PeopleArt.Down);
+                }
+                else if (v.DoorState == Entering || v.DoorState == Exiting)
+                {
+                    v.DoorT += anim;
+                    var db = town.GetBuilding(v.DoorB);
+                    if (HasDoor(db)) OpenDoor(db);   // held open while someone is in the doorway
+                    if (v.DoorT >= DoorTime) { v.DoorState = v.DoorState == Entering ? In : Out; v.DoorT = 0; }
+                }
+
+                v.Inside = v.DoorState == In;
                 v.Sr.enabled = !v.Inside;
-                if (!v.Sr.enabled) continue;
-                int frame = v.Moving ? ((Mathf.FloorToInt(v.Step / 5) % 4) == 1 ? 1 : (Mathf.FloorToInt(v.Step / 5) % 4) == 3 ? 2 : 0) : 0;
-                // workers on the job make a little working motion
-                if (!v.Moving && arrived && (p.Role == Role.Worker || p.Role == Role.Builder) && town.TimeOfDay > 0.24f && town.TimeOfDay < 0.7f)
-                    frame = (Mathf.FloorToInt(time * 3 + p.Seed * 5) % 2) * 2;
+                v.Held.enabled = false;
+                if (v.Inside) continue;
+
                 float x = Mathf.Round(v.Pos.x), y = Mathf.Round(v.Pos.y);
+                int frame = v.Moving ? ((Mathf.FloorToInt(v.Step / 5) % 4) == 1 ? 1 : (Mathf.FloorToInt(v.Step / 5) % 4) == 3 ? 2 : 0) : 0;
+                int order = SortOrder(y, 2);
+                var tint = Color.white;
+                if (v.DoorState == Entering || v.DoorState == Exiting)
+                {
+                    var db = town.GetBuilding(v.DoorB);
+                    float t = Mathf.Clamp01(v.DoorT / DoorTime);
+                    float k = v.DoorState == Entering ? Mathf.Clamp01((t - 0.3f) / 0.7f) : 1 - Mathf.Clamp01(t / 0.6f);   // 0 outside, 1 indoors
+                    v.Dir = v.DoorState == Entering ? PeopleArt.Up : PeopleArt.Down;
+                    if (HasDoor(db))
+                    {
+                        float step = DoorStep(db, p).y;
+                        y = Mathf.Round(Mathf.Lerp(step, DoorInsideY(db), k));
+                        order = SortOrder((db.Y + db.Def.H) * 16, 2);
+                        if (k > 0 && k < 1) frame = (Mathf.FloorToInt(k * 6) % 2) + 1;
+                    }
+                    float l = 1 - 0.75f * k;
+                    tint = new Color(l, l * 0.92f, l * 0.85f, 1 - k * k);
+                }
+                else if (workHours && v.PathIdx >= v.Path.Count && !v.Moving)
+                {
+                    // workers on the job make a little working motion; builders swing hammers
+                    if (p.Role == Role.Worker) frame = (Mathf.FloorToInt(time * 3 + p.Seed * 5) % 2) * 2;
+                    else if (p.Chore == Chore.Build)
+                    {
+                        int hf = Mathf.FloorToInt(time * 3.2f * Mathf.Min(gameSpeed, 2) + p.Seed * 5) % 2;
+                        v.Held.enabled = true; v.Held.sprite = PropArt.Hammer(hf);
+                        v.Held.transform.localPosition = Pixels.ToWorld(1, hf == 0 ? -18 : -14);
+                        if (hf == 1 && v.LastHammer == 0 && Random.value < 0.5f) SpawnFx(x + 3 + Random.value * 4, y - 12 - Random.value * 4, FxDust, (Random.value - 0.5f) * 12, 0.5f);
+                        v.LastHammer = hf;
+                    }
+                }
+                if (v.Carry)
+                {
+                    bool log = p.Chore == Chore.HaulLogs;
+                    v.Held.enabled = true; v.Held.sprite = log ? PropArt.CarriedLog() : PropArt.CarriedStone();
+                    v.Held.transform.localPosition = log ? Pixels.ToWorld(-6, -17) : Pixels.ToWorld(-4, -12);
+                }
+                // builders up on a site draw in front of the walls they're raising
+                if (p.Chore == Chore.Build)
+                {
+                    var site = town.GetBuilding(p.TaskId);
+                    if (site != null && !site.Built)
+                    {
+                        float foot = (site.Y + site.Def.H) * 16;
+                        if (y < foot && x >= site.X * 16 - 4 && x <= (site.X + site.Def.W) * 16 + 4) order = SortOrder(foot, 3);
+                    }
+                }
                 v.Sr.sprite = PeopleArt.Get(p, v.Dir, frame);
+                v.Sr.color = tint; v.Held.color = tint;
                 v.Sr.transform.position = Pixels.ToWorld(x, y);
-                v.Sr.sortingOrder = SortOrder(y, 2);
+                v.Sr.sortingOrder = order; v.Held.sortingOrder = order + 1;
             }
             if (alive.Count != people.Count)
             {
@@ -603,18 +807,34 @@ namespace FrontierLedger.Game
                 {
                     tmr = 1 + Random.value * 0.4f;
                     var art = kv.Value.Art;
-                    foreach (var s in art.Smoke) if (particles.Count < 500) Spawn(X + s.x, Y - art.Lift + s.y, dark);
+                    foreach (var s in art.Smoke) if (particles.Count < 500) SpawnFx(X + s.x, Y - art.Lift + s.y, dark ? FxSmokeDark : FxSmoke, (Random.value - 0.3f) * 1.5f, 3.2f);
                 }
                 smokeTimers[b.Id] = tmr;
             }
-            if (campfire.enabled && Random.value < dt * 1.5f) Spawn(Pixels.ToPixel(campfire.transform.position).x, Pixels.ToPixel(campfire.transform.position).y - 6, false);
+            if (campfire.enabled && Random.value < dt * 1.5f) SpawnFx(Pixels.ToPixel(campfire.transform.position).x, Pixels.ToPixel(campfire.transform.position).y - 6, FxSmoke, (Random.value - 0.3f) * 1.5f, 3.2f);
             for (int i = particles.Count - 1; i >= 0; i--)
             {
                 var p = particles[i];
-                p.Life -= dt; p.X += (3 + p.Vx) * dt; p.Y -= 7 * dt;
+                p.Life -= dt;
                 if (p.Life <= 0) { p.Sr.enabled = false; particlePool.Push(p.Sr); particles.RemoveAt(i); continue; }
-                float k = 1 - p.Life / p.Max; int sz = 1 + Mathf.FloorToInt(k * 3);
-                p.Sr.color = p.Dark ? new Color(110 / 255f, 104 / 255f, 98 / 255f, 0.6f * (1 - k)) : new Color(236 / 255f, 232 / 255f, 224 / 255f, 0.6f * (1 - k));
+                float k = 1 - p.Life / p.Max; int sz;
+                switch (p.Kind)
+                {
+                    case FxDust:
+                        p.X += p.Vx * dt; p.Vx *= Mathf.Max(0, 1 - 3f * dt); p.Y -= 5 * dt;
+                        sz = 2 + Mathf.FloorToInt(k * 2);
+                        p.Sr.color = new Color(216 / 255f, 196 / 255f, 154 / 255f, 0.8f * (1 - k));
+                        break;
+                    case FxSpark:
+                        p.X += p.Vx * dt; p.Y -= 14 * dt; sz = 1;
+                        p.Sr.color = new Color(1f, 242 / 255f, 160 / 255f, (Mathf.FloorToInt(time * 12 + i) % 3 == 0 ? 0.4f : 1f) * (1 - k));
+                        break;
+                    default:
+                        p.X += (3 + p.Vx) * dt; p.Y -= 7 * dt;
+                        sz = 1 + Mathf.FloorToInt(k * 3);
+                        p.Sr.color = p.Kind == FxSmokeDark ? new Color(110 / 255f, 104 / 255f, 98 / 255f, 0.6f * (1 - k)) : new Color(236 / 255f, 232 / 255f, 224 / 255f, 0.6f * (1 - k));
+                        break;
+                }
                 Place(p.Sr, Mathf.Round(p.X - sz / 2f), Mathf.Round(p.Y - sz / 2f), sz, sz);
             }
 
@@ -668,11 +888,12 @@ namespace FrontierLedger.Game
             }
         }
 
-        void Spawn(float x, float y, bool dark)
+        void SpawnFx(float x, float y, int kind, float vx, float life)
         {
-            var sr = particlePool.Count > 0 ? particlePool.Pop() : MakeSr("Smoke", layerFx, NatureArt.White, OrderSmoke);
+            if (particles.Count >= 600) return;
+            var sr = particlePool.Count > 0 ? particlePool.Pop() : MakeSr("Fx", layerFx, NatureArt.White, OrderSmoke);
             sr.enabled = true;
-            particles.Add(new Particle { Sr = sr, X = x, Y = y, Life = 3.2f, Max = 3.2f, Vx = (Random.value - 0.3f) * 1.5f, Dark = dark });
+            particles.Add(new Particle { Sr = sr, X = x, Y = y, Life = life, Max = life, Vx = vx, Kind = kind });
         }
 
         void UpdateNight()

@@ -58,6 +58,7 @@ namespace FrontierLedger.Simulation
             if (DirtyTiles == null) DirtyTiles = new List<int>();
             if (Campaign == null) Campaign = new Campaign();
             if (LastElection == null) LastElection = new ElectionResult();
+            foreach (var p in People) if (p.Role == Role.Builder) { p.Role = Role.Laborer; p.WorkId = -1; }   // the old building crew
             foreach (var b in Buildings)
             {
                 if (b.Stock == null || b.Stock.Length != 5) b.Stock = new float[5];

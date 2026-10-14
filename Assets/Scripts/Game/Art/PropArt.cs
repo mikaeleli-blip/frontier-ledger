@@ -130,6 +130,45 @@ namespace FrontierLedger.Game.Art
             return Mathf.Clamp(1 + Mathf.FloorToInt(amount / full * 4), 1, 4);
         }
 
+        // ------------------------------------------------------------------ things settlers carry
+        /// <summary>A log carried on the shoulder (pivot top-left).</summary>
+        public static Sprite CarriedLog()
+        {
+            return Cached("carry_log", () =>
+            {
+                var g = new PixelCanvas(13, 6);
+                g.R(1, 1, 11, 3, "#8a5a34"); g.R(1, 1, 11, 1, "#a8734a"); g.R(1, 3, 11, 1, "#6e4428");
+                g.R(1, 1, 2, 3, "#d8b07a"); g.D(1, 2, "#a8804a"); g.D(7, 2, "#6e4428");
+                g.Outline(OL);
+                return g;
+            }, new Vector2(0, 1));
+        }
+
+        /// <summary>A block of stone held against the chest (pivot top-left).</summary>
+        public static Sprite CarriedStone()
+        {
+            return Cached("carry_stone", () =>
+            {
+                var g = new PixelCanvas(9, 7);
+                g.R(1, 1, 7, 5, "#a39c90"); g.R(1, 1, 7, 1, "#c8c1b4"); g.R(6, 1, 2, 5, "#7e776e"); g.D(3, 3, "#8d877d");
+                g.Outline(OL);
+                return g;
+            }, new Vector2(0, 1));
+        }
+
+        /// <summary>A hammer: raised (0) or striking (1). Pivot top-left.</summary>
+        public static Sprite Hammer(int frame)
+        {
+            return Cached("hammer" + frame, () =>
+            {
+                var g = new PixelCanvas(9, 9);
+                if (frame == 0) { g.Line(2, 7, 5, 3, "#a8734a"); g.R(4, 1, 4, 2, "#9a9aa2"); g.D(4, 1, "#c8c8d0"); }
+                else { g.Line(1, 4, 5, 4, "#a8734a"); g.R(5, 2, 2, 4, "#9a9aa2"); g.D(5, 2, "#c8c8d0"); }
+                g.Outline(OL);
+                return g;
+            }, new Vector2(0, 1));
+        }
+
         // ------------------------------------------------------------------ graves
         public static Sprite Graves(int n, int season)
         {

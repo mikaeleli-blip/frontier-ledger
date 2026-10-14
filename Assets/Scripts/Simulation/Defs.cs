@@ -9,7 +9,9 @@ namespace FrontierLedger.Simulation
         Store, Stall, Saloon, Sheriff, Estate, Cemetery, Wagon
     }
     public enum Category { Roads, Housing, Food, Industry, Trade, Civic, Hidden }
-    public enum Role { Child, Laborer, Worker, Owner, Builder, Sheriff, Deputy, Mayor }
+    public enum Role { Child, Laborer, Worker, Owner, Builder, Sheriff, Deputy, Mayor }   // Builder is unused (old saves)
+    /// <summary>What a laborer is doing today.</summary>
+    public enum Chore { None, HaulLogs, HaulStone, Build, Harvest }
     public enum Platform { None = -1, Law, Farm, Trade, People }
     public enum LogKind { Info, Good, Bad, Vote, Build, Death, Birth }
 
@@ -60,6 +62,10 @@ namespace FrontierLedger.Simulation
         public const float ChildAppetite = 0.6f;
         public const float FieldYield = 330f;              // food from a fully tended field
         public const float GrowthPerWorker = 0.022f;       // field growth per worker-day in spring/summer
+        /// <summary>Logs or stone one laborer carries to a building site in a day.</summary>
+        public const float HaulPerDay = 8f;
+        /// <summary>Most laborers that fit on one building site.</summary>
+        public static int SiteCrew(BuildingDef d) { return Math.Max(2, Math.Min(5, d.W * d.H / 2 + 1)); }
         public const float HarvestPerWorker = 7f;          // food per worker-day in autumn
         public static readonly float[] GatherBySeason = { 1f, 1.3f, 1.1f, 0f };
         /// <summary>What an idle laborer brings home in a day of foraging (times the gathering season) and deadwood.</summary>

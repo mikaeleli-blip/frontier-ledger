@@ -109,8 +109,9 @@ namespace FrontierLedger.Simulation
         public int RobbedDay = -999;
         public int ArrivedDay;
         public int SaloonToday = -1;
-        public int TaskId = -1;
-        public int CharityDays;          // construction site a builder or laborer worked today
+        public int TaskId = -1;          // building a laborer worked at today (site or field)
+        public Chore Chore;              // and what they did there
+        public int CharityDays;
         public int ColdDays;
         public string Name { get { return First + " " + Family; } }
         public bool IsChild { get { return Age < Balance.AdultAge; } }
@@ -166,9 +167,9 @@ namespace FrontierLedger.Simulation
         public float HeadTax = 1f;         // dollars per adult per week
         public float MinWage = 2f;
         public int Deputies = 1;
-        public int Builders = 3;
-        public float BuilderWage = 2.4f;
-        public float ReliefWage = 0.6f;    // paid to laborers hauling for the town
+        public int Builders = 5;           // most laborers the town hires for building each day
+        public float BuilderWage = 2f;     // day wage for hauling and building
+        public float ReliefWage = 0.6f;    // paid to laborers on days without work
         public bool Charity = true;        // the storehouse feeds and warms those who can't pay
         public bool ElectionsOn = true;
         public bool StorehouseSells = true;

@@ -273,8 +273,6 @@ namespace FrontierLedger.Simulation
                     QuitJob(dpt); AddLog(dpt.Name + " turned in the deputy's badge.");
                 }
             }
-            var builders = People.Where(p => p.Role == Role.Builder).ToList();
-            while (builders.Count > Policy.Builders) { var b = builders[builders.Count - 1]; builders.RemoveAt(builders.Count - 1); QuitJob(b); }
 
             var vac = new List<Vacancy>();
             foreach (var b in Businesses)
@@ -289,7 +287,6 @@ namespace FrontierLedger.Simulation
                 if (!staff.Any(p => p.Role == Role.Sheriff)) vac.Add(new Vacancy { B = off, Wage = Balance.SalarySheriff, Role = Role.Sheriff });
                 for (int i = staff.Count(p => p.Role == Role.Deputy); i < Policy.Deputies; i++) vac.Add(new Vacancy { B = off, Wage = Balance.SalaryDeputy, Role = Role.Deputy });
             }
-            if (Treasury > 5) for (int i = builders.Count; i < Policy.Builders; i++) vac.Add(new Vacancy { Wage = Policy.BuilderWage + 0.01f, Role = Role.Builder });
             vac = vac.OrderByDescending(v => v.Wage).ToList();
             var idle = Shuffle(People.Where(Employable).ToList());
             foreach (var v in vac) { if (idle.Count == 0) break; var p = idle[0]; idle.RemoveAt(0); Hire(p, v); }
