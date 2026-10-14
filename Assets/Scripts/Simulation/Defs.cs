@@ -62,6 +62,10 @@ namespace FrontierLedger.Simulation
         public const float GrowthPerWorker = 0.022f;       // field growth per worker-day in spring/summer
         public const float HarvestPerWorker = 7f;          // food per worker-day in autumn
         public static readonly float[] GatherBySeason = { 1f, 1.3f, 1.1f, 0f };
+        /// <summary>What an idle laborer brings home in a day of foraging (times the gathering season) and deadwood.</summary>
+        public const float ForagePerDay = 0.8f, DeadwoodPerDay = 0.3f;
+        /// <summary>Share of a field hand's harvest an idle laborer manages, and the share of a wage the farm pays them.</summary>
+        public const float HelperHarvest = 0.8f, HelperPay = 0.6f;
         public const float GatherPerWorker = 3.6f;
         public static readonly float[] FishBySeason = { 1f, 1.1f, 1f, 0.5f };
         public const float FishPerWorker = 3.2f;
@@ -90,7 +94,7 @@ namespace FrontierLedger.Simulation
 
         // People
         public const float AdultAge = 10f;                 // children join the workforce at this age (in years)
-        public const float BirthChancePerDay = 0.012f;
+        public const float BirthChancePerDay = 0.009f;
         public const float MarriageChancePerDay = 0.15f;
         public const float SalaryMayor = 4f, SalarySheriff = 4f, SalaryDeputy = 3f;
         public const float ClaimFee = 5f;
@@ -127,35 +131,35 @@ namespace FrontierLedger.Simulation
         {
             Add(new BuildingDef { Type = BuildingType.Road, Category = Category.Roads, Name = "Dirt Road", W = 1, H = 1, Money = 1, Color = "#b08a5a",
                 Blurb = "Settlers walk faster on roads. Roads can bridge water." });
-            Add(new BuildingDef { Type = BuildingType.House, Category = Category.Housing, Name = "Cottage", W = 2, H = 3, Logs = 16, Stone = 6, Work = 5, Beds = 5, Color = "#c79a62",
+            Add(new BuildingDef { Type = BuildingType.House, Category = Category.Housing, Name = "Cottage", W = 2, H = 3, Logs = 16, Stone = 6, Work = 10, Beds = 5, Color = "#c79a62",
                 Blurb = "Home for one family. The garden out back grows some of their food. Burns firewood to stay warm." });
-            Add(new BuildingDef { Type = BuildingType.Storehouse, Category = Category.Housing, Name = "Storehouse", W = 3, H = 2, Logs = 20, Stone = 10, Work = 6, IsPublic = true, IsStorage = true, Capacity = 400, Color = "#9a7a4a",
+            Add(new BuildingDef { Type = BuildingType.Storehouse, Category = Category.Housing, Name = "Storehouse", W = 3, H = 2, Logs = 20, Stone = 10, Work = 12, IsPublic = true, IsStorage = true, Capacity = 400, Color = "#9a7a4a",
                 Blurb = "Town stores for building materials and the winter food reserve. Sells food and firewood to settlers." });
-            Add(new BuildingDef { Type = BuildingType.Farm, Category = Category.Food, Name = "Crop Field", W = 3, H = 3, Logs = 12, Stone = 4, Work = 4, IsBusiness = true, MaxEmployees = 4, BaseWage = 2.4f, Color = "#b59a4a",
+            Add(new BuildingDef { Type = BuildingType.Farm, Category = Category.Food, Name = "Crop Field", W = 3, H = 3, Logs = 12, Stone = 4, Work = 8, IsBusiness = true, MaxEmployees = 4, BaseWage = 2.4f, Color = "#b59a4a",
                 Blurb = "Planted in spring, tended through summer, harvested in autumn. Nothing grows in winter." });
-            Add(new BuildingDef { Type = BuildingType.Gatherer, Category = Category.Food, Name = "Gatherer's Hut", W = 2, H = 2, Logs = 10, Work = 3, IsBusiness = true, MaxEmployees = 3, BaseWage = 2.2f, Radius = 7, Color = "#6f8a3a",
+            Add(new BuildingDef { Type = BuildingType.Gatherer, Category = Category.Food, Name = "Gatherer's Hut", W = 2, H = 2, Logs = 10, Work = 6, IsBusiness = true, MaxEmployees = 3, BaseWage = 2.2f, Radius = 7, Color = "#6f8a3a",
                 Blurb = "Gathers berries, roots and mushrooms from nearby woods. Needs trees around it. Idle in winter." });
-            Add(new BuildingDef { Type = BuildingType.Fishery, Category = Category.Food, Name = "Fishing Dock", W = 2, H = 2, Logs = 12, Stone = 4, Work = 4, IsBusiness = true, MaxEmployees = 2, BaseWage = 2.3f, NeedsWater = true, Color = "#4f7f91",
+            Add(new BuildingDef { Type = BuildingType.Fishery, Category = Category.Food, Name = "Fishing Dock", W = 2, H = 2, Logs = 12, Stone = 4, Work = 8, IsBusiness = true, MaxEmployees = 2, BaseWage = 2.3f, NeedsWater = true, Color = "#4f7f91",
                 Blurb = "Must touch the river or lake. Catches fish all year, less through the ice." });
-            Add(new BuildingDef { Type = BuildingType.LumberCamp, Category = Category.Industry, Name = "Lumber Camp", W = 2, H = 2, Logs = 10, Stone = 6, Work = 4, IsBusiness = true, MaxEmployees = 3, BaseWage = 2.5f, Radius = 7, Color = "#7a5a32",
+            Add(new BuildingDef { Type = BuildingType.LumberCamp, Category = Category.Industry, Name = "Lumber Camp", W = 2, H = 2, Logs = 10, Stone = 6, Work = 8, IsBusiness = true, MaxEmployees = 3, BaseWage = 2.5f, Radius = 7, Color = "#7a5a32",
                 Blurb = "Fells trees nearby for logs and replants saplings so the forest comes back." });
-            Add(new BuildingDef { Type = BuildingType.Woodcutter, Category = Category.Industry, Name = "Woodcutter", W = 2, H = 2, Logs = 8, Stone = 6, Work = 3, IsBusiness = true, MaxEmployees = 2, BaseWage = 2.3f, Color = "#9a5a32",
+            Add(new BuildingDef { Type = BuildingType.Woodcutter, Category = Category.Industry, Name = "Woodcutter", W = 2, H = 2, Logs = 8, Stone = 6, Work = 6, IsBusiness = true, MaxEmployees = 2, BaseWage = 2.3f, Color = "#9a5a32",
                 Blurb = "Splits logs into firewood. Every home burns firewood, most of all in winter." });
-            Add(new BuildingDef { Type = BuildingType.Quarry, Category = Category.Industry, Name = "Quarry", W = 2, H = 2, Logs = 12, Work = 4, IsBusiness = true, MaxEmployees = 3, BaseWage = 2.6f, Radius = 5, NeedsStone = true, Color = "#8d877d",
+            Add(new BuildingDef { Type = BuildingType.Quarry, Category = Category.Industry, Name = "Quarry", W = 2, H = 2, Logs = 12, Work = 8, IsBusiness = true, MaxEmployees = 3, BaseWage = 2.6f, Radius = 5, NeedsStone = true, Color = "#8d877d",
                 Blurb = "Breaks boulders nearby, then cuts stone from the hillside. Needs a hill or boulders close by." });
-            Add(new BuildingDef { Type = BuildingType.Smithy, Category = Category.Industry, Name = "Blacksmith", W = 2, H = 2, Logs = 14, Stone = 16, Work = 6, IsBusiness = true, MaxEmployees = 2, BaseWage = 2.8f, Color = "#57504a",
+            Add(new BuildingDef { Type = BuildingType.Smithy, Category = Category.Industry, Name = "Blacksmith", W = 2, H = 2, Logs = 14, Stone = 16, Work = 12, IsBusiness = true, MaxEmployees = 2, BaseWage = 2.8f, Color = "#57504a",
                 Blurb = "Turns logs and stone into tools. Workers without tools get 40% less done." });
-            Add(new BuildingDef { Type = BuildingType.Store, Category = Category.Trade, Name = "General Store", W = 2, H = 2, Logs = 18, Stone = 8, Work = 5, IsBusiness = true, IsRetail = true, MaxEmployees = 2, BaseWage = 2.4f, Capacity = 140, Color = "#2f5d7a",
+            Add(new BuildingDef { Type = BuildingType.Store, Category = Category.Trade, Name = "General Store", W = 2, H = 2, Logs = 18, Stone = 8, Work = 10, IsBusiness = true, IsRetail = true, MaxEmployees = 2, BaseWage = 2.4f, Capacity = 140, Color = "#2f5d7a",
                 Sells = new[] { Good.Food, Good.Firewood }, Blurb = "Buys food and firewood wholesale and sells them to households." });
-            Add(new BuildingDef { Type = BuildingType.Stall, Category = Category.Trade, Name = "Market Stall", W = 1, H = 1, Logs = 4, Work = 1, IsBusiness = true, IsRetail = true, MaxEmployees = 1, BaseWage = 2.0f, Capacity = 40, Color = "#b5432f",
+            Add(new BuildingDef { Type = BuildingType.Stall, Category = Category.Trade, Name = "Market Stall", W = 1, H = 1, Logs = 4, Work = 2, IsBusiness = true, IsRetail = true, MaxEmployees = 1, BaseWage = 2.0f, Capacity = 40, Color = "#b5432f",
                 Sells = new[] { Good.Food }, Blurb = "A small food stand. Cheap to build." });
-            Add(new BuildingDef { Type = BuildingType.Saloon, Category = Category.Trade, Name = "Saloon", W = 2, H = 2, Logs = 20, Stone = 8, Work = 6, IsBusiness = true, MaxEmployees = 2, BaseWage = 2.4f, Color = "#8a5a32",
+            Add(new BuildingDef { Type = BuildingType.Saloon, Category = Category.Trade, Name = "Saloon", W = 2, H = 2, Logs = 20, Stone = 8, Work = 12, IsBusiness = true, MaxEmployees = 2, BaseWage = 2.4f, Color = "#8a5a32",
                 Blurb = "Drinks and company. Cheers settlers up." });
-            Add(new BuildingDef { Type = BuildingType.Sheriff, Category = Category.Civic, Name = "Sheriff's Office", W = 2, H = 2, Logs = 16, Stone = 14, Work = 6, IsPublic = true, Unique = true, Color = "#9c8b74",
+            Add(new BuildingDef { Type = BuildingType.Sheriff, Category = Category.Civic, Name = "Sheriff's Office", W = 2, H = 2, Logs = 16, Stone = 14, Work = 12, IsPublic = true, Unique = true, Color = "#9c8b74",
                 Blurb = "Hires a sheriff and deputies, paid by the treasury, who catch thieves." });
-            Add(new BuildingDef { Type = BuildingType.Estate, Category = Category.Civic, Name = "Mayor's Estate", W = 3, H = 2, Logs = 30, Stone = 30, Work = 12, IsPublic = true, Unique = true, Color = "#e9e1cf",
+            Add(new BuildingDef { Type = BuildingType.Estate, Category = Category.Civic, Name = "Mayor's Estate", W = 3, H = 2, Logs = 30, Stone = 30, Work = 24, IsPublic = true, Unique = true, Color = "#e9e1cf",
                 Blurb = "The town elects a mayor, who moves in. The mayor's platform helps the whole town." });
-            Add(new BuildingDef { Type = BuildingType.Cemetery, Category = Category.Civic, Name = "Cemetery", W = 3, H = 3, Stone = 8, Work = 2, IsPublic = true, Graves = 18, Color = "#6f7a5a",
+            Add(new BuildingDef { Type = BuildingType.Cemetery, Category = Category.Civic, Name = "Cemetery", W = 3, H = 3, Stone = 8, Work = 4, IsPublic = true, Graves = 18, Color = "#6f7a5a",
                 Blurb = "Somewhere to bury the dead. Without one, every death weighs on the whole town." });
             Add(new BuildingDef { Type = BuildingType.Wagon, Category = Category.Hidden, Name = "Supply Wagon", W = 2, H = 2, IsPublic = true, IsStorage = true, Capacity = 300, Color = "#c49c69",
                 Blurb = "Everything the settlers brought with them. Holds town stores until a storehouse is built." });

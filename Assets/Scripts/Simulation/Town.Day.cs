@@ -18,6 +18,7 @@ namespace FrontierLedger.Simulation
 
             GrowLand();
             Construct();
+            OddJobs(si);
             Produce(si);
             Trade(si);
             Households(si);
@@ -87,11 +88,40 @@ namespace FrontierLedger.Simulation
                 {
                     float w;
                     if (bi < crew.Count) { crew[bi].TaskId = s.Id; bi++; w = 1f; }
-                    else { helpers[hi].TaskId = s.Id; hi++; w = 0.3f; }
+                    else { helpers[hi].TaskId = s.Id; hi++; w = 0.25f; }
                     float use = Math.Min(cap, w);
                     s.Progress += use; cap -= use;
                 }
                 if (s.Progress >= d.Work - 0.001f && s.MaterialsFraction >= 0.999f) OnBuilt(s, false);
+            }
+        }
+
+        // =====================================================================
+        // Idle hands: laborers (and builders with nothing to build) help bring in the harvest
+        // in autumn, and otherwise forage and pick up deadwood for their own household.
+        // =====================================================================
+        void OddJobs(int si)
+        {
+            var idle = People.Where(p => !p.IsChild && p.Jail == 0 && p.Age < 66 && p.TaskId < 0 && (p.Role == Role.Laborer || p.Role == Role.Builder)).ToList();
+            if (idle.Count == 0) return;
+            int k = 0;
+            if (si == 2)
+                foreach (var f in Businesses.Where(b => b.Type == BuildingType.Farm && b.CropLeft > 1).OrderByDescending(b => b.CropLeft).ToList())
+                    for (int hands = 0; hands < 4 && k < idle.Count && f.CropLeft > 1; hands++)
+                    {
+                        var p = idle[k++];
+                        p.TaskId = f.Id;
+                        float h = Math.Min(f.CropLeft, Balance.HarvestPerWorker * Balance.HelperHarvest * FoodBonus);
+                        f.CropLeft -= h; Make(f, Good.Food, h);
+                        float pay = Math.Max(0, Math.Min(f.Cash, f.Wage * Balance.HelperPay));
+                        f.Cash -= pay; f.Week.Costs += pay; p.Money += pay;
+                    }
+            for (; k < idle.Count; k++)
+            {
+                var home = GetBuilding(idle[k].HomeId);
+                if (home == null) continue;
+                home.Stock[(int)Good.Food] += Balance.ForagePerDay * Balance.GatherBySeason[si];
+                home.Stock[(int)Good.Firewood] += Balance.DeadwoodPerDay;
             }
         }
 

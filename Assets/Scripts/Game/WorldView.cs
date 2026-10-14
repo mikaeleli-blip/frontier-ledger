@@ -453,6 +453,7 @@ namespace FrontierLedger.Game
                 if ((p.Role == Role.Builder || p.Role == Role.Laborer) && p.TaskId >= 0)
                 {
                     var s = town.GetBuilding(p.TaskId);
+                    if (s != null && s.Type == BuildingType.Farm && s.Built) { visit = s; return WorkSpot(s, p); }
                     if (s != null) { visit = s; float a = p.Seed; return new Vector2(s.X * 16 + 2 + a * (s.Def.W * 16 - 4), (s.Y + s.Def.H) * 16 + 2 - (p.Id % 3) * 6); }
                 }
                 var w = town.GetBuilding(p.WorkId);

@@ -52,8 +52,10 @@ namespace FrontierLedger.Simulation
         {
             foreach (var h in Buildings) h.Residents.RemoveAll(id => GetCitizen(id) == null);
             var houses = OfType(BuildingType.House).ToList();
-            // Families (an adult and whoever belongs with them) who have no roof
-            foreach (var a in People.Where(p => !p.IsChild && p.HomeId < 0 && p.Role != Role.Mayor).ToList())
+            // Families first (couples and parents with children), then people on their own
+            var adults = People.Where(p => !p.IsChild && p.HomeId < 0 && p.Role != Role.Mayor)
+                               .OrderBy(p => p.PartnerId >= 0 || ChildrenOf(p).Any() ? 0 : 1).ThenBy(p => p.ArrivedDay).ToList();
+            foreach (var a in adults)
             {
                 if (a.HomeId >= 0) continue;
                 var partner = GetCitizen(a.PartnerId);
@@ -71,12 +73,13 @@ namespace FrontierLedger.Simulation
                 var target = empty ?? (unit.Count == 1 ? houses.Where(h => h.Def.Beds - h.Residents.Count >= 1).OrderBy(h => h.Residents.Count).FirstOrDefault() : null);
                 if (target != null) foreach (var u in unit) MoveInto(u, target);
             }
-            // Children whose parents are housed go home; orphans take any spare bed
+            // Children go where their parents live; orphans take any spare bed
             foreach (var c in People.Where(p => p.IsChild && p.HomeId < 0))
             {
                 var parent = GetCitizen(c.ParentId);
                 var home = parent != null ? GetBuilding(parent.HomeId) : null;
                 if (home != null && home.Type == BuildingType.House && home.Residents.Count < home.Def.Beds) { MoveInto(c, home); continue; }
+                if (parent != null) continue;
                 var spare = houses.Where(h => h.Residents.Count < h.Def.Beds && h.Residents.Count > 0).OrderBy(h => h.Residents.Count).FirstOrDefault();
                 if (spare != null) MoveInto(c, spare);
             }
@@ -205,7 +208,9 @@ namespace FrontierLedger.Simulation
                 }
             }
 
-            // Births
+            // Births: families hold off when the town is short of food
+            float foodPerHead = People.Count == 0 ? 0 : TotalFood() / People.Count;
+            if (foodPerHead >= 8f)
             foreach (var w in People.Where(p => p.Female && !p.IsChild && p.Age >= 18 && p.Age <= 44 && p.PartnerId >= 0).ToList())
             {
                 var h = GetBuilding(w.HomeId);
