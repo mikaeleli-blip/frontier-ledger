@@ -533,7 +533,7 @@ namespace FrontierLedger.Game
             }
         }
 
-        static readonly Role[] RoleOrder = { Role.Mayor, Role.Owner, Role.Worker, Role.Sheriff, Role.Deputy, Role.Laborer, Role.Child };
+        static readonly Role[] RoleOrder = { Role.Mayor, Role.Owner, Role.Worker, Role.Sheriff, Role.Deputy, Role.Teacher, Role.Doctor, Role.Laborer, Role.Child };
 
         void CitizensTab()
         {
@@ -696,6 +696,8 @@ namespace FrontierLedger.Game
                 case Chore.Harvest: return "harvest hand";
                 case Chore.Repair: return "repairing";
                 case Chore.Craft: return "making furniture";
+                case Chore.School: return p.IsChild ? "at school" : "teaching";
+                case Chore.Tend: return "seeing patients";
                 default: return "idle";
             }
         }
@@ -710,10 +712,20 @@ namespace FrontierLedger.Game
             Ui.Text(bx, by, "Mood", Ui.InkSoft); Ui.Bar(new Rect(bx + 46, by + 1, bw - 46, 6), p.Happy / 100f, Ui.Mood(p.Happy)); by += 12;
             Row("Eating", p.Fed >= 0.95f ? "well" : p.Fed >= 0.7f ? "short" : "hungry", p.Fed >= 0.95f ? Ui.Good : p.Fed >= 0.7f ? Ui.Warn : Ui.Bad);
             Row("Warmth", p.Warm ? "warm" : "cold", p.Warm ? Ui.Good : Ui.Bad);
+            if (p.Sick > 0)
+                Row(Town.LaidUp(p) ? "Laid up with" : "Ill with", Defs.Illnesses[p.IllnessKind] + (p.SeenToday ? ", seen by the doctor" : ""),
+                    p.Illness >= 10f ? Ui.Bad : p.Illness >= 3f ? Ui.Warn : Ui.InkSoft);
             var home = T.GetBuilding(p.HomeId); var work = T.GetBuilding(p.WorkId);
             Row("Home", home != null ? (home.Type == BuildingType.Estate ? "Mayor's Estate" : home.Type == BuildingType.BoardingHouse ? "Boarding House" : "Cottage #" + home.Id) : "tent by the wagon", home == null ? Ui.Bad : Ui.Ink);
             if (p.RentOwed > 0.01f) Row("Behind on rent", Town.Money(p.RentOwed), Ui.Warn);
             Row("Work", work != null ? work.Def.Name + (p.FamilyHand ? " (family)" : work.OwnerId < 0 && work.Def.IsBusiness ? " (town)" : "") : p.IsChild ? "too young" : p.Role == Role.Laborer ? "laborer" : "none");
+            if (p.IsChild && p.Age >= Balance.SchoolAge)
+            {
+                float years = p.Schooling * Balance.SchoolDaysFull / (Balance.DaysPerSeason * 2f);
+                Row("Schooling", years < 0.05f ? "none yet" : years.ToString("0.0") + " years" + (Town.Schooled(p) ? ", reads and reckons" : ""), Town.Schooled(p) ? Ui.Good : Ui.Ink);
+                Row("Today", p.Chore == Chore.School ? "at school" : Town.LaidUp(p) ? "in bed" : p.Age >= 6 ? "helping at home" : "playing");
+            }
+            else if (!p.IsChild) Row("Schooling", Town.Schooled(p) ? "reads, writes, reckons" : "little or none", Town.Schooled(p) ? Ui.Ink : Ui.Warn);
             if (!p.IsChild && (p.Chore != Chore.None || p.Role == Role.Laborer))
             {
                 Row("Today", ChoreText(p));
@@ -923,6 +935,37 @@ namespace FrontierLedger.Game
                 Row("Last week", T.CaughtLast + " of " + T.CrimesLast + " caught");
                 var jailed = T.People.Where(x => x.Jail > 0).Select(x => x.First + " " + x.Family).ToArray();
                 Para("Jailhouse: " + (jailed.Length > 0 ? string.Join(", ", jailed) : "empty"));
+            }
+            else if (b.Type == BuildingType.School)
+            {
+                ConditionRows(b);
+                var tch = T.StaffOf(b, Role.Teacher);
+                Row("Teacher", tch != null ? tch.First + " " + tch.Family : "none yet", tch != null ? Ui.Ink : Ui.Warn);
+                if (tch == null) Para("Takes a settler who can read and write. If nobody in town can, the town sends back east: someone comes once there's a free bed and " + Town.Money(40) + " in the treasury.", Ui.Warn);
+                Row("Term", T.SchoolInSession ? "in session" : "out for " + (T.Season == 0 ? "spring planting" : "the harvest"), T.SchoolInSession ? Ui.Good : Ui.InkSoft);
+                int age = T.People.Count(x => x.IsChild && x.Age >= Balance.SchoolAge);
+                Row("Pupils today", (T.SchoolInSession ? b.Today.Sold : 0) + " of " + age + " children");
+                Row("Seats", d.Capacity.ToString());
+                Row("Salary", Town.Money(Balance.SalaryTeacher) + "/day in term");
+                Row("Grown-ups schooled", T.Adults.Count(Town.Schooled) + " of " + T.Adults.Count());
+                Para("Children here 2 years or more can read, write and reckon: they can keep a store or a bank, and get 10% more done than those who can't.", Ui.InkSoft);
+            }
+            else if (b.Type == BuildingType.DoctorOffice)
+            {
+                ConditionRows(b);
+                var dr = T.StaffOf(b, Role.Doctor);
+                Row("Doctor", dr != null ? "Dr. " + dr.First + " " + dr.Family : "none yet", dr != null ? Ui.Ink : Ui.Warn);
+                if (dr == null) Para("The town has sent back east for a doctor. One comes once there's a free bed and " + Town.Money(40) + " in the treasury.", Ui.Warn);
+                Row("Patients today", b.Today.Sold.ToString());
+                Row("Ill or hurt", T.People.Count(x => x.Sick > 0) + " (" + T.People.Count(Town.LaidUp) + " in bed)");
+                Row("Salary", Town.Money(Balance.SalaryDoctor) + "/day");
+                Para("Sees up to " + Balance.DoctorPatients + " of the worst cases a day. Patients who can afford it pay " + Town.Money(Balance.VisitFee) + " a visit.", Ui.InkSoft);
+                var sick = T.People.Where(x => x.Sick > 0 && x.Illness >= 3f).OrderByDescending(x => x.Illness).Take(6).ToList();
+                if (sick.Count > 0)
+                {
+                    Heading("Sick and hurt");
+                    foreach (var x in sick) Para(x.First + " " + x.Family + ": " + Defs.Illnesses[x.IllnessKind] + (x.SeenToday ? " (seen)" : ""), x.Illness >= 10f ? Ui.Bad : Ui.Ink);
+                }
             }
             else if (b.Type == BuildingType.Cemetery)
             {

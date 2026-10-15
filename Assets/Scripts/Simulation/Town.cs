@@ -11,7 +11,7 @@ namespace FrontierLedger.Simulation
     [Serializable]
     public partial class Town
     {
-        public const int CurrentVersion = 5;
+        public const int CurrentVersion = 6;
         public int Version = CurrentVersion;
         public int Seed;
         public int Day = 1;
@@ -92,6 +92,17 @@ namespace FrontierLedger.Simulation
                 foreach (var b in Buildings) { b.LenderId = -1; b.MissedPayments = 0; }
                 Version = 5;
             }
+            if (Version < 6)
+            {
+                // version 6: schooling, illness, teachers and doctors. Grown settlers mostly had some school back east.
+                foreach (var p in People)
+                {
+                    p.Sick = 0; p.Illness = 0; p.IllnessKind = 0; p.Physician = false;
+                    p.Schooling = !p.IsChild ? (Chance(Balance.SchooledNewcomers) ? Rnd(0.5f, 1f) : Rnd(0f, 0.4f))
+                                : p.Age > Balance.SchoolAge ? Math.Min(1f, (p.Age - Balance.SchoolAge) / 4f) * Rnd(0f, 0.6f) : 0f;
+                }
+                Version = 6;
+            }
         }
 
         /// <summary>Resizes a per-good array to the current number of goods, keeping what's there.</summary>
@@ -147,6 +158,17 @@ namespace FrontierLedger.Simulation
         public IEnumerable<Citizen> Adults { get { return People.Where(p => !p.IsChild); } }
         public Building Office { get { return OfType(BuildingType.Sheriff).FirstOrDefault(); } }
         public Building Estate { get { return OfType(BuildingType.Estate).FirstOrDefault(); } }
+        /// <summary>Enough school to read, write and reckon.</summary>
+        public static bool Schooled(Citizen p) { return p.Schooling >= Balance.SchooledAt; }
+        /// <summary>Too ill or hurt to work, go to school or leave the house.</summary>
+        public static bool LaidUp(Citizen p) { return p.Sick > 0 && p.Illness >= 3f; }
+        /// <summary>School runs in the summer and winter terms; children are needed at home for planting and harvest.</summary>
+        public bool SchoolInSession { get { return Season == 1 || Season == 3; } }
+        /// <summary>Jobs that pay a wage or salary (and are left when someone becomes an owner or the mayor).</summary>
+        public static bool Employed(Role r) { return r == Role.Worker || r == Role.Sheriff || r == Role.Deputy || r == Role.Builder || r == Role.Teacher || r == Role.Doctor; }
+        /// <summary>Work that needs someone who can read, write and keep accounts.</summary>
+        public static bool SkilledWork(BuildingType t) { return t == BuildingType.Store || t == BuildingType.Bank; }
+        public Citizen StaffOf(Building b, Role r) { foreach (var id in b.Employees) { var p = GetCitizen(id); if (p != null && p.Role == r) return p; } return null; }
         public Building OwnedBusiness(Citizen p) { return Buildings.FirstOrDefault(b => b.Def.IsBusiness && b.OwnerId == p.Id); }
         /// <summary>The business a settler's household owns, if any (theirs or their spouse's).</summary>
         public Building FamilyBusiness(Citizen p)
@@ -177,9 +199,9 @@ namespace FrontierLedger.Simulation
         public int WorkersAt(Building b)
         {
             int n = 0;
-            foreach (var id in b.Employees) { var p = GetCitizen(id); if (p != null && p.Jail == 0) n++; }
+            foreach (var id in b.Employees) { var p = GetCitizen(id); if (p != null && p.Jail == 0 && !LaidUp(p)) n++; }
             var o = GetCitizen(b.OwnerId);
-            if (o != null && o.WorkId == b.Id && o.Jail == 0) n++;
+            if (o != null && o.WorkId == b.Id && o.Jail == 0 && !LaidUp(o)) n++;
             return n;
         }
         public bool IsOpen(Building b) { return b.Built && WorkersAt(b) > 0; }
@@ -441,6 +463,7 @@ namespace FrontierLedger.Simulation
             banker.PartnerId = spouse.Id; spouse.PartnerId = banker.Id;
             float price = DeedPrice(bank);
             Treasury += price; LedgerThisWeek.Deeds += price;
+            banker.Schooling = 1f; spouse.Schooling = Math.Max(spouse.Schooling, 0.6f);
             bank.OwnerId = banker.Id; banker.Role = Role.Owner; banker.WorkId = bank.Id;
             bank.Cash = Balance.BankCapital; bank.Desired = 1; bank.BuiltDay = Day;
             AddLog(banker.Name + " came out from back east with " + Money(Balance.BankCapital) + " to lend, paid the town " + Money(price) + " for the Bank and opened its doors.", LogKind.Good);

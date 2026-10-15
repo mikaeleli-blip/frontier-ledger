@@ -25,6 +25,9 @@ namespace FrontierLedger.Simulation
                 Seed = (float)Rng.NextDouble(),
                 ArrivedDay = Day
             };
+            // grown settlers mostly had some school back east; children as much as their age allowed
+            if (age >= Balance.AdultAge) p.Schooling = Chance(Balance.SchooledNewcomers) ? Rnd(0.5f, 1f) : Rnd(0f, 0.4f);
+            else if (age > Balance.SchoolAge) p.Schooling = Math.Min(1f, (age - Balance.SchoolAge) / 4f) * Rnd(0.3f, 1f);
             People.Add(p);
             return p;
         }
@@ -204,7 +207,7 @@ namespace FrontierLedger.Simulation
             var e = Estate; if (e == null) return;
             var old = Mayor;
             if (old != null && old != p) { UnseatMayor(old, false); AddLog(old.Name + " packs up and moves out of the Mayor's Estate."); }
-            if (p.Role == Role.Worker || p.Role == Role.Sheriff || p.Role == Role.Deputy || p.Role == Role.Builder) QuitJob(p);
+            if (Employed(p.Role)) QuitJob(p);
             EmptyEstate();
             p.Role = Role.Mayor; p.WorkId = e.Id;
             // the mayor's household moves in too
@@ -228,7 +231,7 @@ namespace FrontierLedger.Simulation
                 var heir = GetCitizen(p.PartnerId);
                 if (heir != null && !heir.IsChild && OwnedBusiness(heir) == null && heir.Role != Role.Mayor)
                 {
-                    if (heir.Role == Role.Worker || heir.Role == Role.Builder || heir.Role == Role.Sheriff || heir.Role == Role.Deputy) QuitJob(heir);
+                    if (Employed(heir.Role)) QuitJob(heir);
                     own.OwnerId = heir.Id; heir.Role = Role.Owner; heir.WorkId = own.Id; heir.Money += p.Money; p.Money = 0;
                     AddLog(heir.Name + " takes over the " + own.Def.Name + ".");
                 }
@@ -269,7 +272,7 @@ namespace FrontierLedger.Simulation
         }
 
         float Standing(Citizen p) { return p.Money + (OwnedBusiness(p) != null ? 30 : 0) + p.Happy * 0.3f + (MayorId == p.Id ? 15 : 0) + Math.Min(20, p.Age - 18) * 0.5f; }
-        List<Citizen> Eligible() { return People.Where(p => !p.IsChild && p.Age >= 21 && p.Role != Role.Sheriff && p.Role != Role.Deputy && p.Jail == 0 && Day - p.ArrivedDay >= 3).ToList(); }
+        List<Citizen> Eligible() { return People.Where(p => !p.IsChild && p.Age >= 21 && p.Role != Role.Sheriff && p.Role != Role.Deputy && p.Role != Role.Teacher && p.Role != Role.Doctor && p.Jail == 0 && Day - p.ArrivedDay >= 3).ToList(); }
         bool Employable(Citizen p) { return !p.IsChild && p.Role == Role.Laborer && p.Jail == 0 && p.Age < 66; }
 
         // =====================================================================
@@ -348,7 +351,7 @@ namespace FrontierLedger.Simulation
             if (b.Type == BuildingType.BuilderYard && founder != null && !founder.IsChild && founder.Jail == 0 && founder.Role != Role.Mayor && OwnedBusiness(founder) == null)
             {
                 // the builder who came with the wagon brought his own tools: the first yard is his
-                if (founder.Role == Role.Worker || founder.Role == Role.Sheriff || founder.Role == Role.Deputy) QuitJob(founder);
+                if (Employed(founder.Role)) QuitJob(founder);
                 b.OwnerId = founder.Id; founder.Role = Role.Owner; founder.WorkId = b.Id; b.Debt = 0;
                 b.Cash += 40f + founder.Money * 0.3f; founder.Money *= 0.7f; b.LossWeeks = 0; b.BuiltDay = Day;
                 FounderBuilderId = -1;
@@ -364,6 +367,7 @@ namespace FrontierLedger.Simulation
             {
                 if (p.IsChild || p.Jail > 0 || p.Age >= 60 || (p.Role != Role.Laborer && p.Role != Role.Worker) || p.FamilyHand) continue;
                 if (FamilyBusiness(p) != null) continue;   // one business to a family
+                if (SkilledWork(b.Type) && !Schooled(p)) continue;   // a store or bank needs someone who can keep the books
                 var sp = GetCitizen(p.PartnerId);
                 float savings = p.Money + (sp != null ? sp.Money : 0f);
                 float need = 0;
@@ -398,9 +402,53 @@ namespace FrontierLedger.Simulation
             p.Role = v.Role;
             if (v.Role == Role.Builder) { p.WorkId = -1; AddLog(p.Name + " joined the town's building crew at " + Money(v.Wage) + "/day."); return; }
             p.WorkId = v.B.Id; v.B.Employees.Add(p.Id);
-            string label = v.Role == Role.Worker ? "a hand at the " + v.B.Def.Name : v.Role == Role.Sheriff ? "the new Sheriff" : "a deputy";
+            string label = v.Role == Role.Worker ? "a hand at the " + v.B.Def.Name : v.Role == Role.Sheriff ? "the new Sheriff" : v.Role == Role.Teacher ? "the schoolteacher"
+                         : v.Role == Role.Doctor ? "the town doctor" : "a deputy";
             var boss = GetCitizen(v.B.OwnerId);
             AddLog(p.Name + " was hired as " + label + (v.Role == Role.Worker ? (boss != null ? " by " + boss.Name : " by the town") : "") + " at " + Money(v.Wage) + "/day.");
+            v.B.VacantDays = 0;
+        }
+
+        /// <summary>Whether a settler can take a job: teaching and storekeeping need schooling, doctoring a doctor.</summary>
+        static bool CanDo(Citizen p, Vacancy v)
+        {
+            if (v.Role == Role.Doctor) return p.Physician;
+            if (v.Role == Role.Teacher) return Schooled(p);
+            if (v.Role == Role.Worker && v.B != null && SkilledWork(v.B.Type)) return Schooled(p);
+            return true;
+        }
+
+        /// <summary>When nobody in town can take the post, the town sends back east, and someone comes once there's a bed for them.</summary>
+        void SendForStaff(Building b, Role role)
+        {
+            b.VacantDays++;
+            if (b.VacantDays < Balance.SendForStaffDays || Treasury < 40f) return;
+            bool married = role == Role.Doctor && Chance(0.6);
+            if (FreeBeds < (married ? 2 : 1))
+            {
+                if (b.VacantDays == Balance.SendForStaffDays)
+                    AddLog((role == Role.Doctor ? "A doctor" : "A schoolteacher") + " back east would come out, but there's no bed in town for them.", LogKind.Bad);
+                return;
+            }
+            string fam = Pick(Defs.LastNames);
+            Citizen p;
+            if (role == Role.Doctor)
+            {
+                p = AddPerson(Chance(0.08), fam, Rnd(27, 50), (float)Math.Round(Rnd(25, 60)));
+                p.Physician = true; p.Schooling = 1f;
+                Citizen sp = null;
+                if (married) { sp = AddPerson(!p.Female, fam, Rnd(24, 46), (float)Math.Round(Rnd(5, 20))); sp.PartnerId = p.Id; p.PartnerId = sp.Id; sp.Schooling = Math.Max(sp.Schooling, 0.5f); }
+                AddLog("Dr. " + p.Name + " came out from back east" + (sp != null ? " with " + (p.Female ? "her husband" : "his wife") + " " + sp.First : "") +
+                       " to practise here. The town pays " + (p.Female ? "her " : "him ") + Money(Balance.SalaryDoctor) + " a day.", LogKind.Good);
+            }
+            else
+            {
+                p = AddPerson(Chance(0.7), fam, Rnd(18, 30), (float)Math.Round(Rnd(8, 25)));
+                p.Schooling = 1f;
+                AddLog(p.Name + " came out from back east to teach school, for " + Money(Balance.SalaryTeacher) + " a day.", LogKind.Good);
+            }
+            p.Role = role; p.WorkId = b.Id; b.Employees.Add(p.Id); b.VacantDays = 0;
+            RehouseEveryone();
         }
 
         void Hiring()
@@ -447,6 +495,12 @@ namespace FrontierLedger.Simulation
                 if (!staff.Any(p => p.Role == Role.Sheriff)) vac.Add(new Vacancy { B = off, Wage = Balance.SalarySheriff, Role = Role.Sheriff });
                 for (int i = staff.Count(p => p.Role == Role.Deputy); i < Policy.Deputies; i++) vac.Add(new Vacancy { B = off, Wage = Balance.SalaryDeputy, Role = Role.Deputy });
             }
+            // the schoolteacher and the doctor are on the town payroll
+            if (Treasury > 15)
+            {
+                foreach (var s in OfType(BuildingType.School)) if (StaffOf(s, Role.Teacher) == null) vac.Add(new Vacancy { B = s, Wage = Balance.SalaryTeacher, Role = Role.Teacher });
+                foreach (var o in OfType(BuildingType.DoctorOffice)) if (StaffOf(o, Role.Doctor) == null) vac.Add(new Vacancy { B = o, Wage = Balance.SalaryDoctor, Role = Role.Doctor });
+            }
             // when food is short, settlers take food jobs first
             bool hungry = People.Count > 0 && TotalFood() / People.Count < 30f;   // less than a month's food put by
             int homes = Buildings.Count(h => h.Built && IsHome(h.Type) && h.Residents.Count > 0);
@@ -456,14 +510,22 @@ namespace FrontierLedger.Simulation
                         (cold && (v.B.Type == BuildingType.Woodcutter || v.B.Type == BuildingType.LumberCamp) ? 1f : 0f))).ToList();
             var idle = Shuffle(People.Where(Employable).ToList());
             int filled = 0;
-            foreach (var v in vac) { if (idle.Count == 0) break; var p = idle[0]; idle.RemoveAt(0); Hire(p, v); filled++; }
+            var open = new List<Vacancy>();
+            foreach (var v in vac)
+            {
+                var p = idle.FirstOrDefault(x => CanDo(x, v));
+                if (p == null) { open.Add(v); continue; }
+                idle.Remove(p); Hire(p, v); filled++;
+            }
+            foreach (var v in open)
+                if ((v.Role == Role.Teacher || v.Role == Role.Doctor) && v.B.Employees.Count == 0) SendForStaff(v.B, v.Role);
             // a hired hand leaves for a job that pays clearly better (or for food work when food is short) - one a day
-            foreach (var v in vac.Skip(filled))
+            foreach (var v in open)
             {
                 if (v.Role != Role.Worker || v.B == null) continue;
                 bool urgent = hungry && Produces(v.B.Type, Good.Food);
                 // family hands only leave the family business for urgent food work, or when it isn't paying its way
-                var mover = People.Where(p => p.Role == Role.Worker && p.Jail == 0 && p.WorkId != v.B.Id &&
+                var mover = People.Where(p => p.Role == Role.Worker && p.Jail == 0 && p.WorkId != v.B.Id && CanDo(p, v) &&
                                               (!p.FamilyHand || urgent || (GetBuilding(p.WorkId) != null && GetBuilding(p.WorkId).Last.Valid && GetBuilding(p.WorkId).Last.Profit <= 0)))
                                   .Select(p => new { p, w = GetBuilding(p.WorkId) })
                                   .Where(x => x.w != null && !(urgent && Produces(x.w.Type, Good.Food)) && (urgent || x.p.FamilyHand || x.w.Wage + 0.4f < v.Wage))

@@ -66,6 +66,7 @@ namespace FrontierLedger.Simulation
         public int MissedPayments;
         public float TownOwes;                        // contract money the treasury couldn't pay yet (yards)
         public int Backlog;                           // crew a yard could use on its jobs today
+        public int VacantDays;                        // a school or doctor's office waiting for someone to take the post
         public PeriodStats Week = new PeriodStats();
         public WeekReport Last = new WeekReport();
         public DayStats Today = new DayStats();
@@ -130,8 +131,14 @@ namespace FrontierLedger.Simulation
         public int CharityDays;
         public int ColdDays;
         public int EvictedDay = -999;
-        public bool ByFire;
-        public bool FamilyHand;          // works the family business for no wage              // sleeping rough but huddled by the town fire with firewood to burn
+        public bool ByFire;              // sleeping rough but huddled by the town fire with firewood to burn
+        public bool FamilyHand;          // works the family business for no wage
+        public float Schooling;          // 0..1: how much school they've had (half is enough to read, write and reckon)
+        public int Sick;                 // days left of an illness or injury
+        public float Illness;            // health it costs each day (1.5 mild, 4.5 serious, 14 grave)
+        public int IllnessKind;          // index into Defs.Illnesses
+        public bool SeenToday;           // the doctor saw them today
+        public bool Physician;           // trained as a doctor
         public string Name { get { return First + " " + Family; } }
         public bool IsChild { get { return Age < Balance.AdultAge; } }
     }

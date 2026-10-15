@@ -9,7 +9,7 @@ The town economy is the game:
 - Stores and stalls buy wholesale from farms, fishers and gatherers.
 - Whoever owns a business hires hands and pays them wages.
 - You set the taxes and cottage rent, and pay a builder's yard by the job to build and repair.
-- The town hires a sheriff and deputies.
+- The town hires a sheriff and deputies, a schoolteacher and a doctor.
 - Settlers elect a mayor, who moves into the Mayor's Estate.
 
 Built in Unity 6. All art is generated in code as 3/4-view pixel art, so there are no image assets yet.
@@ -85,6 +85,22 @@ Trade, Election and the Gazette.
     and only leave it for paid work when it isn't paying its way or the town needs food.
 - **Jobs:** settlers take the best-paying work going, and food work first while the town has less than a month's food
   put by. A hired hand will leave for clearly better pay, or for a food job when food is short.
+  Keeping a store or a bank takes someone who can read, write and reckon.
+- **School:** a schoolhouse takes up to 25 children from age 5 until they come of age.
+  - The teacher is a settler who can read and write, or someone sent for from back east if nobody in town can (they need a free bed).
+  - Classes run in the summer and winter terms. It closes for spring planting and the harvest, and the teacher works like
+    anyone else between terms. The town pays the teacher only in term.
+  - Two years of school is enough to read, write and reckon. Most settlers who come from back east already can;
+    children raised here only learn if there's a school.
+  - Grown-ups who can't read or reckon get 10% less done and are paid 10% less, and can't keep a store or a bank.
+  - Children who aren't at school help at home, picking berries and gathering kindling.
+  - Parents are happier with their children in school, and more families settle in a town with a school.
+- **Illness:** settlers catch colds, the ague, dysentery, fevers and pneumonia. Winter, cold, hunger, crowded boarding
+  houses and a sick family member make it likelier. Babies and the old are frailer. Lumbermen, quarrymen, smiths and
+  builders sometimes get hurt at work. The seriously ill stay in bed and can't work or go to school.
+- **Doctor:** the town pays a doctor from back east to settle in a Doctor's Office.
+  - Every day the doctor sees up to 8 of the worst cases, on house calls. Patients get over it faster and far fewer die.
+  - Patients who can afford it pay a dollar a visit. More families settle in a town with a doctor.
 - **Furniture:** in quiet weeks the yard's crew makes furniture from logs and sells it from the yard.
   Households with savings buy a piece now and then; a furnished home is a happier one.
 - **Food:** each adult eats 1 food a day, each child 0.6.

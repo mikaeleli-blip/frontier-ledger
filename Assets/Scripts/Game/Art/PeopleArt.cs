@@ -55,6 +55,11 @@ namespace FrontierLedger.Game.Art
                     case Role.Sheriff: L.Hat = "cowboy"; L.HatColor = "#7a5232"; L.Badge = true; L.Shirt = "#c4a46a"; L.ShirtShade = "#a2864e"; break;
                     case Role.Deputy: L.Hat = "cowboy"; L.HatColor = "#b08a5a"; L.Badge = true; L.Shirt = "#6a8ab5"; L.ShirtShade = "#526e94"; break;
                     case Role.Builder: L.Hat = "cap"; L.HatColor = "#d0743a"; L.Suspenders = true; L.Shirt = "#d8c8a8"; L.ShirtShade = "#b8a888"; break;
+                    case Role.Doctor: if (!L.Female) { L.Hat = "bowler"; L.HatColor = "#2a2630"; } L.Coat = true; L.Shirt = "#3a3440"; L.ShirtShade = "#28232e"; break;
+                    case Role.Teacher:
+                        if (L.Female) { L.Shirt = "#5a6a8a"; L.ShirtShade = "#46546e"; L.Bun = true; L.LongHair = false; }
+                        else { L.Vest = true; L.Shirt = "#ece4d2"; L.ShirtShade = "#cfc4ad"; }
+                        break;
                     case Role.Worker: if (!L.Female && (int)(p.Seed * 13) % 2 == 0) { L.Hat = "straw"; L.HatColor = "#e0c070"; } else if (!L.Female) { L.Hat = "cap"; L.HatColor = "#6a5a4a"; } break;
                     default: L.Shirt = L.Female ? L.Shirt : "#9a8e7a"; L.ShirtShade = L.Female ? L.ShirtShade : "#7e735f"; break;
                 }

@@ -14,11 +14,12 @@ namespace FrontierLedger.Simulation
         {
             int si = Season;
             foreach (var b in Buildings) b.Today.Clear();
-            foreach (var p in People) { p.FedToday = 0; p.SaloonToday = -1; p.TaskId = -1; p.Chore = Chore.None; }
+            foreach (var p in People) { p.FedToday = 0; p.SaloonToday = -1; p.TaskId = -1; p.Chore = Chore.None; p.SeenToday = false; }
 
             GrowLand();
             Wear(si);
             Construct();
+            Lessons(si);
             OddJobs(si);
             Produce(si);
             Trade(si);
@@ -60,7 +61,7 @@ namespace FrontierLedger.Simulation
         // Construction: materials come from town stores (or are bought), builders do the work
         // =====================================================================
         /// <summary>Adults without a job who can take day work.</summary>
-        bool DayLaborer(Citizen p) { return !p.IsChild && p.Role == Role.Laborer && p.Jail == 0 && p.Age < 66; }
+        bool DayLaborer(Citizen p) { return !p.IsChild && (p.Role == Role.Laborer || (p.Role == Role.Teacher && !SchoolInSession)) && p.Jail == 0 && p.Age < 66 && !LaidUp(p); }
 
         public static float LaborDays(BuildingDef d) { return d.Work + (d.Logs + d.Stone) / Balance.HaulPerDay; }
         public float ContractPriceFor(BuildingDef d) { return (float)Math.Round(LaborDays(d) * Policy.ContractRate, 2); }
@@ -71,8 +72,8 @@ namespace FrontierLedger.Simulation
         {
             var crew = new List<Citizen>();
             var o = GetCitizen(y.OwnerId);
-            if (o != null && o.WorkId == y.Id && o.Jail == 0) crew.Add(o);
-            foreach (var id in y.Employees) { var p = GetCitizen(id); if (p != null && p.Jail == 0) crew.Add(p); }
+            if (o != null && o.WorkId == y.Id && o.Jail == 0 && !LaidUp(o)) crew.Add(o);
+            foreach (var id in y.Employees) { var p = GetCitizen(id); if (p != null && p.Jail == 0 && !LaidUp(p)) crew.Add(p); }
             return crew;
         }
 
@@ -300,6 +301,42 @@ namespace FrontierLedger.Simulation
                 home.Stock[(int)Good.Food] += Balance.ForagePerDay * Balance.GatherBySeason[si];
                 home.Stock[(int)Good.Firewood] += Balance.DeadwoodPerDay;
             }
+            ChildrenHelp(si);
+        }
+
+        /// <summary>Children of six and up who aren't at school pick berries and gather kindling for the household.</summary>
+        void ChildrenHelp(int si)
+        {
+            foreach (var c in People)
+            {
+                if (!c.IsChild || c.Age < 6f || c.Chore == Chore.School || LaidUp(c)) continue;
+                var home = GetBuilding(c.HomeId);
+                if (home == null) continue;
+                home.Stock[(int)Good.Food] += Balance.ChildForage * Balance.GatherBySeason[si];
+                home.Stock[(int)Good.Firewood] += Balance.ChildKindling;
+            }
+        }
+
+        // =====================================================================
+        // School: in the summer and winter terms, the teacher takes the children
+        // =====================================================================
+        void Lessons(int si)
+        {
+            if (!SchoolInSession) return;
+            foreach (var s in OfType(BuildingType.School).ToList())
+            {
+                var teacher = StaffOf(s, Role.Teacher);
+                if (teacher == null || teacher.Jail > 0 || LaidUp(teacher)) continue;
+                teacher.TaskId = s.Id; teacher.Chore = Chore.School;
+                int seats = s.Def.Capacity, n = 0;
+                foreach (var c in People.Where(c => c.IsChild && c.Age >= Balance.SchoolAge && c.Chore != Chore.School && !LaidUp(c)).OrderByDescending(c => c.Age))
+                {
+                    if (n >= seats) break;
+                    c.TaskId = s.Id; c.Chore = Chore.School; n++;
+                    c.Schooling = Math.Min(1f, c.Schooling + 1f / Balance.SchoolDaysFull);
+                }
+                s.Today.Sold = n;   // pupils today
+            }
         }
 
         // =====================================================================
@@ -314,36 +351,46 @@ namespace FrontierLedger.Simulation
 
         float FoodBonus { get { return MayorBonus(Platform.Farm) ? 1.15f : 1f; } }
 
+        /// <summary>The work a business's people get done in a day: hands (and owners) without schooling a little less.</summary>
+        float Effort(Building b)
+        {
+            float e = 0;
+            foreach (var id in b.Employees) { var p = GetCitizen(id); if (p != null && p.Jail == 0 && !LaidUp(p)) e += Schooled(p) ? 1f : Balance.UnschooledFactor; }
+            var o = GetCitizen(b.OwnerId);
+            if (o != null && o.WorkId == b.Id && o.Jail == 0 && !LaidUp(o)) e += Schooled(o) ? 1f : Balance.UnschooledFactor;
+            return e;
+        }
+
         void Produce(int si)
         {
             foreach (var b in Businesses.ToList())
             {
-                int w = WorkersAt(b);
+                int w = WorkersAt(b); float e = Effort(b);
                 switch (b.Type)
                 {
-                    case BuildingType.Farm: Farm(b, w, si); break;
+                    case BuildingType.Farm: Farm(b, w, e, si); break;
                     case BuildingType.Gatherer:
-                        if (w > 0) Make(b, Good.Food, w * Balance.GatherPerWorker * ToolFactor(b, w) * Balance.GatherBySeason[si] * Math.Min(1f, TreesNear(b) / 25f) * FoodBonus);
+                        if (w > 0) Make(b, Good.Food, e * Balance.GatherPerWorker * ToolFactor(b, w) * Balance.GatherBySeason[si] * Math.Min(1f, TreesNear(b) / 25f) * FoodBonus);
                         break;
                     case BuildingType.Fishery:
-                        if (w > 0) Make(b, Good.Food, w * Balance.FishPerWorker * ToolFactor(b, w) * Balance.FishBySeason[si] * FoodBonus);
+                        if (w > 0) Make(b, Good.Food, e * Balance.FishPerWorker * ToolFactor(b, w) * Balance.FishBySeason[si] * FoodBonus);
                         break;
-                    case BuildingType.LumberCamp: Lumber(b, w); break;
+                    case BuildingType.LumberCamp: Lumber(b, w, e); break;
                     case BuildingType.Woodcutter:
                         if (w > 0)
                         {
                             float tf = ToolFactor(b, w);
-                            float logs = Math.Min(b.Stock[(int)Good.Logs], w * Balance.LogsSplitPerWorker * tf);
+                            float logs = Math.Min(b.Stock[(int)Good.Logs], e * Balance.LogsSplitPerWorker * tf);
                             if (b.Stock[(int)Good.Firewood] < Balance.BusinessStockCap)
                             { b.Stock[(int)Good.Logs] -= logs; Make(b, Good.Firewood, logs * Balance.FirewoodPerLog); }
                         }
                         break;
-                    case BuildingType.Quarry: Quarry(b, w); break;
+                    case BuildingType.Quarry: Quarry(b, w, e); break;
                     case BuildingType.Smithy:
                         if (w > 0)
                         {
                             float tf = ToolFactor(b, w);
-                            float n = Math.Min(Math.Min(b.Stock[(int)Good.Logs], b.Stock[(int)Good.Stone]), w * Balance.ToolsPerWorker * tf);
+                            float n = Math.Min(Math.Min(b.Stock[(int)Good.Logs], b.Stock[(int)Good.Stone]), e * Balance.ToolsPerWorker * tf);
                             if (b.Stock[(int)Good.Tools] < 30)
                             { b.Stock[(int)Good.Logs] -= n; b.Stock[(int)Good.Stone] -= n; Make(b, Good.Tools, n); }
                         }
@@ -358,7 +405,7 @@ namespace FrontierLedger.Simulation
             b.Stock[(int)g] += q; b.Today.Made += q; b.Week.Made += q;
         }
 
-        void Farm(Building b, int w, int si)
+        void Farm(Building b, int w, float e, int si)
         {
             int dayOfSeason = DayOfSeason;
             if (si == 2 && dayOfSeason == 1)
@@ -373,10 +420,10 @@ namespace FrontierLedger.Simulation
             }
             if (w == 0) return;
             float tf = ToolFactor(b, w);
-            if (si <= 1) b.CropGrowth = Math.Min(1f, b.CropGrowth + w * Balance.GrowthPerWorker * tf);
+            if (si <= 1) b.CropGrowth = Math.Min(1f, b.CropGrowth + e * Balance.GrowthPerWorker * tf);
             else if (si == 2 && b.CropLeft > 0)
             {
-                float h = Math.Min(b.CropLeft, w * Balance.HarvestPerWorker * tf);
+                float h = Math.Min(b.CropLeft, e * Balance.HarvestPerWorker * tf);
                 b.CropLeft -= h; Make(b, Good.Food, h);
             }
         }
@@ -394,14 +441,14 @@ namespace FrontierLedger.Simulation
             return best;
         }
 
-        void Lumber(Building b, int w)
+        void Lumber(Building b, int w, float e)
         {
             if (w == 0) return;
             float tf = ToolFactor(b, w);
             var d = b.Def;
             if (b.Stock[(int)Good.Logs] < Balance.BusinessStockCap)
             {
-                b.ChopWork += w * Balance.TreeWorkPerWorker * tf;
+                b.ChopWork += e * Balance.TreeWorkPerWorker * tf;
                 while (b.ChopWork >= 1f)
                 {
                     if (b.TargetTile < 0 || Terrain[b.TargetTile] != Tile.Tree) b.TargetTile = NearestTile(b, d.Radius, Tile.Tree);
@@ -428,7 +475,7 @@ namespace FrontierLedger.Simulation
             }
         }
 
-        void Quarry(Building b, int w)
+        void Quarry(Building b, int w, float e)
         {
             if (w == 0 || b.Stock[(int)Good.Stone] >= Balance.BusinessStockCap) return;
             float tf = ToolFactor(b, w);
@@ -436,7 +483,7 @@ namespace FrontierLedger.Simulation
             if (b.TargetTile < 0 || Terrain[b.TargetTile] != Tile.Rock) b.TargetTile = NearestTile(b, d.Radius, Tile.Rock);
             if (b.TargetTile >= 0)
             {
-                b.ChopWork += w * 0.5f * tf;
+                b.ChopWork += e * 0.5f * tf;
                 if (b.ChopWork >= 1f)
                 {
                     SetTerrain(b.TargetTile % Cols, b.TargetTile / Cols, Tile.Grass);
@@ -444,7 +491,7 @@ namespace FrontierLedger.Simulation
                     Make(b, Good.Stone, Balance.StonePerRock);
                 }
             }
-            else Make(b, Good.Stone, w * Balance.StonePerWorker * tf);
+            else Make(b, Good.Stone, e * Balance.StonePerWorker * tf);
         }
 
         // =====================================================================
@@ -741,11 +788,12 @@ namespace FrontierLedger.Simulation
                 foreach (var id in b.Employees.ToList())
                 {
                     var p = GetCitizen(id); if (p == null || p.Jail > 0 || p.FamilyHand) continue;
-                    if (b.Cash >= b.Wage)
+                    float wage = b.Wage * (Schooled(p) ? 1f : Balance.UnschooledFactor);   // a hand who can't read or reckon is paid a little less
+                    if (b.Cash >= wage)
                     {
-                        b.Cash -= b.Wage; b.Week.Costs += b.Wage;
-                        float tax = b.Wage * Policy.IncomeTax;
-                        p.Money += b.Wage - tax; Treasury += tax; LedgerThisWeek.IncomeTax += tax;
+                        b.Cash -= wage; b.Week.Costs += wage;
+                        float tax = wage * Policy.IncomeTax;
+                        p.Money += wage - tax; Treasury += tax; LedgerThisWeek.IncomeTax += tax;
                     }
                     else
                     {
@@ -764,6 +812,12 @@ namespace FrontierLedger.Simulation
                     case Role.Mayor: PayFromTreasury(p, Balance.SalaryMayor, ref L.Salaries); break;
                     case Role.Sheriff: PayFromTreasury(p, Balance.SalarySheriff, ref L.Salaries); break;
                     case Role.Deputy: PayFromTreasury(p, Balance.SalaryDeputy, ref L.Salaries); break;
+                    case Role.Teacher:
+                        // paid by the term; between terms the teacher works like anyone else
+                        if (SchoolInSession) PayFromTreasury(p, Balance.SalaryTeacher, ref L.Salaries);
+                        else if (p.Chore != Chore.None && p.Chore != Chore.Harvest) PayFromTreasury(p, Policy.BuilderWage, ref L.Builders);
+                        break;
+                    case Role.Doctor: PayFromTreasury(p, Balance.SalaryDoctor, ref L.Salaries); break;
                     case Role.Laborer:
                         if (p.Chore != Chore.None && p.Chore != Chore.Harvest) PayFromTreasury(p, Policy.BuilderWage, ref L.Builders);
                         else if (p.Age < 66 && Policy.ReliefWage > 0) PayFromTreasury(p, Policy.ReliefWage, ref L.Relief);
@@ -824,20 +878,97 @@ namespace FrontierLedger.Simulation
         static readonly float[] ColdMood = { 1f, 0f, 2.5f, 4f };
         static readonly float[] HomelessMood = { 0.6f, 0.4f, 1.5f, 2.5f };
 
+        // =====================================================================
+        // Illness: colds and fevers, worse in winter, for the cold and hungry, and in crowded homes
+        // =====================================================================
+        void FallIll(int si)
+        {
+            var sickHomes = new HashSet<int>(People.Where(x => x.Sick > 0 && x.HomeId >= 0).Select(x => x.HomeId));
+            foreach (var p in People)
+            {
+                if (p.Sick > 0) continue;
+                // work accidents
+                var w = GetBuilding(p.WorkId);
+                if (w != null && p.Jail == 0 && !p.IsChild && (p.Role == Role.Worker || p.Role == Role.Owner) && Chance(Balance.InjuryPerDay))
+                {
+                    int kind = w.Type == BuildingType.LumberCamp || w.Type == BuildingType.Woodcutter ? 10 : w.Type == BuildingType.Quarry ? 11 : w.Type == BuildingType.Smithy ? 12 : w.Type == BuildingType.BuilderYard ? 13 : -1;
+                    if (kind >= 0) { Afflict(p, kind, 4.5f, Rng.Next(4, 9)); continue; }
+                }
+                double chance = Balance.IllnessPerDay * Balance.IllnessBySeason[si];
+                if (p.Fed < 0.7f || !p.Warm) chance *= 2;
+                if (p.HomeId < 0) chance *= 1.5;
+                else if (sickHomes.Contains(p.HomeId)) chance *= 2.5;   // it goes round the household
+                var home = GetBuilding(p.HomeId);
+                if (home != null && home.Type == BuildingType.BoardingHouse) chance *= 1.3;
+                if (p.IsChild && p.Age < 2) chance *= 2; else if (p.IsChild || p.Age > 60) chance *= 1.3;
+                if (!Chance(chance)) continue;
+                double r = Rng.NextDouble();
+                if (r < 0.75) Afflict(p, Rng.Next(0, 3), 1.5f, Rng.Next(2, 5));
+                else if (r < 0.94) Afflict(p, si == 1 ? 4 : si == 3 ? (Chance(0.5) ? 5 : 6) : 3, 4.5f, Rng.Next(4, 8));
+                else Afflict(p, p.IsChild && Chance(0.5) ? 9 : si == 3 || si == 0 ? 8 : 7, 14f, Rng.Next(5, 9));
+            }
+        }
+
+        void Afflict(Citizen p, int kind, float severity, int days)
+        {
+            p.IllnessKind = kind; p.Illness = severity; p.Sick = days;
+            if (severity >= 3f) AddLog(p.Name + (p.IsChild ? ", aged " + Math.Floor(p.Age) + "," : "") + (kind >= 10 ? " suffered " : " came down with ") + Defs.Illnesses[kind] + "." +
+                                       (severity >= 10f && !OfType(BuildingType.DoctorOffice).Any(o => StaffOf(o, Role.Doctor) != null) ? " There's no doctor in town." : ""), LogKind.Bad);
+        }
+
+        /// <summary>The doctor sees the worst of the sick and injured each day, and anyone in a bad way.</summary>
+        void Doctoring()
+        {
+            foreach (var o in OfType(BuildingType.DoctorOffice).ToList())
+            {
+                var doc = StaffOf(o, Role.Doctor);
+                if (doc == null || doc.Jail > 0 || LaidUp(doc)) continue;
+                var patients = People.Where(p => p != doc && !p.SeenToday && (LaidUp(p) || p.Health < 50))
+                                     .OrderByDescending(p => p.Illness).ThenBy(p => p.Health).Take(Balance.DoctorPatients).ToList();
+                foreach (var p in patients)
+                {
+                    p.SeenToday = true;
+                    var payer = p.IsChild ? GetCitizen(p.ParentId) : p;
+                    if (payer != null && payer.Money > 5f + Balance.VisitFee) { payer.Money -= Balance.VisitFee; doc.Money += Balance.VisitFee; }
+                }
+                // a house call on the worst case, otherwise office hours
+                var worst = patients.FirstOrDefault(p => p.HomeId >= 0);
+                doc.TaskId = worst != null ? worst.HomeId : o.Id; doc.Chore = Chore.Tend;
+                o.Today.Sold = patients.Count;
+            }
+        }
+
         void HealthAndMood(int si, int crimes)
         {
+            FallIll(si);
+            Doctoring();
+            bool schoolOpen = OfType(BuildingType.School).Any(s => StaffOf(s, Role.Teacher) != null);
             foreach (var p in People.ToList())
             {
-                float dh = p.Fed >= 0.95f ? 2f : -(1 - p.Fed) * 14f;
-                if (!p.Warm) dh -= ColdDamage[si] * (p.HomeId < 0 ? (p.ByFire ? 0.9f : 1.2f) : 1f) * (p.IsChild || p.Age > 60 ? 1.3f : 1f) * Rnd(0.6f, 1.4f);
-                else if (p.Fed >= 0.95f) dh += 1.5f;
+                bool sick = p.Sick > 0;
+                float dh = p.Fed >= 0.95f ? (sick ? 0f : 2f) : -(1 - p.Fed) * 14f;
+                if (!p.Warm) dh -= ColdDamage[si] * (p.HomeId < 0 ? (p.ByFire ? 0.9f : 1.2f) : 1f) * (p.IsChild || p.Age > 60 ? 1.3f : 1f) * Rnd(0.6f, 1.4f) * (p.SeenToday ? 0.75f : 1f);
+                else if (p.Fed >= 0.95f && !sick) dh += 1.5f;
                 if (p.Age > 60) dh -= (p.Age - 60) * 0.06f;
+                if (sick) dh -= p.Illness * (p.SeenToday ? 0.65f : 1f) * (p.Age < 2 ? 1.6f : p.Age > 60 ? 1.4f : 1f) * Rnd(0.7f, 1.3f);   // babies and the old are frailer
+                if (p.SeenToday) dh += 1f;
                 p.Health = Clamp(p.Health + dh, 0, 100);
                 if (p.Health <= 0)
                 {
-                    string cause = p.Hungry >= 3 && p.Fed < 0.7f ? "starved" : !p.Warm ? "froze to death" : "fell sick and died";
+                    string cause = sick && p.Illness >= 3f ? "died of " + Defs.Illnesses[p.IllnessKind] : p.Fed < 0.95f || p.Hungry > 0 ? "starved" : !p.Warm ? "froze to death"
+                                 : p.Age > 60 ? "died of old age" : "fell sick and died";
                     Die(p, cause);
                     continue;
+                }
+                if (sick)
+                {
+                    p.Sick -= p.SeenToday && Chance(0.5) ? 2 : 1;   // the doctor's care shortens it
+                    if (p.Sick <= 0)
+                    {
+                        p.Sick = 0;
+                        if (p.Illness >= 10f) AddLog(p.Name + " pulled through " + Defs.Illnesses[p.IllnessKind] + ".", LogKind.Good);
+                        p.Illness = 0;
+                    }
                 }
 
                 float d = p.Fed >= 0.95f ? 1f : -(1 - p.Fed) * 8;
@@ -848,6 +979,8 @@ namespace FrontierLedger.Simulation
                 if (Policy.HeadTax > 1f) d -= (Policy.HeadTax - 1f) * 0.5f;
                 if (MayorBonus(Platform.People)) d += 0.6f;
                 if (p.Health < 50) d -= 1;
+                if (sick) d -= p.Illness >= 3f ? 1.5f : 0.5f;
+                if (schoolOpen && !p.IsChild && ChildrenOf(p).Any(c => c.Age >= Balance.SchoolAge)) d += 0.3f;   // their children are getting an education
                 if (p.CharityDays > 0) d -= 0.8f;
                 var home = GetBuilding(p.HomeId);
                 if (home != null)
@@ -883,9 +1016,12 @@ namespace FrontierLedger.Simulation
             float stock = TotalFood(), need = (People.Count + 3) * (si == 2 ? 14f : 5f);
             bool rising = History.Count >= 8 && History[History.Count - 1].Food >= History[History.Count - 8].Food;
             if (stock < need || (!rising && stock < (People.Count + 3) * 14f)) return;   // not while the stores are only running down
-            if (!Chance(0.035 + (AverageHappiness - 40) / 1500.0)) return;
+            // families ask whether there's a school and a doctor
+            bool school = OfType(BuildingType.School).Any(s => StaffOf(s, Role.Teacher) != null);
+            bool doctor = OfType(BuildingType.DoctorOffice).Any(o => StaffOf(o, Role.Doctor) != null);
+            if (!Chance((0.035 + (AverageHappiness - 40) / 1500.0) * (1 + (school ? 0.25 : 0) + (doctor ? 0.25 : 0)))) return;
             var names = new List<Citizen>();
-            if (Chance(0.55))
+            if (Chance(0.55 + (school ? 0.15 : 0)))
             {
                 string fam = Pick(Defs.LastNames);
                 var dad = AddPerson(false, fam, Rnd(20, 42), (float)Math.Round(Rnd(20, 55)));

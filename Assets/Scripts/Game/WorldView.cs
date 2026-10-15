@@ -188,6 +188,8 @@ namespace FrontierLedger.Game
                 case BuildingType.House: case BuildingType.BoardingHouse: return b.Residents.Count > 0;
                 case BuildingType.Estate: return town.MayorId >= 0;
                 case BuildingType.Sheriff: return b.Employees.Count > 0;
+                case BuildingType.DoctorOffice: return b.Employees.Count > 0 && town.TimeOfDay > 0.75f;
+                case BuildingType.School: return false;
                 case BuildingType.Storehouse: case BuildingType.Wagon: case BuildingType.Cemetery: return false;
                 default: return b.Def.IsBusiness && town.IsOpen(b) && (b.Type == BuildingType.Saloon || town.TimeOfDay > 0.75f);
             }
@@ -546,6 +548,18 @@ namespace FrontierLedger.Game
             float ph = town.TimeOfDay;
             bool workHours = ph > 0.24f && ph < 0.7f, evening = ph >= 0.7f && ph < 0.86f, nightTime = ph >= 0.86f || ph < 0.2f;
             if (p.Jail > 0) { var off = town.Office; if (off != null) { visit = off; inside = true; return HasDoor(off) ? DoorStep(off, p) : Front(off, p, 0.3f); } }
+            // the sick stay in bed
+            if (Town.LaidUp(p))
+            {
+                var bed = town.GetBuilding(p.HomeId);
+                if (bed != null) { visit = bed; inside = true; return HasDoor(bed) ? DoorStep(bed, p) : Front(bed, p, 0.5f); }
+            }
+            // school, the teacher's lessons and the doctor's rounds happen indoors
+            if (workHours && p.TaskId >= 0 && (p.Chore == Chore.School || p.Chore == Chore.Tend))
+            {
+                var s = town.GetBuilding(p.TaskId);
+                if (s != null && s.Built) { visit = s; inside = true; return HasDoor(s) ? DoorStep(s, p) : Front(s, p, 0.6f); }
+            }
             if (workHours && !p.IsChild)
             {
                 if (p.TaskId >= 0 && p.Chore != Chore.None)
@@ -557,7 +571,8 @@ namespace FrontierLedger.Game
                     if (s != null && p.Chore == Chore.Craft) { visit = s; return WorkSpot(s, p); }
                 }
                 var w = town.GetBuilding(p.WorkId);
-                if (w != null && w.Built) { visit = w; return w.Type == BuildingType.Estate ? Front(w, p, 0.3f) : WorkSpot(w, p); }
+                bool offTerm = p.Role == Role.Teacher && !town.SchoolInSession;   // between terms the teacher is home or out helping
+                if (w != null && w.Built && !offTerm) { visit = w; return w.Type == BuildingType.Estate ? Front(w, p, 0.3f) : WorkSpot(w, p); }
             }
             if (evening && p.SaloonToday >= 0)
             {
@@ -806,6 +821,8 @@ namespace FrontierLedger.Game
                 if ((b.Type == BuildingType.House || b.Type == BuildingType.BoardingHouse) && b.Residents.Count > 0) rate = (nightness > 0 || town.TimeOfDay < 0.3f || si == 3 || si == 2) ? 0.9f : 0.3f;
                 else if (b.Type == BuildingType.Smithy && town.IsOpen(b)) { rate = 2.2f; dark = true; }
                 else if ((b.Type == BuildingType.Estate && town.MayorId >= 0) || (b.Type == BuildingType.LumberCamp && town.IsOpen(b))) rate = 0.6f;
+                else if (b.Type == BuildingType.School && si == 3 && town.SchoolInSession && b.Employees.Count > 0) rate = 0.6f;   // the schoolroom stove
+                else if (b.Type == BuildingType.DoctorOffice && b.Employees.Count > 0) rate = si >= 2 ? 0.6f : 0.25f;
                 if (rate <= 0) continue;
                 float tmr; if (!smokeTimers.TryGetValue(b.Id, out tmr)) tmr = Random.value;
                 tmr -= dt * rate;

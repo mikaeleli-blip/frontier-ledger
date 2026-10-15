@@ -6,12 +6,12 @@ namespace FrontierLedger.Simulation
     public enum BuildingType
     {
         Road, House, Storehouse, Farm, Gatherer, Fishery, LumberCamp, Woodcutter, Quarry, Smithy,
-        Store, Stall, Saloon, Sheriff, Estate, Cemetery, Wagon, BuilderYard, BoardingHouse, Bank
+        Store, Stall, Saloon, Sheriff, Estate, Cemetery, Wagon, BuilderYard, BoardingHouse, Bank, School, DoctorOffice
     }
     public enum Category { Roads, Housing, Food, Industry, Trade, Civic, Hidden }
-    public enum Role { Child, Laborer, Worker, Owner, Builder, Sheriff, Deputy, Mayor }   // Builder is unused (old saves)
+    public enum Role { Child, Laborer, Worker, Owner, Builder, Sheriff, Deputy, Mayor, Teacher, Doctor }   // Builder is unused (old saves)
     /// <summary>What a laborer or a builder's crew is doing today.</summary>
-    public enum Chore { None, HaulLogs, HaulStone, Build, Harvest, Repair, Craft }
+    public enum Chore { None, HaulLogs, HaulStone, Build, Harvest, Repair, Craft, School, Tend }
     public enum Platform { None = -1, Law, Farm, Trade, People }
     public enum LogKind { Info, Good, Bad, Vote, Build, Death, Birth }
 
@@ -118,7 +118,24 @@ namespace FrontierLedger.Simulation
         public const float AdultAge = 10f;                 // children join the workforce at this age (in years)
         public const float BirthChancePerDay = 0.009f;
         public const float MarriageChancePerDay = 0.15f;
-        public const float SalaryMayor = 4f, SalarySheriff = 4f, SalaryDeputy = 3f;
+        public const float SalaryMayor = 4f, SalarySheriff = 4f, SalaryDeputy = 3f, SalaryTeacher = 3f, SalaryDoctor = 4f;
+        /// <summary>Children over 6 who aren't at school help at home: berries, kindling (times the gathering season).</summary>
+        public const float ChildForage = 0.3f, ChildKindling = 0.1f;
+
+        // School: children from 5 until they come of age, in the summer and winter terms
+        public const float SchoolAge = 5f;
+        public const float SchoolDaysFull = 112f;          // school days for a full schooling (four years of terms)
+        public const float SchooledAt = 0.5f;              // enough to read, write and reckon
+        public const float UnschooledFactor = 0.9f;        // hands who can't read or reckon get this much done, and are paid this much
+        public const float SchooledNewcomers = 0.8f;       // share of grown newcomers who had schooling back east
+        public const int SendForStaffDays = 7;             // days the town waits for someone local before sending back east
+
+        // Illness and the doctor
+        public const float IllnessPerDay = 0.008f;         // chance a healthy settler falls ill on a given day
+        public static readonly float[] IllnessBySeason = { 1f, 1.2f, 0.9f, 1.4f };
+        public const float InjuryPerDay = 0.0015f;         // work accidents at the lumber camp, quarry, smithy and yard
+        public const int DoctorPatients = 8;               // patients a doctor can see in a day
+        public const float VisitFee = 1f;                  // paid to the doctor by patients who can afford it
         public const float ClaimFee = 5f;
         public const float ClearTree = 2f, ClearRock = 6f;
         public const int TermDays = 28;
@@ -187,6 +204,10 @@ namespace FrontierLedger.Simulation
                 Blurb = "Hires a sheriff and deputies, paid by the treasury, who catch thieves." });
             Add(new BuildingDef { Type = BuildingType.Estate, Category = Category.Civic, Name = "Mayor's Estate", W = 3, H = 2, Logs = 30, Stone = 30, Work = 24, Beds = 6, IsPublic = true, Unique = true, Color = "#e9e1cf",
                 Blurb = "The town elects a mayor, who moves in with their family. The mayor's platform helps the whole town." });
+            Add(new BuildingDef { Type = BuildingType.School, Category = Category.Civic, Name = "Schoolhouse", W = 2, H = 2, Logs = 16, Stone = 4, Work = 10, IsPublic = true, Capacity = 25, Color = "#e8dcc4",
+                Blurb = "One room, one teacher paid by the town each term, up to 25 children from 5 until they come of age. Classes run in summer and winter; it closes for planting and harvest, when the teacher lends a hand like everyone else. Children who stay home help their family instead. Schooled children grow up able to keep a store or a bank, and get more done." });
+            Add(new BuildingDef { Type = BuildingType.DoctorOffice, Category = Category.Civic, Name = "Doctor's Office", W = 2, H = 2, Logs = 14, Stone = 6, Work = 10, IsPublic = true, Color = "#7a9ab0",
+                Blurb = "The town pays a doctor from back east to settle here. Every day he sees the worst of the sick and injured: they get over it faster and far fewer die. Patients who can afford it pay him a dollar a visit." });
             Add(new BuildingDef { Type = BuildingType.Cemetery, Category = Category.Civic, Name = "Cemetery", W = 3, H = 3, Stone = 8, Work = 4, IsPublic = true, Graves = 18, Color = "#6f7a5a",
                 Blurb = "Somewhere to bury the dead. Without one, every death weighs on the whole town." });
             Add(new BuildingDef { Type = BuildingType.Wagon, Category = Category.Hidden, Name = "Supply Wagon", W = 2, H = 2, IsPublic = true, IsStorage = true, Capacity = 300, Color = "#c49c69",
@@ -208,9 +229,20 @@ namespace FrontierLedger.Simulation
                 case Role.Sheriff: return "Sheriff";
                 case Role.Deputy: return "Deputy";
                 case Role.Mayor: return "Mayor";
+                case Role.Teacher: return "Teacher";
+                case Role.Doctor: return "Doctor";
                 default: return "Laborer";
             }
         }
+
+        /// <summary>What a settler can come down with. Indexes are stored in saves: only append.</summary>
+        public static readonly string[] Illnesses =
+        {
+            "a cold", "a sore throat", "an upset stomach",                         // mild
+            "the ague", "dysentery", "a fever", "pleurisy",                         // serious
+            "typhoid fever", "pneumonia", "scarlet fever",                          // grave
+            "an axe cut", "a crushed hand", "a bad burn", "a fall"                  // work accidents
+        };
 
         public static readonly string[] Seasons = { "Spring", "Summer", "Autumn", "Winter" };
         public static readonly string[] Weekdays = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };

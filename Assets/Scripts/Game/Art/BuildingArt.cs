@@ -55,6 +55,8 @@ namespace FrontierLedger.Game.Art
                 case BuildingType.BuilderYard: return 8;
                 case BuildingType.BoardingHouse: return 22;
                 case BuildingType.Bank: return 14;
+                case BuildingType.School: return 24;
+                case BuildingType.DoctorOffice: return 16;
                 default: return 0;
             }
         }
@@ -247,6 +249,8 @@ namespace FrontierLedger.Game.Art
                 case BuildingType.BuilderYard: BuilderYard(k); break;
                 case BuildingType.BoardingHouse: BoardingHouse(k); break;
                 case BuildingType.Bank: Bank(k); break;
+                case BuildingType.School: School(k); break;
+                case BuildingType.DoctorOffice: DoctorOffice(k); break;
             }
             k.Tg.Outline(OL);
             string n = type + "_" + v + "_" + si;
@@ -693,6 +697,76 @@ namespace FrontierLedger.Game.Art
                 for (int i = x + 1; i < x + 6; i += 2) tg.R(i, y0 + 17, 1, 5, "#9a9a9a");
             }
             Door(k, 13, y0 + 16, 6, 11, "#5a3a22");
+        }
+
+        /// <summary>A white one-room schoolhouse, gable end to the road, with a bell in a little belfry.</summary>
+        static void School(Ctx k)
+        {
+            var bg = k.Bg; var tg = k.Tg; bool W = k.Winter; int y0 = k.Y(0);
+            string[] wall = { "#efe7d4", "#cfc4ae", "#fbf6ea" };
+            string[] roof = { "#56605a", "#414a45", "#6e7a72" };
+            // a trodden schoolyard
+            bg.R(0, y0 + 26, 32, 6, W ? "#d8d2c6" : "#b8996a");
+            bg.R(13, y0 + 26, 6, 6, W ? "#e4e0d8" : "#c8b088");
+            for (int i = 0; i < 14; i++) bg.D((int)(Hs(i, 31, 3) * 32), y0 + 26 + (int)(Hs(31, i, 4) * 6), W ? "#c4beb2" : "#a08452");
+            Shadow(tg, 3, y0 + 27, 26);
+            // roof running back, then the gable end facing the road
+            Shingles(tg, 2, y0 - 8, 28, 13, roof, W);
+            Gable(tg, 16, y0 - 6, 13, 12, wall[0], wall[1], roof, W);
+            Planks(tg, 3, y0 + 6, 26, 21, wall[0], wall[1], wall[2]);
+            tg.R(3, y0 + 6, 26, 1, wall[1]);
+            // a board over the door: SCHOOL
+            tg.R(10, y0 + 1, 12, 5, "#3a2a1a"); tg.R(11, y0 + 2, 10, 3, "#e8d8b0"); Letters(tg, 12, y0 + 2, 8, "#3a2a1a");
+            // belfry on the ridge, with the bell
+            tg.R(13, y0 - 15, 6, 8, wall[0]); tg.R(18, y0 - 15, 1, 8, wall[1]);
+            tg.R(14, y0 - 14, 4, 5, "#2a1c12");
+            tg.R(15, y0 - 13, 2, 3, "#c89a3a"); tg.D(14, y0 - 11, "#a87a2a"); tg.D(17, y0 - 11, "#a87a2a"); tg.D(15, y0 - 13, "#e8c060");
+            for (int r = 0; r < 4; r++) tg.R(15 - r, y0 - 20 + r, 2 + 2 * r, 1, r % 2 == 0 ? roof[0] : roof[2]);
+            tg.R(12, y0 - 16, 8, 1, roof[1]);
+            if (W) tg.R(13, y0 - 20, 6, 1, SNOW);
+            // tall sash windows either side of a red door
+            Window(k, 5, y0 + 11, 5, 8, false); Window(k, 22, y0 + 11, 5, 8, false);
+            Door(k, 13, y0 + 16, 6, 11, "#9a3a2a");
+            tg.R(12, y0 + 14, 8, 1, wall[1]);
+            Foundation(tg, 3, y0 + 26, 26);
+        }
+
+        /// <summary>A doctor's house and surgery: clapboard, a porch, a hanging sign and bottles in the window.</summary>
+        static void DoctorOffice(Ctx k)
+        {
+            var bg = k.Bg; var tg = k.Tg; bool W = k.Winter; int y0 = k.Y(0);
+            string[] wall = { "#a8bcc8", "#8aa0ae", "#c4d4de" };
+            string[] roof = { "#7a3a2a", "#5a2a1e", "#9a5a42" };
+            // swept path through a picket fence
+            bg.R(18, y0 + 26, 6, 6, W ? "#e4e0d8" : "#c8b088");
+            for (int x = 0; x < 32; x += 2)
+            {
+                if (x >= 17 && x < 25) continue;
+                bg.R(x, y0 + 28, 1, 3, "#efe7d4"); bg.D(x, y0 + 28, W ? SNOW : "#fbf6ea");
+            }
+            bg.R(0, y0 + 29, 17, 1, "#cfc4ae"); bg.R(25, y0 + 29, 7, 1, "#cfc4ae");
+            Shadow(tg, 2, y0 + 25, 28);
+            Shingles(tg, 1, y0 - 12, 30, 14, roof, W);
+            Chimney(k, 23, y0 - 16, 7);
+            // a dormer window in the roof
+            tg.R(8, y0 - 9, 7, 7, wall[2]); tg.R(7, y0 - 10, 9, 2, roof[1]);
+            Window(k, 10, y0 - 7, 3, 3, false, "#efe7d4");
+            if (W) tg.R(7, y0 - 11, 9, 1, SNOW);
+            Planks(tg, 2, y0 + 2, 28, 23, wall[0], wall[1], wall[2]);
+            tg.R(2, y0 + 2, 28, 1, wall[1]);
+            // porch roof on posts
+            tg.R(0, y0 + 9, 32, 3, "#6e5a4a"); tg.R(0, y0 + 9, 32, 1, "#8e7a68"); tg.R(0, y0 + 11, 32, 1, "#4e3e32");
+            if (W) tg.R(0, y0 + 8, 32, 1, SNOW);
+            foreach (int x in new[] { 1, 30 }) { tg.R(x, y0 + 12, 1, 13, "#efe7d4"); tg.D(x, y0 + 12, "#ffffff"); }
+            // the surgery window, with medicine bottles on the sill
+            Window(k, 4, y0 + 15, 7, 6, false, "#efe7d4");
+            string[] glass = { "#4a9a6a", "#4a6ab0", "#c8862a" };
+            for (int i = 0; i < 3; i++) { tg.R(5 + i * 2, y0 + 18, 1, 3, glass[i]); tg.D(5 + i * 2, y0 + 17, "#e8e2d4"); }
+            Door(k, 20, y0 + 15, 6, 10, "#3a4a5a");
+            // a shingle sign hanging under the porch roof: DR.
+            tg.D(14, y0 + 12, "#3a3a3a"); tg.D(17, y0 + 12, "#3a3a3a");
+            tg.R(13, y0 + 13, 6, 4, "#f4ecd8"); tg.R(13, y0 + 16, 6, 1, "#c8b89a"); Letters(tg, 14, y0 + 14, 4, "#2a2a3a");
+            Foundation(tg, 2, y0 + 24, 28);
         }
 
         static void Estate(Ctx k)
