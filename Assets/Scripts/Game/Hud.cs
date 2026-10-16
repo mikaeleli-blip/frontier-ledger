@@ -403,6 +403,7 @@ namespace FrontierLedger.Game
         void Row(string k, string v, Color? vc = null)
         {
             Ui.Text(bx, by, k, Ui.InkSoft);
+            if (PixelFont.Width(k) + PixelFont.Width(v) + 6 > bw) by += 10;   // too long to share the line: the value goes underneath
             Ui.Text(bx + bw, by, v, vc ?? Ui.Ink, Ui.Align.Right);
             by += 11;
         }
@@ -790,8 +791,10 @@ namespace FrontierLedger.Game
             Row("Eating", p.Fed >= 0.95f ? "well" : p.Fed >= 0.7f ? "short" : "hungry", p.Fed >= 0.95f ? Ui.Good : p.Fed >= 0.7f ? Ui.Warn : Ui.Bad);
             Row("Warmth", p.Warm ? "warm" : "cold", p.Warm ? Ui.Good : Ui.Bad);
             if (p.Sick > 0)
-                Row(Town.LaidUp(p) ? "Laid up with" : "Ill with", Defs.Illnesses[p.IllnessKind] + (p.SeenToday ? ", seen by the doctor" : ""),
-                    p.Illness >= 10f ? Ui.Bad : p.Illness >= 3f ? Ui.Warn : Ui.InkSoft);
+            {
+                Row(Town.LaidUp(p) ? "Laid up with" : "Ill with", Defs.Illnesses[p.IllnessKind], p.Illness >= 10f ? Ui.Bad : p.Illness >= 3f ? Ui.Warn : Ui.InkSoft);
+                if (p.SeenToday) Row("Doctor", "seen today", Ui.Good);
+            }
             var home = T.GetBuilding(p.HomeId); var work = T.GetBuilding(p.WorkId);
             Row("Home", home != null ? (home.Type == BuildingType.Estate ? "Mayor's Estate" : home.Type == BuildingType.BoardingHouse ? "Boarding House" : "Cottage #" + home.Id) : "tent by the wagon", home == null ? Ui.Bad : Ui.Ink);
             if (p.RentOwed > 0.01f) Row("Behind on rent", Town.Money(p.RentOwed), Ui.Warn);
@@ -799,7 +802,7 @@ namespace FrontierLedger.Game
             if (p.IsChild && p.Age >= Balance.SchoolAge)
             {
                 float years = p.Schooling * Balance.SchoolYearsFull;
-                Row("Schooling", years < 0.05f ? "none yet" : years.ToString("0.0") + " years" + (Town.Schooled(p) ? ", reads and reckons" : ""), Town.Schooled(p) ? Ui.Good : Ui.Ink);
+                Row("Schooling", years < 0.05f ? "none yet" : years.ToString("0.0") + " years" + (Town.Schooled(p) ? ", can read" : ""), Town.Schooled(p) ? Ui.Good : Ui.Ink);
                 Row("Today", p.Chore == Chore.School ? "at school" : Town.LaidUp(p) ? "in bed" : p.Age >= 6 ? "helping at home" : "playing");
             }
             else if (!p.IsChild) Row("Schooling", Town.Schooled(p) ? "reads, writes, reckons" : "little or none", Town.Schooled(p) ? Ui.Ink : Ui.Warn);
@@ -952,12 +955,12 @@ namespace FrontierLedger.Game
                         Heading("The bank's books");
                         Row("Deposits", Town.Money(T.DepositsAt(b)));
                         Row("Accounts", savers + (savers == 1 ? " settler, " : " settlers, ") + firms + (firms == 1 ? " business" : " businesses"));
-                        Row("Kept in the vault", Town.Money(T.VaultReserve(b)) + " (" + Mathf.RoundToInt(Balance.ReserveRatio * 100) + "% of deposits)");
+                        Row("Vault reserve", Town.Money(T.VaultReserve(b)));
                         Row("Free to lend", Town.Money(T.Lendable(b)), T.Lendable(b) < 20 ? Ui.Warn : Ui.Good);
                         Row("Loans out", loans.Count + (loans.Count > 0 ? ", " + Town.Money(loans.Sum(x => x.Debt)) + " owed" : ""));
                         Row("Interest on loans", Mathf.RoundToInt(Balance.LoanInterest * 1000) / 10f + "% a week");
-                        Row("Interest on savings", "up to " + Mathf.RoundToInt(Balance.DepositInterest * 1000) / 10f + "% a week");
-                        Para("Businesses bank their takings and settlers their savings, keeping " + Town.Money(Balance.PocketMoney) + " at home. They can draw on it any day. The banker lends out the rest of the vault to families buying a business: a quarter down, the rest paid weekly. Savers share in what the loans earn.", Ui.InkSoft);
+                        Row("Savings earn", "up to " + Mathf.RoundToInt(Balance.DepositInterest * 1000) / 10f + "% a week");
+                        Para("Businesses bank their takings and settlers their savings, keeping " + Town.Money(Balance.PocketMoney) + " at home. They can draw on it any day. The bank keeps " + Mathf.RoundToInt(Balance.ReserveRatio * 100) + "% of deposits in the vault and lends out the rest to families buying a business: a quarter down, the rest paid weekly. Savers share in what the loans earn.", Ui.InkSoft);
                         break;
                     }
                     case BuildingType.BuilderYard:
