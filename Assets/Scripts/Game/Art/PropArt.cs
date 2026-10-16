@@ -163,6 +163,53 @@ namespace FrontierLedger.Game.Art
         }
 
         /// <summary>A block of stone held against the chest (pivot top-left).</summary>
+        /// <summary>A covered freight wagon behind a yoke of oxen, side on, heading right. Pivot under the wheels.</summary>
+        public static Sprite FreightWagon(int frame)
+        {
+            return Cached("freight_" + frame, () =>
+            {
+                var g = new PixelCanvas(42, 26);
+                // oxen: the far one a shade darker, legs stepping by frame
+                foreach (int far in new[] { 1, 0 })
+                {
+                    int ox = 28 + far * 2, oy = 13 - far;
+                    string body = far == 1 ? "#5e3e24" : "#7a5232", shade = far == 1 ? "#4a301c" : "#5e3e24";
+                    g.R(ox, oy, 9, 5, body); g.R(ox, oy + 4, 9, 1, shade); g.R(ox + 8, oy - 1, 3, 4, body); g.D(ox + 10, oy + 1, "#2a1c12");
+                    g.D(ox + 8, oy - 2, "#e8dcc4"); g.D(ox + 10, oy - 2, "#e8dcc4");
+                    int a = frame == 0 ? 0 : 1;
+                    g.R(ox + 1 + a, oy + 5, 1, 3, shade); g.R(ox + 3 - a, oy + 5, 1, 3, shade); g.R(ox + 6 + a, oy + 5, 1, 3, shade); g.R(ox + 8 - a, oy + 5, 1, 3, shade);
+                }
+                g.R(22, 16, 7, 1, "#6e4428"); g.R(36, 11, 1, 3, "#8a5a34");   // tongue and yoke
+                // wagon box and the canvas bonnet over its hoops
+                g.R(3, 14, 20, 5, "#8a5a34"); g.R(3, 14, 20, 1, "#a8734a"); g.R(3, 18, 20, 1, "#6e4428");
+                for (int x = 7; x < 22; x += 5) g.R(x, 15, 1, 3, "#6e4428");
+                for (int r = 0; r < 10; r++)
+                {
+                    int inset = r < 3 ? 3 - r : 0;
+                    g.R(4 + inset, 4 + r, 18 - inset * 2, 1, r % 3 == 2 ? "#ddd4c2" : "#f4f0e6");
+                }
+                foreach (int hx in new[] { 8, 13, 18 }) g.R(hx, 5, 1, 9, "#d8d0c0");
+                g.R(21, 9, 2, 5, "#e8e0cc");
+                // the teamster on the seat
+                g.R(22, 10, 3, 4, "#6a8ab5"); g.R(22, 7, 3, 3, "#e8b890"); g.R(21, 6, 5, 1, "#7a5232"); g.R(22, 5, 3, 1, "#7a5232");
+                // wheels, spokes turning
+                foreach (int wx in new[] { 6, 18 })
+                {
+                    int cy = 20, r = wx == 6 ? 4 : 3;
+                    for (int dy = -r; dy <= r; dy++) for (int dx = -r; dx <= r; dx++)
+                    {
+                        int d2 = dx * dx + dy * dy;
+                        if (d2 <= r * r && d2 >= (r - 1) * (r - 1)) g.D(wx + dx, cy + dy, "#5a3a22");
+                    }
+                    if (frame == 0) { g.R(wx - r + 1, cy, r * 2 - 1, 1, "#8a5a34"); g.R(wx, cy - r + 1, 1, r * 2 - 1, "#8a5a34"); }
+                    else for (int k = -r + 1; k < r; k++) { g.D(wx + k, cy + k, "#8a5a34"); g.D(wx + k, cy - k, "#8a5a34"); }
+                    g.D(wx, cy, "#3a2418");
+                }
+                g.Outline(OL);
+                return g;
+            }, new Vector2(0.5f, 1f / 26f));
+        }
+
         public static Sprite CarriedSack()
         {
             return Cached("carry_sack", () =>

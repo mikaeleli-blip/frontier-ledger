@@ -101,6 +101,12 @@ namespace FrontierLedger.Simulation
         public const float BarnCapacity = 300f;
         public const float BusinessStockCap = 80f;
 
+        // Freight from back east: prices include the haul, plus the teamsters' fee per caravan
+        public static readonly float[] ImportPrice = { 1.6f, 1.0f, 2.4f, 3.0f, 10f, 0f };
+        public const float CaravanFee = 10f;
+        public const float PassageLaborer = 25f, PassageFamily = 60f;   // the town pays their way out
+        public const int FreightDays = 4, FreightDaysWinter = 7;        // days until the caravan comes; the roads are slow in winter
+
         // Builder's yards
         /// <summary>A building in good repair starts here and wears down day by day, faster in winter.</summary>
         public const float WearPerDay = 0.45f;

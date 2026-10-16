@@ -76,6 +76,8 @@ namespace FrontierLedger.Game
         readonly List<SpriteRenderer> tents = new List<SpriteRenderer>();
         readonly Dictionary<int, Vector2> tentSpot = new Dictionary<int, Vector2>();   // household head -> tent door
         SpriteRenderer campfire;
+        readonly List<SpriteRenderer> caravan = new List<SpriteRenderer>();
+        const float CaravanIn = 0.26f, CaravanStop = 0.40f, CaravanGo = 0.58f, CaravanOut = 0.74f;
         float birdX, birdY, birdVx; bool birdsActive;
         SpriteRenderer night, sunset;
         readonly SpriteRenderer[] selEdges = new SpriteRenderer[4];
@@ -89,7 +91,7 @@ namespace FrontierLedger.Game
             town = t; rig = cameraRig; nav = new Nav(t);
             foreach (Transform c in transform) Destroy(c.gameObject);
             buildings.Clear(); trees.Clear(); treeKinds.Clear(); people.Clear(); particles.Clear(); particlePool.Clear(); smokeTimers.Clear();
-            sparkles.Clear(); clouds.Clear(); birds.Clear(); tents.Clear(); tentSpot.Clear();
+            sparkles.Clear(); clouds.Clear(); birds.Clear(); tents.Clear(); tentSpot.Clear(); caravan.Clear();
             paintedSeason = -1; seenMapVersion = -1; treeSeason = -1; treeMapVersion = -1;
 
             layerBuildings = Layer("Buildings"); layerTrees = Layer("Trees"); layerPeople = Layer("Settlers"); layerFx = Layer("Effects");
@@ -158,6 +160,7 @@ namespace FrontierLedger.Game
             SyncBuildings(si);
             SyncTrees(si);
             SyncTents(si);
+            SyncCaravan();
             SyncPeople();
             UpdateEffects(si);
             UpdateNight();
@@ -475,6 +478,58 @@ namespace FrontierLedger.Game
                 campfire.transform.position = Pixels.ToWorld(center.x, center.y + 4);
                 campfire.sortingOrder = SortOrder(center.y + 4);
             }
+        }
+
+        // ---------------------------------------------------------------- the freight caravan
+        /// <summary>Orders arriving today: the caravan rolls in along the main road, stops by the storehouse, and drives on.</summary>
+        List<FreightOrder> CaravanToday() { return town.Orders.Where(o => o.ArriveDay == town.Day).ToList(); }
+
+        Vector2 CaravanStopAt()
+        {
+            var s = town.OfType(BuildingType.Storehouse).FirstOrDefault() ?? town.Storages.FirstOrDefault();
+            float x = s != null ? s.X * 16 + s.Def.W * 8 : Town.WagonX * 16 + 16;
+            return new Vector2(x + 30, Town.TrailRow * 16 + 13);
+        }
+
+        void SyncCaravan()
+        {
+            var today = CaravanToday();
+            int n = 0;
+            float ph = town.TimeOfDay;
+            if (today.Count > 0 && ph >= CaravanIn && ph < CaravanOut)
+            {
+                float bulk = today.Sum(o => o.Goods.Sum()); int folk = today.Sum(o => o.Laborers + o.Families);
+                n = Mathf.Clamp(1 + Mathf.FloorToInt(bulk / 60f) + folk / 2, 1, 4);
+                var stop = CaravanStopAt();
+                float x0 = -50, x1 = Town.Cols * 16 + 50 + n * 46;
+                float lead; bool moving = true;
+                if (ph < CaravanStop) lead = Mathf.Lerp(x0, stop.x, (ph - CaravanIn) / (CaravanStop - CaravanIn));
+                else if (ph < CaravanGo) { lead = stop.x; moving = false; }
+                else lead = Mathf.Lerp(stop.x, x1, (ph - CaravanGo) / (CaravanOut - CaravanGo));
+                int frame = moving ? Mathf.FloorToInt(time * 6) % 2 : 0;
+                while (caravan.Count < n) caravan.Add(MakeSr("Caravan", layerBuildings, null, 0));
+                for (int i = 0; i < n; i++)
+                {
+                    var sr = caravan[i];
+                    float x = Mathf.Round(lead - i * 46), y = stop.y;
+                    sr.enabled = true; sr.sprite = PropArt.FreightWagon(frame);
+                    sr.transform.position = Pixels.ToWorld(x, y);
+                    sr.sortingOrder = SortOrder(y, 1);
+                    if (moving && Random.value < Time.deltaTime * 3f) SpawnFx(x - 16, y - 1, FxDust, -6, 0.7f);
+                }
+            }
+            for (int i = n; i < caravan.Count; i++) caravan[i].enabled = false;
+        }
+
+        /// <summary>Settlers the town paid passage for ride in on today's caravan and step off when it stops.</summary>
+        bool OnTheCaravan(Citizen p, out Vector2 at)
+        {
+            at = Vector2.zero;
+            if (p.ArrivedDay != town.Day || town.TimeOfDay >= CaravanStop) return false;
+            var today = CaravanToday();
+            if (!today.Any(o => o.Laborers + o.Families > 0)) return false;
+            at = CaravanStopAt() + new Vector2(-10 - p.Seed * 30, 3 + p.Seed * 4);
+            return true;
         }
 
         // ---------------------------------------------------------------- settlers
@@ -817,6 +872,14 @@ namespace FrontierLedger.Game
                     people[p.Id] = v;
                 }
                 v.P = p;
+                Vector2 seat;
+                if (OnTheCaravan(p, out seat))
+                {
+                    // still on the wagons: they climb down at the stop and walk from there
+                    v.Sr.enabled = false; v.Held.enabled = false; v.Inside = false; v.Shown = false; v.DoorState = Out;
+                    v.Pos = seat; v.Goal = new Vector2(float.NaN, 0); v.Path.Clear(); v.PathIdx = 0;
+                    continue;
+                }
                 bool inside; Building visit;
                 var goal = TargetFor(p, out inside, out visit);
 

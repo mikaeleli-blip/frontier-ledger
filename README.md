@@ -55,8 +55,8 @@ A sound opening:
 | Build | Hotbar at the bottom: Roads, Housing, Food, Industry, Trade, Civic |
 | Inspect | Click a settler or building. Tear down is in the building panel. |
 
-The five books at the top right are the Ledger (taxes, wages, contract rate, rent, reserves, the town's books), Citizens,
-Trade, Election and the Gazette.
+The six books at the top right are the Ledger (taxes, wages, contract rate, rent, reserves, the town's books), Citizens,
+Trade, Election, the Gazette and Freight.
 
 ## How it works
 
@@ -122,6 +122,11 @@ Trade, Election and the Gazette.
   - Owners hire when trade is good and lay hands off when it isn't. Fields take on hands for the harvest.
   - Owners take home the weekly profit above a reserve.
   - When no shop is open, farmers, fishers and woodcutters sell at their own gate.
+- **Freight from back east:** in the Freight book, order food, firewood, logs, stone and tools, or pay passage for laborers
+  ($25) and families ($60).
+  - The treasury pays when you order: goods at back-east prices with the haul included, plus a $10 teamsters' fee.
+  - A caravan of covered wagons comes up the main road 4 days later (7 in winter), stops by the storehouse and drives on.
+  - Goods go into the storehouse; whatever won't fit is refunded. Settlers climb down at the stop and look for work and a bed.
 - **Taxes:**
   - Income tax on wages.
   - A weekly head tax on every adult.

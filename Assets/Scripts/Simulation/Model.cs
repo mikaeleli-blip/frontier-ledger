@@ -143,6 +143,17 @@ namespace FrontierLedger.Simulation
         public bool IsChild { get { return Age < Balance.AdultAge; } }
     }
 
+    /// <summary>Goods and settlers the town has sent for from back east, coming by freight caravan.</summary>
+    [Serializable]
+    public class FreightOrder
+    {
+        public int Id, OrderedDay, ArriveDay;
+        public float[] Goods = new float[Balance.GoodCount];
+        public int Laborers, Families;
+        public float Cost;
+        public bool Delivered;
+    }
+
     /// <summary>A trip someone makes today: to a shop to buy, or carrying goods to a buyer. Not saved; for the map.</summary>
     public sealed class Errand
     {
@@ -186,10 +197,10 @@ namespace FrontierLedger.Simulation
     public class TownLedger
     {
         public float IncomeTax, HeadTax, BusinessTax, Deeds, Claims, Refunds, StoreSales, Exports, Rent, TownTakings;   // income
-        public float Salaries, Builders, Relief, Upkeep, Grants, Materials, Construction, Contracts, TownTills;         // spending
+        public float Salaries, Builders, Relief, Upkeep, Grants, Materials, Construction, Contracts, TownTills, Imports; // spending
         public float CharityGoods;                                                                         // value handed out, not money
         public float Income { get { return IncomeTax + HeadTax + BusinessTax + Deeds + Claims + Refunds + StoreSales + Exports + Rent + TownTakings; } }
-        public float Spending { get { return Salaries + Builders + Relief + Upkeep + Grants + Materials + Construction + Contracts + TownTills; } }
+        public float Spending { get { return Salaries + Builders + Relief + Upkeep + Grants + Materials + Construction + Contracts + TownTills + Imports; } }
         public float Net { get { return Income - Spending; } }
     }
 

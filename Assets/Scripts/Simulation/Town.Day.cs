@@ -38,6 +38,7 @@ namespace FrontierLedger.Simulation
             Hiring();
             RehouseEveryone();
             Migration(si);
+            Caravans();
             ElectionStep();
             if (Day % 7 == 0) Weekly();
             History.Add(new HistoryPoint { Day = Day, Treasury = Treasury, Population = People.Count, Food = TotalFood(), Firewood = TotalFirewood() });

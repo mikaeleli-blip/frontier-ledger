@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace FrontierLedger.Game.UI
 {
-    public enum Icon { Food, Firewood, Logs, Stone, Tools, People, Child, House, Heart, Health, Coin, Warning, Grave, Book, Scales, Ballot, News, Hammer, Pointer, Axe, Sun, Moon, Snow, Leaf, Close, Plus, Minus, Play, Pause, Star, Chair }
+    public enum Icon { Food, Firewood, Logs, Stone, Tools, People, Child, House, Heart, Health, Coin, Warning, Grave, Book, Scales, Ballot, News, Hammer, Pointer, Axe, Sun, Moon, Snow, Leaf, Close, Plus, Minus, Play, Pause, Star, Chair, Wagon }
 
     /// <summary>
     /// A tiny immediate-mode UI kit on top of IMGUI: wooden frames, parchment panels, pixel text,
@@ -126,6 +126,7 @@ namespace FrontierLedger.Game.UI
                 {Icon.Pause, ".........|..oo.oo..|..oo.oo..|..oo.oo..|..oo.oo..|..oo.oo..|..oo.oo..|..oo.oo..|........."},
                 {Icon.Star, "....o....|...oyo...|ooooyoooo|oyyyyyyyo|.oyyyyyo.|..oyyyo..|.oyyoyyo.|.oo...oo.|........."},
                 {Icon.Chair, ".oo......|.oBo.....|.oBo.....|.oBo.....|.oBoooooo|.oBBBBBBo|.oBooooBo|.oBo..oBo|.ooo..ooo"},
+                {Icon.Wagon, "..ooooo..|.owwwwwo.|owwwwwwwo|owwcwcwwo|ooooooooo|obbbbbbbo|ooooooooo|.ogo.ogo.|..o...o.."},
             };
             foreach (var kv in art)
             {

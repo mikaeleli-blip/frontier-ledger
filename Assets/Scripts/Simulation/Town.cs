@@ -38,6 +38,8 @@ namespace FrontierLedger.Simulation
         public int Births, Deaths, Unburied;
         public int FounderBuilderId = -1;        // the builder who came with the wagon; owns the first yard
         public List<HistoryPoint> History = new List<HistoryPoint>();
+        public List<FreightOrder> Orders = new List<FreightOrder>();
+        public int NextOrderId = 1;
         public MarketReport Market = new MarketReport();
 
         // ---- runtime only ----
@@ -61,6 +63,8 @@ namespace FrontierLedger.Simulation
             rng = null; occDirty = true; MapVersion++;
             if (DirtyTiles == null) DirtyTiles = new List<int>();
             if (Errands == null) Errands = new List<Errand>();
+            if (Orders == null) Orders = new List<FreightOrder>();
+            foreach (var o in Orders) o.Goods = Fit(o.Goods, null);
             if (Campaign == null) Campaign = new Campaign();
             if (LastElection == null) LastElection = new ElectionResult();
             foreach (var p in People) if (p.Role == Role.Builder) { p.Role = Role.Laborer; p.WorkId = -1; }   // the old building crew
@@ -208,6 +212,81 @@ namespace FrontierLedger.Simulation
             return n;
         }
         public bool IsOpen(Building b) { return b.Built && WorkersAt(b) > 0; }
+
+        // =====================================================================
+        // Freight from back east
+        // =====================================================================
+        public int FreightLeadDays { get { return Season == 3 ? Balance.FreightDaysWinter : Balance.FreightDays; } }
+        public float OrderCost(float[] goods, int laborers, int families)
+        {
+            float c = 0; bool any = laborers > 0 || families > 0;
+            for (int g = 0; g < Balance.GoodCount; g++) { c += goods[g] * Balance.ImportPrice[g]; any |= goods[g] > 0; }
+            return any ? c + laborers * Balance.PassageLaborer + families * Balance.PassageFamily + Balance.CaravanFee : 0f;
+        }
+        /// <summary>Goods already on the road that will need room in the stores.</summary>
+        public float GoodsOnTheRoad { get { float s = 0; foreach (var o in Orders) if (!o.Delivered) s += o.Goods.Sum(); return s; } }
+
+        /// <summary>Sends an order back east, paid now from the treasury. Returns why it can't be sent, or null.</summary>
+        public string PlaceOrder(float[] goods, int laborers, int families)
+        {
+            float cost = OrderCost(goods, laborers, families), bulk = goods.Sum();
+            if (cost <= 0) return "Nothing on the order";
+            if (cost > Treasury) return "The treasury can't pay " + Money(cost);
+            if (bulk > 0 && !Storages.Any()) return "There's nowhere to store goods";
+            if (bulk > TownSpace - GoodsOnTheRoad + 0.5f) return "The stores can't take that much";
+            var o = new FreightOrder { Id = NextOrderId++, OrderedDay = Day, ArriveDay = Day + FreightLeadDays, Laborers = laborers, Families = families, Cost = cost };
+            for (int g = 0; g < Balance.GoodCount; g++) o.Goods[g] = goods[g];
+            Orders.Add(o);
+            Treasury -= cost; LedgerThisWeek.Imports += cost;
+            AddLog("The town sent an order back east for " + FreightText(o) + " (" + Money(cost) + "). The caravan is due in " + (o.ArriveDay - Day) + " days.", LogKind.Info);
+            return null;
+        }
+
+        public static string FreightText(FreightOrder o)
+        {
+            var parts = new List<string>();
+            for (int g = 0; g < Balance.GoodCount; g++) if (o.Goods[g] > 0.5f) parts.Add(Math.Round(o.Goods[g]) + " " + Defs.GoodNames[g].ToLower());
+            if (o.Laborers > 0) parts.Add(o.Laborers + (o.Laborers == 1 ? " laborer" : " laborers"));
+            if (o.Families > 0) parts.Add(o.Families + (o.Families == 1 ? " family" : " families"));
+            return parts.Count == 0 ? "nothing" : parts.Count == 1 ? parts[0] : string.Join(", ", parts.Take(parts.Count - 1).ToArray()) + " and " + parts[parts.Count - 1];
+        }
+
+        /// <summary>Orders due tomorrow are unloaded into the stores overnight; the newcomers step off the wagons when
+        /// the caravan stops in town. What the stores can't hold is refunded.</summary>
+        void Caravans()
+        {
+            Orders.RemoveAll(o => o.Delivered && o.ArriveDay <= Day);
+            foreach (var o in Orders.Where(x => !x.Delivered && Day + 1 >= x.ArriveDay).ToList())
+            {
+                o.Delivered = true;
+                float refund = 0;
+                for (int g = 0; g < Balance.GoodCount; g++)
+                {
+                    if (o.Goods[g] <= 0) continue;
+                    float put = PutInTown((Good)g, o.Goods[g]);
+                    refund += (o.Goods[g] - put) * Balance.ImportPrice[g];
+                }
+                var names = new List<string>();
+                for (int i = 0; i < o.Laborers; i++)
+                {
+                    var p = AddPerson(Chance(0.3), Pick(Defs.LastNames), Rnd(18, 34), (float)Math.Round(Rnd(5, 20)));
+                    p.ArrivedDay = Day + 1; names.Add(p.Name);
+                }
+                for (int i = 0; i < o.Families; i++)
+                {
+                    string fam = Pick(Defs.LastNames);
+                    var dad = AddPerson(false, fam, Rnd(22, 40), (float)Math.Round(Rnd(10, 35)));
+                    var mom = AddPerson(true, fam, Rnd(20, 36), (float)Math.Round(Rnd(5, 15)));
+                    dad.PartnerId = mom.Id; mom.PartnerId = dad.Id; dad.ArrivedDay = mom.ArrivedDay = Day + 1;
+                    for (int k = Rng.Next(1, 4); k > 0; k--) { var c = AddPerson(Chance(0.5), fam, Rnd(1, 9), 0); c.ParentId = c.MotherId = mom.Id; c.FatherId = dad.Id; c.ArrivedDay = Day + 1; }
+                    names.Add("the " + fam + " family");
+                }
+                if (refund > 0.01f) { Treasury += refund; LedgerThisWeek.Refunds += refund; }
+                AddLog("The freight caravan came up the road with " + FreightText(o) + "." + (refund > 0.01f ? " The stores were full: " + Money(refund) + " of it went back for a refund." : ""), LogKind.Good);
+                Log[0].Day = Day + 1;   // it rolls in tomorrow
+                if (o.Laborers + o.Families > 0) RehouseEveryone();
+            }
+        }
 
         /// <summary>Notes a trip for the map: someone goes to a shop to buy.</summary>
         void Shop(Citizen p, Building to, Good g)
@@ -547,6 +626,7 @@ namespace FrontierLedger.Simulation
         // New town
         // =====================================================================
         public const int WagonX = 37, WagonY = 22;
+        public const int TrailRow = 24;   // the wagon trail across the map: the main road
 
         /// <summary>A handful of families arrive with a supply wagon in early spring. No houses yet.</summary>
         public static Town CreateNew(int seed)
@@ -564,8 +644,8 @@ namespace FrontierLedger.Simulation
             string err;
             for (int x = 0; x < Cols; x++)
             {
-                if (t.TerrainAt(x, 24) != Tile.Water) t.Terrain[24 * Cols + x] = Tile.Grass;
-                t.Place(BuildingType.Road, x, 24, out err, true);
+                if (t.TerrainAt(x, TrailRow) != Tile.Water) t.Terrain[TrailRow * Cols + x] = Tile.Grass;
+                t.Place(BuildingType.Road, x, TrailRow, out err, true);
             }
             var wagon = t.Place(BuildingType.Wagon, WagonX, WagonY, out err, true);
             for (int g = 0; g < Balance.GoodCount; g++) wagon.Stock[g] = Balance.StartingStock[g];

@@ -14,7 +14,9 @@ namespace FrontierLedger.Game
     /// </summary>
     public sealed class Hud : MonoBehaviour
     {
-        enum Tab { None, Ledger, Citizens, Trade, Election, Gazette }
+        enum Tab { None, Ledger, Citizens, Trade, Election, Gazette, Freight }
+        readonly float[] cart = new float[Balance.GoodCount];
+        int cartLaborers, cartFamilies;
 
         GameController gc;
         Town T { get { return gc.Town; } }
@@ -216,16 +218,17 @@ namespace FrontierLedger.Game
         // ---------------------------------------------------------------- treasury and book tabs
         void MoneyAndTabs()
         {
-            var r = Block(new Rect(W - 134, 4, 130, 24));
+            var r = Block(new Rect(W - 160, 4, 156, 24));
             Ui.Panel(r);
             Ui.IconAt(r.x + 8, r.y + 7, Icon.Coin);
             Ui.Text(r.x + 21, r.y + 9, "Treasury", Ui.InkSoft);
             Ui.Text(r.xMax - 8, r.y + 9, Town.Money(T.Treasury), T.Treasury < 0 ? Ui.Bad : Ui.Title, Ui.Align.Right);
-            Icon[] icons = { Icon.Book, Icon.People, Icon.Scales, Icon.Ballot, Icon.News };
-            string[] names = { "Ledger: taxes, wages, the town books", "Citizens", "Trade: food, firewood and businesses", "Election and mayor", "Gazette: what's been happening" };
-            for (int i = 0; i < 5; i++)
+            Icon[] icons = { Icon.Book, Icon.People, Icon.Scales, Icon.Ballot, Icon.News, Icon.Wagon };
+            string[] names = { "Ledger: taxes, wages, the town books", "Citizens", "Trade: food, firewood and businesses", "Election and mayor", "Gazette: what's been happening",
+                               "Freight: order goods and settlers from back east" };
+            for (int i = 0; i < 6; i++)
             {
-                var b = Block(new Rect(W - 134 + i * 26, 30, 24, 18));
+                var b = Block(new Rect(W - 160 + i * 26, 30, 24, 18));
                 var t = (Tab)(i + 1);
                 if (Ui.Button(b, "", tab == t, true, icons[i])) { Later(() => { tab = tab == t ? Tab.None : t; panelScroll = Vector2.zero; }); }
                 if (Ui.Hover(b)) hoverTip = names[i];
@@ -406,7 +409,7 @@ namespace FrontierLedger.Game
             float pw = 262;
             var r = Block(new Rect(W - pw - 4, 52, pw, H - 52 - 64));
             Ui.Panel(r);
-            string[] titles = { "", "Town Ledger", "Citizens", "Trade & Stores", "Election", "The Gazette" };
+            string[] titles = { "", "Town Ledger", "Citizens", "Trade & Stores", "Election", "The Gazette", "Freight from Back East" };
             Ui.Text(r.x + 10, r.y + 9, titles[(int)tab], Ui.Title);
             if (Ui.Button(new Rect(r.xMax - 22, r.y + 6, 15, 14), "", false, true, Icon.Close)) Later(() => tab = Tab.None);
             var view = new Rect(r.x + 8, r.y + 22, r.width - 16, r.height - 30);
@@ -420,6 +423,7 @@ namespace FrontierLedger.Game
                 case Tab.Trade: TradeTab(); break;
                 case Tab.Election: ElectionTab(); break;
                 case Tab.Gazette: GazetteTab(); break;
+                case Tab.Freight: FreightTab(); break;
             }
             panelContentH = by + 6;
             GUI.EndScrollView();
@@ -496,6 +500,7 @@ namespace FrontierLedger.Game
             Book("Salaries", C.Salaries, L != null ? L.Salaries : (float?)null, -1);
             Book("Materials & food", C.Materials, L != null ? L.Materials : (float?)null, -1);
             Book("Clearing, roads", C.Construction, L != null ? L.Construction : (float?)null, -1);
+            if (C.Imports > 0 || (L != null && L.Imports > 0)) Book("Freight orders", C.Imports - C.Refunds, L != null ? L.Imports - L.Refunds : (float?)null, -1);
             Book("Grants & upkeep", C.Grants + C.Upkeep, L != null ? L.Grants + L.Upkeep : (float?)null, -1);
             Ui.Line(bx, by, bw, Ui.Hex("#c8a070")); by += 2;
             Book("Net", C.Net, L != null ? L.Net : (float?)null, 0);
@@ -505,6 +510,72 @@ namespace FrontierLedger.Game
             if (Ui.Button(new Rect(bx, by, 120, 15), armed ? "Click to confirm" : "Start a new town")) { if (armed) { Later(gc.NewTown); confirmNewUntil = 0; } else confirmNewUntil = Time.unscaledTime + 3; }
             Ui.Text(bx + bw, by + 4, "Saves every Monday", Ui.InkSoft, Ui.Align.Right);
             by += 18;
+        }
+
+        // ================================================================== freight orders
+        /// <summary>One line of the order form: what it is, its price, and minus / count / plus.</summary>
+        int OrderLine(Icon icon, string name, string price, int count, int step, int max)
+        {
+            Ui.IconAt(bx, by - 1, icon);
+            Ui.Text(bx + 12, by, name, Ui.Ink);
+            Ui.Text(bx + 118, by, price, Ui.InkSoft, Ui.Align.Right);
+            float cx = bx + bw - 54;
+            if (Ui.Button(new Rect(cx, by - 3, 15, 13), "", false, count > 0, Icon.Minus)) count = Mathf.Max(0, count - step);
+            Ui.Text(cx + 27, by, count.ToString(), count > 0 ? Ui.Title : Ui.InkSoft, Ui.Align.Center);
+            if (Ui.Button(new Rect(cx + 39, by - 3, 15, 13), "", false, count + step <= max, Icon.Plus)) count = Mathf.Min(max, count + step);
+            by += 15;
+            return count;
+        }
+
+        void FreightTab()
+        {
+            int days = T.FreightLeadDays;
+            Para("Order what the town needs from back east. The treasury pays now, and a freight caravan brings it up the main road in about " + days +
+                 " days" + (T.Season == 3 ? " (the roads are slow in winter)" : "") + ". Goods go into the storehouse; settlers step off the wagons and look for work.");
+            float room = Mathf.Max(0, T.TownSpace - T.GoodsOnTheRoad);
+            Heading("Goods");
+            Good[] goods = { Good.Food, Good.Firewood, Good.Logs, Good.Stone, Good.Tools };
+            float bulk = 0; foreach (var g in goods) bulk += cart[(int)g];
+            foreach (var g in goods)
+            {
+                int step = g == Good.Tools ? 5 : 10;
+                int max = Mathf.FloorToInt(cart[(int)g] + Mathf.Max(0, room - bulk));
+                cart[(int)g] = OrderLine(GoodIcon(g), Defs.GoodNames[(int)g], Town.Money(Balance.ImportPrice[(int)g]) + " each", Mathf.RoundToInt(cart[(int)g]), step, max);
+            }
+            Row("Room in the stores", Mathf.FloorToInt(room) + (T.GoodsOnTheRoad > 0.5f ? " (after what's on the road)" : ""), room < 10 ? Ui.Warn : Ui.Ink);
+            if (!T.Storages.Any()) Para("Build a storehouse to take goods.", Ui.Warn);
+            Heading("Settlers");
+            cartLaborers = OrderLine(Icon.People, "Laborer", Town.Money(Balance.PassageLaborer), cartLaborers, 1, 10);
+            cartFamilies = OrderLine(Icon.Child, "Family", Town.Money(Balance.PassageFamily), cartFamilies, 1, 5);
+            Para("The town pays their passage. They come with a little money of their own but no home: make sure there are beds (" + T.FreeBeds + " free now).", T.FreeBeds < cartLaborers + cartFamilies * 4 ? Ui.Warn : Ui.InkSoft);
+            Heading("Order");
+            float cost = T.OrderCost(cart, cartLaborers, cartFamilies);
+            if (cost > 0) Row("Teamsters' fee", Town.Money(Balance.CaravanFee));
+            Row("Total", Town.Money(cost), cost > T.Treasury ? Ui.Bad : Ui.Title);
+            by += 2;
+            bool can = cost > 0 && cost <= T.Treasury;
+            if (Ui.Button(new Rect(bx, by, 120, 15), "Send the order", false, can))
+            {
+                var c = (float[])cart.Clone(); int lab = cartLaborers, fam = cartFamilies;
+                Later(() =>
+                {
+                    var err = T.PlaceOrder(c, lab, fam);
+                    if (err != null) Toast(err);
+                    else { System.Array.Clear(cart, 0, cart.Length); cartLaborers = cartFamilies = 0; Toast("Order sent. The caravan is due in " + T.FreightLeadDays + " days."); }
+                });
+            }
+            if (cost > T.Treasury) Ui.Text(bx + bw, by + 4, "Not enough in the treasury", Ui.Bad, Ui.Align.Right);
+            by += 20;
+            Heading("On the road");
+            var open = T.Orders.Where(o => o.ArriveDay >= T.Day).OrderBy(o => o.ArriveDay).ToList();
+            if (open.Count == 0) Para("Nothing ordered.");
+            foreach (var o in open)
+            {
+                int left = o.ArriveDay - T.Day;
+                Ui.Text(bx, by, left <= 0 ? "Arriving today" : "Due in " + left + (left == 1 ? " day" : " days"), left <= 0 ? Ui.Good : Ui.Title);
+                Ui.Text(bx + bw, by, Town.Money(o.Cost), Ui.InkSoft, Ui.Align.Right); by += 10;
+                Para(Town.FreightText(o) + ".", Ui.Ink);
+            }
         }
 
         void Book(string name, float cur, float? last, int sign)
