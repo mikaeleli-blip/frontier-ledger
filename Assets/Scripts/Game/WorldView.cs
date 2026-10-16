@@ -40,6 +40,7 @@ namespace FrontierLedger.Game
             public List<SpriteRenderer> Chickens = new List<SpriteRenderer>(); public int Season = -1, Stage = -2; public BuildingSprites Art;
             public BuildingArt.SiteSprites Site;   // while under construction
             public float DoorUntil;                // the door stands open until this time
+            public SpriteRenderer Inner; public Interior In; public float Open;   // the room under the roof, and how far the roof is lifted
         }
         sealed class PersonView
         {
@@ -50,7 +51,12 @@ namespace FrontierLedger.Game
             public SpriteRenderer Held;            // log, stone or hammer in hand
             public int DoorState, DoorB = -1;      // Out / Entering / In / Exiting, and which building
             public float DoorT, Pause; public bool Carry; public int LastHammer;
+            public bool Shown; public Vector2 ShownPos;   // drawn inside a building whose roof is lifted
         }
+        struct ErrandSlot { public Errand E; public float Start; }
+        const float ErrandLen = 0.09f;
+        readonly Dictionary<int, List<ErrandSlot>> errandsBy = new Dictionary<int, List<ErrandSlot>>();
+        int errandDay = -1, errandCount = -1;
         const int Out = 0, Entering = 1, In = 2, Exiting = 3;
         const float DoorTime = 0.8f;
         const int FxSmoke = 0, FxSmokeDark = 1, FxDust = 2, FxSpark = 3;
@@ -212,6 +218,7 @@ namespace FrontierLedger.Game
             var alive = new HashSet<int>();
             float n = NightAlpha();
             int frame = Mathf.FloorToInt(time * 1.1f) % 2;
+            int openId = OpenBuildingId();
             foreach (var b in town.Buildings)
             {
                 if (b.Type == BuildingType.Road) continue;
@@ -237,22 +244,33 @@ namespace FrontierLedger.Game
                     SitePile(v.SiteLogs, b, Good.Logs, d.Logs, si);
                     SitePile(v.SiteStone, b, Good.Stone, d.Stone, si);
                 }
+                // the roof lifts off the selected building to show the room
+                float roof = 1f;
+                if (v.Inner != null)
+                {
+                    bool want = b.Id == openId && b.Built;
+                    v.Open = Mathf.MoveTowards(v.Open, want ? 1f : 0f, Time.unscaledDeltaTime * 5f);
+                    v.Inner.enabled = v.Open > 0.01f;
+                    if (v.Inner.enabled) v.Inner.color = new Color(1, 1, 1, v.Open);
+                    roof = 1f - v.Open;
+                }
                 if (v.Door != null)
                 {
-                    bool open = b.Built && v.Art.HasDoor && time < v.DoorUntil;
+                    bool open = b.Built && v.Art.HasDoor && time < v.DoorUntil && roof > 0.5f;
                     v.Door.enabled = open;
                     if (open) v.Door.sprite = Lit(b) && n > 0.25f ? v.Art.DoorOpenLit : v.Art.DoorOpen;
                 }
                 if (stage < 0) v.Base.sprite = v.Art.Base[frame];
                 // worn buildings look weathered
                 float worn = b.Built && Town.Wears(b) ? Mathf.Clamp01((50f - b.Condition) / 50f) : 0f;
-                v.Top.color = Color.Lerp(Color.white, new Color(0.8f, 0.75f, 0.7f), worn);
-                bool lit = Lit(b) && n > 0.02f;
+                var tc = Color.Lerp(Color.white, new Color(0.8f, 0.75f, 0.7f), worn); tc.a = roof;
+                v.Top.color = tc;
+                bool lit = Lit(b) && n > 0.02f && roof > 0.01f;
                 v.Lights.enabled = lit;
-                if (lit) v.Lights.color = new Color(1, 1, 1, Mathf.Clamp01(n * 1.6f));
+                if (lit) v.Lights.color = new Color(1, 1, 1, Mathf.Clamp01(n * 1.6f) * roof);
                 if (v.Forge != null)
                 {
-                    bool open = b.Built && town.IsOpen(b);
+                    bool open = b.Built && town.IsOpen(b) && roof > 0.5f;
                     v.Forge.enabled = open;
                     if (open)
                     {
@@ -303,6 +321,16 @@ namespace FrontierLedger.Game
             }
         }
 
+        /// <summary>The building whose roof is lifted: the selected one, or the one the selected settler is inside.</summary>
+        int OpenBuildingId()
+        {
+            var gc = GameController.Instance; if (gc == null) return -1;
+            if (gc.Selected.Kind == SelectionKind.Building) return gc.Selected.Id;
+            PersonView pv;
+            if (gc.Selected.Kind == SelectionKind.Person && people.TryGetValue(gc.Selected.Id, out pv) && pv.DoorState == In) return pv.DoorB;
+            return -1;
+        }
+
         /// <summary>Logs and stone waiting at a building site, used up as the work goes on.</summary>
         static void SitePile(SpriteRenderer sr, Building b, Good g, float total, int si)
         {
@@ -339,6 +367,8 @@ namespace FrontierLedger.Game
             v.Base = MakeSr("Base", v.Go.transform, v.Art.Base[0], OrderBase);
             v.Top = MakeSr("Top", v.Go.transform, v.Art.Top, SortOrder(foot));
             v.Lights = MakeSr("Lights", v.Go.transform, v.Art.Lights, OrderLights);
+            v.In = InteriorArt.Get(b.Type, BuildingArt.VariantOf(b));
+            if (v.In != null) { v.Inner = MakeSr("Inside", v.Go.transform, v.In.Sprite, SortOrder(foot)); v.Inner.enabled = false; }
             if (b.Type == BuildingType.Farm || b.Type == BuildingType.Cemetery)
             {
                 v.Overlay = MakeSr("Overlay", v.Go.transform, null, OrderCrops);
@@ -560,6 +590,25 @@ namespace FrontierLedger.Game
                 var s = town.GetBuilding(p.TaskId);
                 if (s != null && s.Built) { visit = s; inside = true; return HasDoor(s) ? DoorStep(s, p) : Front(s, p, 0.6f); }
             }
+            // a trip to the shops, or carrying goods to a buyer
+            ErrandSlot slot;
+            if (!p.IsChild && !nightTime && CurrentErrand(p, ph, out slot))
+            {
+                var to = town.GetBuilding(slot.E.ToId);
+                if (to != null && to.Built)
+                {
+                    visit = to;
+                    if (!HasDoor(to)) return Front(to, p, 0.7f);
+                    inside = (ph - slot.Start) / ErrandLen > 0.5f;   // walk over, then step inside to do the business
+                    return DoorStep(to, p);
+                }
+            }
+            // the barkeep keeps the saloon open into the evening
+            if (evening && !p.IsChild)
+            {
+                var sw = town.GetBuilding(p.WorkId);
+                if (sw != null && sw.Built && sw.Type == BuildingType.Saloon && HasDoor(sw)) { visit = sw; inside = true; return DoorStep(sw, p); }
+            }
             if (workHours && !p.IsChild)
             {
                 if (p.TaskId >= 0 && p.Chore != Chore.None)
@@ -572,7 +621,12 @@ namespace FrontierLedger.Game
                 }
                 var w = town.GetBuilding(p.WorkId);
                 bool offTerm = p.Role == Role.Teacher && !town.SchoolInSession;   // between terms the teacher is home or out helping
-                if (w != null && w.Built && !offTerm) { visit = w; return w.Type == BuildingType.Estate ? Front(w, p, 0.3f) : WorkSpot(w, p); }
+                if (w != null && w.Built && !offTerm)
+                {
+                    visit = w;
+                    if (WorksIndoors(w.Type) && HasDoor(w)) { inside = true; return DoorStep(w, p); }   // the shopkeeper behind the counter, the smith at the anvil
+                    return w.Type == BuildingType.Estate ? Front(w, p, 0.3f) : WorkSpot(w, p);
+                }
             }
             if (evening && p.SaloonToday >= 0)
             {
@@ -610,6 +664,123 @@ namespace FrontierLedger.Game
             return c + new Vector2((p.Seed - 0.5f) * 30, 6 + (p.Seed * 13) % 6);
         }
 
+        static bool WorksIndoors(BuildingType t)
+        {
+            return t == BuildingType.Store || t == BuildingType.Saloon || t == BuildingType.Bank || t == BuildingType.Sheriff || t == BuildingType.Smithy
+                || t == BuildingType.School || t == BuildingType.DoctorOffice || t == BuildingType.Estate;
+        }
+
+        // ---------------------------------------------------------------- errands
+        /// <summary>Spreads today's trips over the day: those at work shop after hours, others in the day; couriers go mid-shift.</summary>
+        void ScheduleErrands()
+        {
+            if (town.Day == errandDay && town.Errands.Count == errandCount) return;
+            errandDay = town.Day; errandCount = town.Errands.Count;
+            errandsBy.Clear();
+            foreach (var e in town.Errands)
+            {
+                var p = town.GetCitizen(e.PersonId); if (p == null) continue;
+                List<ErrandSlot> list;
+                if (!errandsBy.TryGetValue(p.Id, out list)) { list = new List<ErrandSlot>(); errandsBy[p.Id] = list; }
+                bool atWork = Town.Employed(p.Role) || p.Role == Role.Owner || p.Role == Role.Mayor;
+                float h = Noise.Hash(p.Id, town.Day, list.Count + 3);
+                float start = e.Delivery ? 0.30f + h * 0.26f : atWork ? 0.70f + h * 0.04f : 0.30f + h * 0.28f;
+                if (list.Count > 0) start = Mathf.Max(start, list[list.Count - 1].Start + ErrandLen + 0.01f);
+                if (start + ErrandLen > 0.86f) continue;
+                list.Add(new ErrandSlot { E = e, Start = start });
+            }
+        }
+
+        bool CurrentErrand(Citizen p, float ph, out ErrandSlot slot)
+        {
+            slot = default(ErrandSlot);
+            List<ErrandSlot> list;
+            if (!errandsBy.TryGetValue(p.Id, out list)) return false;
+            foreach (var s in list) if (ph >= s.Start && ph < s.Start + ErrandLen) { slot = s; return true; }
+            return false;
+        }
+
+        /// <summary>What a settler is carrying on an errand: goods on the way to sell, or what they bought on the way home.</summary>
+        Good? ErrandLoad(Citizen p, float ph, PersonView v)
+        {
+            List<ErrandSlot> list;
+            if (!errandsBy.TryGetValue(p.Id, out list) || v.DoorState != Out) return null;
+            foreach (var s in list)
+            {
+                float k = (ph - s.Start) / ErrandLen;
+                if (s.E.Delivery && k >= 0 && k < 0.5f) return s.E.Good;
+                if (!s.E.Delivery && ph >= s.Start + ErrandLen * 0.5f && ph < s.Start + ErrandLen + 0.07f) return s.E.Good;
+            }
+            return null;
+        }
+
+        static Sprite LoadSprite(Good g)
+        {
+            switch (g)
+            {
+                case Good.Logs: case Good.Firewood: return PropArt.CarriedLog();
+                case Good.Stone: return PropArt.CarriedStone();
+                default: return PropArt.CarriedSack();
+            }
+        }
+
+        // ---------------------------------------------------------------- indoors
+        /// <summary>Puts the people inside an open building at their places: staff at their stations, pupils at their desks,
+        /// customers at the counter, the sleeping and the sick in bed, prisoners in the cell.</summary>
+        void PlaceIndoors(int gameSpeed)
+        {
+            bool night = town.TimeOfDay >= 0.86f || town.TimeOfDay < 0.2f;
+            foreach (var bv in buildings.Values)
+            {
+                if (bv.In == null || bv.Open < 0.5f) continue;
+                var b = bv.B; var it = bv.In;
+                float ox = b.X * 16, oy = b.Y * 16 - bv.Art.Lift; int foot = (b.Y + b.Def.H) * 16;
+                int nw = 0, nv = 0, ns = 0, nb = 0;
+                foreach (var v in people.Values.Where(x => x.DoorState == In && x.DoorB == b.Id).OrderBy(x => x.P.Id))
+                {
+                    var p = v.P;
+                    List<Spot> list; int idx; bool lying = false;
+                    if ((p.Jail > 0 && b.Type == BuildingType.Sheriff) || (p.HomeId == b.Id && (night || Town.LaidUp(p)))) { list = it.Bed; idx = nb++; lying = true; }
+                    else if (p.WorkId == b.Id && !p.IsChild) { list = it.Work; idx = nw++; }
+                    else if (p.IsChild && p.Chore == Chore.School) { list = it.Seat; idx = ns++; }
+                    else if (p.HomeId == b.Id) { list = it.Seat.Count > 0 ? it.Seat : it.Visit; idx = ns++; }
+                    else { list = it.Visit; idx = nv++; }
+                    if (list.Count == 0) { list = it.Visit.Count > 0 ? it.Visit : it.Work; lying = false; }
+                    if (list.Count == 0) continue;
+                    var sp = list[idx % list.Count];
+                    float x = ox + sp.X + (idx / list.Count) * 4, y = oy + sp.Y;
+                    v.Sr.enabled = true; v.Sr.color = Color.white; v.Held.enabled = false;
+                    if (lying)
+                    {
+                        v.Sr.sprite = PeopleArt.Sleeper(p);
+                        v.Sr.transform.position = Pixels.ToWorld(x, y);
+                        v.Sr.sortingOrder = SortOrder(foot, 2);
+                        v.Shown = true; v.ShownPos = new Vector2(x + 3, y + 8);
+                        continue;
+                    }
+                    int frame = 0;
+                    bool smith = b.Type == BuildingType.Smithy && list == it.Work && idx == 0 && it.Sparks.x >= 0;
+                    if (smith && workHoursNow)
+                    {
+                        int hf = Mathf.FloorToInt(time * 3.2f * Mathf.Min(gameSpeed, 2) + p.Seed * 5) % 2;
+                        v.Held.enabled = true; v.Held.sprite = PropArt.Hammer(hf); v.Held.color = Color.white;
+                        v.Held.transform.position = Pixels.ToWorld(x + 1, y + (hf == 0 ? -18 : -14));
+                        v.Held.sortingOrder = SortOrder(foot, 3);
+                        if (hf == 1 && v.LastHammer == 0) for (int k = 0; k < 3; k++) SpawnFx(ox + it.Sparks.x + Random.value * 4 - 2, oy + it.Sparks.y - Random.value * 3, FxSpark, (Random.value - 0.5f) * 24, 0.35f + Random.value * 0.3f);
+                        v.LastHammer = hf;
+                    }
+                    else if (list == it.Work && workHoursNow) frame = (Mathf.FloorToInt(time * 3 + p.Seed * 5) % 2) * 2;
+                    else if (Noise.Hash(p.Id, Mathf.FloorToInt(time * 0.5f), 17) < 0.15f) frame = 1;   // a fidget now and then
+                    v.Sr.sprite = PeopleArt.Get(p, sp.Dir, frame);
+                    v.Sr.transform.position = Pixels.ToWorld(x, y);
+                    var room = it.Room;
+                    v.Sr.sortingOrder = SortOrder(foot, 1 + Mathf.Clamp((sp.Y - room.y) * 3 / Mathf.Max(1, room.height), 0, 2));
+                    v.Shown = true; v.ShownPos = new Vector2(x, y);
+                }
+            }
+        }
+        bool workHoursNow;
+
         void Repath(PersonView v, Vector2 goal, Building visit)
         {
             v.Goal = goal; v.Path.Clear(); v.PathIdx = 0;
@@ -631,6 +802,8 @@ namespace FrontierLedger.Game
             float baseSpeed = 34f * Mathf.Min(gameSpeed, 12) * dt;   // past 12x settlers just hurry
             float ph = town.TimeOfDay;
             bool workHours = ph > 0.24f && ph < 0.7f;
+            workHoursNow = workHours;
+            ScheduleErrands();
             var alive = new HashSet<int>();
             foreach (var p in town.People)
             {
@@ -731,6 +904,7 @@ namespace FrontierLedger.Game
                 v.Inside = v.DoorState == In;
                 v.Sr.enabled = !v.Inside;
                 v.Held.enabled = false;
+                v.Shown = false;
                 if (v.Inside) continue;
 
                 float x = Mathf.Round(v.Pos.x), y = Mathf.Round(v.Pos.y);
@@ -766,6 +940,13 @@ namespace FrontierLedger.Game
                     }
                     else if (p.Role == Role.Worker) frame = (Mathf.FloorToInt(time * 3 + p.Seed * 5) % 2) * 2;
                 }
+                var load = !v.Carry ? ErrandLoad(p, ph, v) : null;
+                if (load.HasValue)
+                {
+                    bool longLoad = load.Value == Good.Logs || load.Value == Good.Firewood;
+                    v.Held.enabled = true; v.Held.sprite = LoadSprite(load.Value);
+                    v.Held.transform.localPosition = longLoad ? Pixels.ToWorld(-6, -17) : Pixels.ToWorld(-4, -13);
+                }
                 if (v.Carry)
                 {
                     bool log = p.Chore == Chore.HaulLogs;
@@ -787,6 +968,7 @@ namespace FrontierLedger.Game
                 v.Sr.transform.position = Pixels.ToWorld(x, y);
                 v.Sr.sortingOrder = order; v.Held.sortingOrder = order + 1;
             }
+            PlaceIndoors(gameSpeed);
             if (alive.Count != people.Count)
             {
                 var gone = new List<int>();
@@ -799,10 +981,11 @@ namespace FrontierLedger.Game
         public bool TryGetPersonPos(int id, out Vector2 pos)
         {
             PersonView v;
+            if (people.TryGetValue(id, out v) && v.Shown) { pos = v.ShownPos; return true; }
             if (people.TryGetValue(id, out v) && !float.IsNaN(v.Pos.x)) { pos = v.Pos; return true; }
             pos = Vector2.zero; return false;
         }
-        public bool IsInside(int id) { PersonView v; return people.TryGetValue(id, out v) && v.Inside; }
+        public bool IsInside(int id) { PersonView v; return people.TryGetValue(id, out v) && v.Inside && !v.Shown; }
 
         // ---------------------------------------------------------------- effects
         Rect VisiblePx()
@@ -1005,8 +1188,9 @@ namespace FrontierLedger.Game
             int best = -1; float bd = 7;
             foreach (var kv in people)
             {
-                var v = kv.Value; if (float.IsNaN(v.Pos.x) || v.Inside) continue;
-                float dd = Vector2.Distance(new Vector2(v.Pos.x, v.Pos.y - 8), w);
+                var v = kv.Value; if (float.IsNaN(v.Pos.x) || (v.Inside && !v.Shown)) continue;
+                var at = v.Shown ? v.ShownPos : v.Pos;
+                float dd = Vector2.Distance(new Vector2(at.x, at.y - 8), w);
                 if (dd < bd) { bd = dd; best = kv.Key; }
             }
             if (best >= 0) return Selection.Person(best);

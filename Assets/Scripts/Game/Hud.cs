@@ -734,6 +734,12 @@ namespace FrontierLedger.Game
                 if (task != null && task != work) Row("At", task.Def.Name);
             }
             Row("Savings", Town.Money(p.Money));
+            foreach (var e in T.Errands.Where(x => x.PersonId == p.Id))
+            {
+                var to = T.GetBuilding(e.ToId); if (to == null) continue;
+                Para(e.Delivery ? "Today: taking " + Defs.GoodNames[(int)e.Good].ToLower() + " to sell at the " + to.Def.Name + "."
+                                : "Today: buying " + Defs.GoodNames[(int)e.Good].ToLower() + " at the " + to.Def.Name + ".", Ui.Ink);
+            }
             if (p.CharityDays > 0) Row("Living on", "town charity", Ui.Warn);
             var partner = T.GetCitizen(p.PartnerId);
             var kids = T.ChildrenOf(p).ToList();
@@ -749,6 +755,14 @@ namespace FrontierLedger.Game
                 var v = T.VoteOf(p); var vc = v != null ? T.GetCitizen(v.CitizenId) : null;
                 if (vc != null) Row("Will vote for", vc.First + " " + vc.Family);
             }
+        }
+
+        /// <summary>Who comes by today: customers buying, and producers bringing goods to sell.</summary>
+        void TripRows(Building b)
+        {
+            int buyers = T.Errands.Count(e => e.ToId == b.Id && !e.Delivery), drops = T.Errands.Count(e => e.ToId == b.Id && e.Delivery);
+            if (buyers > 0) Row("Customers today", buyers.ToString());
+            if (drops > 0) Row("Deliveries today", drops.ToString());
         }
 
         static Icon GoodIcon(Good g) { return g == Good.Furniture ? Icon.Chair : (Icon)(int)g; }
@@ -878,6 +892,7 @@ namespace FrontierLedger.Game
                         break;
                 }
                 Row("Made today", b.Today.Made.ToString("0.0"));
+                TripRows(b);
                 if (b.Last.Valid)
                 {
                     Heading("Last week");
@@ -925,6 +940,7 @@ namespace FrontierLedger.Game
                 Row("Holds", Mathf.FloorToInt(b.Stock.Sum()) + " / " + d.Capacity);
                 ConditionRows(b);
                 Stocks(b, Good.Food, Good.Firewood, Good.Logs, Good.Stone, Good.Tools);
+                TripRows(b);
                 if (b.Type == BuildingType.Wagon)
                 {
                     int carrying = T.People.Count(x => x.Chore == Chore.Unload);

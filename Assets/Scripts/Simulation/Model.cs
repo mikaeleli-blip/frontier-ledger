@@ -143,6 +143,14 @@ namespace FrontierLedger.Simulation
         public bool IsChild { get { return Age < Balance.AdultAge; } }
     }
 
+    /// <summary>A trip someone makes today: to a shop to buy, or carrying goods to a buyer. Not saved; for the map.</summary>
+    public sealed class Errand
+    {
+        public int PersonId, ToId, FromId = -1;
+        public Good Good;
+        public bool Delivery;        // carrying goods there (selling) rather than coming back with them (buying)
+    }
+
     [Serializable]
     public class Candidate
     {

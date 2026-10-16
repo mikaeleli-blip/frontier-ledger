@@ -83,6 +83,23 @@ namespace FrontierLedger.Game.Art
             return s;
         }
 
+        /// <summary>A settler asleep (or ill) in bed: just the head on the pillow. Pivot at the top left.</summary>
+        public static Sprite Sleeper(Citizen p)
+        {
+            var L = LookOf(p);
+            string key = "sleep|" + L.Skin + "|" + L.Hair + (L.Child ? "c" : "a");
+            Sprite s;
+            if (cache.TryGetValue(key, out s)) return s;
+            var g = new PixelCanvas(7, 6);
+            g.R(2, 1, 3, 1, L.Hair); g.R(1, 2, 5, 1, L.Hair);
+            g.R(2, 3, 3, 2, L.Skin); g.D(1, 3, L.Hair); g.D(5, 3, L.Hair);
+            g.D(2, 3, L.SkinShade); g.D(4, 3, L.SkinShade);
+            g.Outline(OL);
+            s = g.ToSprite(key, new Vector2(0, 1));
+            cache[key] = s;
+            return s;
+        }
+
         /// <summary>Canvas 11 wide; adults stand 17 px tall, children 14 (big-headed). Feet sit two rows above the bottom.</summary>
         static PixelCanvas Draw(Look L, int dir, int frame)
         {

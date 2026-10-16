@@ -134,6 +134,12 @@ Trade, Election and the Gazette.
   - Newcomers arrive when there are spare beds and the larders aren't thin or running down, and bring some food with them.
 - **Law:** broke, hungry settlers steal. The sheriff and deputies catch them and jail them for two days.
 - **Daily life:** settlers open their front doors to go in at night and come out in the morning. Most saloon-goers head inside, and jailed settlers are taken into the sheriff's office.
+  - Shopkeepers, barkeeps, bankers, smiths, lawmen, the teacher and the doctor work indoors.
+  - Every purchase is a trip: someone from the household walks to the shop, goes in, and comes home with a sack.
+    Those at work shop after hours. Farmers, fishers, gatherers and woodcutters carry what they sell to the store or storehouse.
+- **Seeing inside:** click a cottage, the boarding house, the estate, the storehouse, store, saloon, bank, sheriff's office,
+  smithy, schoolhouse or doctor's office and the roof lifts off. Staff work at their stations, customers wait at the counter,
+  pupils sit at their desks, and the sleeping and the sick lie in bed. Clicking a settler who's indoors opens their building too.
 - **Mayor:**
   - Every 4 weeks, 2–3 settlers campaign on a platform: Law & Order, Farmers' Champion, Railroad & Trade or Common Folk.
   - Settlers vote for whoever employs them, lives with them or speaks to their troubles.

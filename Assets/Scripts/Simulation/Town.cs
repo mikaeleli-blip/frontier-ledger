@@ -46,6 +46,8 @@ namespace FrontierLedger.Simulation
         [NonSerialized] bool occDirty = true;
         [NonSerialized] public int MapVersion = 1;
         [NonSerialized] public List<int> DirtyTiles = new List<int>();
+        /// <summary>Today's trips to the shops and deliveries, for the map to show.</summary>
+        [NonSerialized] public List<Errand> Errands = new List<Errand>();
         /// <summary>Fired after each simulated day.</summary>
         [NonSerialized] public Action<int> DayEnded;
 
@@ -58,6 +60,7 @@ namespace FrontierLedger.Simulation
         {
             rng = null; occDirty = true; MapVersion++;
             if (DirtyTiles == null) DirtyTiles = new List<int>();
+            if (Errands == null) Errands = new List<Errand>();
             if (Campaign == null) Campaign = new Campaign();
             if (LastElection == null) LastElection = new ElectionResult();
             foreach (var p in People) if (p.Role == Role.Builder) { p.Role = Role.Laborer; p.WorkId = -1; }   // the old building crew
@@ -206,6 +209,29 @@ namespace FrontierLedger.Simulation
         }
         public bool IsOpen(Building b) { return b.Built && WorkersAt(b) > 0; }
 
+        /// <summary>Notes a trip for the map: someone goes to a shop to buy.</summary>
+        void Shop(Citizen p, Building to, Good g)
+        {
+            if (p == null || to == null || p.IsChild || Errands.Count > 400) return;
+            if (Errands.Any(e => e.PersonId == p.Id && e.ToId == to.Id) || Errands.Count(e => e.PersonId == p.Id) >= 3) return;
+            Errands.Add(new Errand { PersonId = p.Id, ToId = to.Id, Good = g });
+        }
+
+        /// <summary>Notes a delivery for the map: one of the seller's hands carries the goods over.</summary>
+        void Deliver(Building from, Building to, Good g)
+        {
+            if (from == null || to == null || from == to || Errands.Count > 400) return;
+            if (Errands.Any(e => e.Delivery && e.FromId == from.Id && e.ToId == to.Id)) return;
+            Citizen courier = null; int best = int.MaxValue;
+            foreach (var id in from.Employees)
+            {
+                var c = GetCitizen(id); if (c == null || c.Jail > 0 || LaidUp(c) || Errands.Count(e => e.PersonId == c.Id) >= 2) continue;
+                int k = (c.Id * 31 + Day * 7) % 13; if (k < best) { best = k; courier = c; }
+            }
+            if (courier == null) { var o = GetCitizen(from.OwnerId); if (o != null && o.WorkId == from.Id && o.Jail == 0 && !LaidUp(o) && Errands.Count(e => e.PersonId == o.Id) < 2) courier = o; }
+            if (courier != null) Errands.Add(new Errand { PersonId = courier.Id, FromId = from.Id, ToId = to.Id, Good = g, Delivery = true });
+        }
+
         void AddLog(string msg, LogKind kind = LogKind.Info)
         {
             Log.Insert(0, new LogEntry { Day = Day, Message = msg, Kind = kind });
@@ -281,6 +307,7 @@ namespace FrontierLedger.Simulation
                 if (q <= 0.001f) break;
                 float c = q * price;
                 s.Stock[(int)g] -= q; s.Cash += c; s.Week.Revenue += c; s.Today.Sold += q; s.Week.Sold += q;
+                if (q >= 1f) Deliver(s, buyer ?? OfType(BuildingType.Storehouse).FirstOrDefault(), g);
                 budget -= c; bought += q;
                 if (bought >= qty - 0.001f) break;
             }

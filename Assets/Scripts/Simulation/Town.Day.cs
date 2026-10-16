@@ -14,6 +14,8 @@ namespace FrontierLedger.Simulation
         {
             int si = Season;
             foreach (var b in Buildings) b.Today.Clear();
+            if (Errands == null) Errands = new List<Errand>();
+            Errands.Clear();
             foreach (var p in People) { p.FedToday = 0; p.SaloonToday = -1; p.TaskId = -1; p.Chore = Chore.None; p.SeenToday = false; }
 
             GrowLand();
@@ -548,6 +550,8 @@ namespace FrontierLedger.Simulation
                 if (q > 0.01f)
                 {
                     TakeFromTown(g, q); b.Stock[(int)g] += q;
+                    var hand = CrewOf(b).FirstOrDefault(); var store = OfType(BuildingType.Storehouse).FirstOrDefault();
+                    if (hand != null && store != null) Shop(hand, store, g);
                     b.Cash -= q * price; b.Week.Costs += q * price; Treasury += q * price; LedgerThisWeek.StoreSales += q * price;
                 }
             }
@@ -632,6 +636,7 @@ namespace FrontierLedger.Simulation
                         if (q > 0)
                         {
                             PutInTown(g, q); b.Stock[(int)g] -= q; extra -= q;
+                            if (q >= 1f) Deliver(b, OfType(BuildingType.Storehouse).FirstOrDefault(), g);
                             Treasury -= q * price; LedgerThisWeek.Materials += q * price;
                             b.Cash += q * price; b.Week.Revenue += q * price;
                         }
@@ -687,6 +692,8 @@ namespace FrontierLedger.Simulation
                     if (cost <= 0.0001f) break;
                 }
                 src.B.Stock[(int)g] -= q; got += q;
+                // whoever isn't out at work does the shopping
+                Shop(payers.OrderBy(x => Employed(x.Role) || x.Role == Role.Owner || x.Role == Role.Mayor ? 1 : 0).ThenBy(x => x.Id).FirstOrDefault(), src.B, g);
                 float paid = q * src.Price;
                 if (src.Town) { Treasury += paid; LedgerThisWeek.StoreSales += paid; }
                 else { src.B.Cash += paid; src.B.Week.Revenue += paid; src.B.Today.Sold += q; src.B.Week.Sold += q; }
