@@ -538,7 +538,7 @@ namespace FrontierLedger.Simulation
                 bool urgent = hungry && Produces(v.B.Type, Good.Food);
                 // family hands only leave the family business for urgent food work, or when it isn't paying its way
                 var mover = People.Where(p => p.Role == Role.Worker && p.Jail == 0 && p.WorkId != v.B.Id && CanDo(p, v) &&
-                                              (!p.FamilyHand || urgent || (GetBuilding(p.WorkId) != null && GetBuilding(p.WorkId).Last.Valid && GetBuilding(p.WorkId).Last.Profit <= 0)))
+                                              (!p.FamilyHand || urgent || Losing(GetBuilding(p.WorkId))))
                                   .Select(p => new { p, w = GetBuilding(p.WorkId) })
                                   .Where(x => x.w != null && !(urgent && Produces(x.w.Type, Good.Food)) && (urgent || x.p.FamilyHand || x.w.Wage + 0.4f < v.Wage))
                                   .OrderBy(x => x.w.Wage).FirstOrDefault();
@@ -547,6 +547,16 @@ namespace FrontierLedger.Simulation
                 AddLog(mover.p.Name + " left the " + from.Def.Name + " for " + (urgent ? "the " + v.B.Def.Name + ": the town needs food." : "better pay at the " + v.B.Def.Name + "."));
                 break;
             }
+        }
+
+        /// <summary>A business that isn't paying its way. A farm earns at harvest, and a gatherer's hut is idle in winter,
+        /// so losses out of season don't count.</summary>
+        bool Losing(Building b)
+        {
+            if (b == null || !b.Last.Valid || b.Last.Profit > 0) return false;
+            if (b.Type == BuildingType.Farm && Season != 2) return false;
+            if (b.Type == BuildingType.Gatherer && Season == 3) return false;
+            return true;
         }
 
         public void SetMinWage(float v)

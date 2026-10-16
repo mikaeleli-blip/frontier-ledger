@@ -200,6 +200,8 @@ namespace FrontierLedger.Game
             }
             int idleFood = T.Businesses.Count(b => Town.Produces(b.Type, Good.Food) && T.WorkersAt(b) == 0);
             if (idleFood > 0) lines.Add(new KeyValuePair<string, bool>(idleFood == 1 ? "A food business has nobody working it." : idleFood + " food businesses have nobody working them.", false));
+            int noTools = T.Businesses.Count(b => Town.Produces(b.Type, Good.Food) && T.WorkersAt(b) > 0 && b.Stock[(int)Good.Tools] < 0.01f);
+            if (noTools > 0 && (si <= 2)) lines.Add(new KeyValuePair<string, bool>((noTools == 1 ? "A food business has" : noTools + " food businesses have") + " no tools: 40% less food. Build a blacksmith or order tools.", false));
             if (lines.Count == 0) return;
             float w = 0; foreach (var l in lines) w = Mathf.Max(w, PixelFont.Width(l.Key));
             w += 26;

@@ -65,7 +65,7 @@ namespace FrontierLedger.Simulation
         public static readonly float[] GardenBySeason = { 0.9f, 1.3f, 1.0f, 0f };
         public const float GardenBase = 1.4f;              // food per house per day before season factor
         public const float ChildAppetite = 0.6f;
-        public const float FieldYield = 330f;              // food from a fully tended field
+        public const float FieldYield = 600f;              // food from a fully tended field: a year's food for about eight people
         public const float GrowthPerWorker = 0.022f;       // field growth per worker-day in spring/summer
         /// <summary>Logs or stone one laborer carries to a building site in a day.</summary>
         public const float HaulPerDay = 8f;
@@ -73,7 +73,7 @@ namespace FrontierLedger.Simulation
         public const float UnloadPerDay = 40f, WagonSale = 40f;
         /// <summary>Most laborers that fit on one building site.</summary>
         public static int SiteCrew(BuildingDef d) { return Math.Max(2, Math.Min(5, d.W * d.H / 2 + 1)); }
-        public const float HarvestPerWorker = 7f;          // food per worker-day in autumn
+        public const float HarvestPerWorker = 10f;         // food per worker-day in autumn
         public static readonly float[] GatherBySeason = { 1f, 1.3f, 1.1f, 0f };
         /// <summary>What an idle laborer brings home in a day of foraging (times the gathering season) and deadwood.</summary>
         public const float ForagePerDay = 0.8f, DeadwoodPerDay = 0.3f;
@@ -102,7 +102,7 @@ namespace FrontierLedger.Simulation
         public static readonly float[] Wholesale = { 0.8f, 0.5f, 1.2f, 1.5f, 6f, 5f };
         public static readonly float[] Export = { 0.4f, 0.25f, 0.6f, 0.7f, 3f, 3f };
         public static readonly float[] StartRetail = { 1.1f, 0.7f, 0f, 0f, 0f, 8f };
-        public const float BarnCapacity = 300f;
+        public const float BarnCapacity = 700f;            // a field's whole harvest stays in town
         public const float BusinessStockCap = 80f;
 
         // Freight from back east: prices include the haul, plus the teamsters' fee per caravan

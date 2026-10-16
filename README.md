@@ -110,7 +110,7 @@ Trade, Election, the Gazette and Freight.
   - Gardens cover part of it in spring through autumn and nothing in winter.
   - The rest is bought at shops, or from the town storehouse when no shop has stock.
   - With charity on, the town feeds households that can't pay.
-- **Fields:** crops grow while hands work them in spring and the three weeks of summer. They are harvested through the three weeks of autumn, and whatever is still standing at the first frost rots.
+- **Fields:** a fully tended field yields 600 food, a year's food for about eight people. Crops grow while hands work them in spring and the three weeks of summer. They are harvested through the three weeks of autumn, and whatever is still standing at the first frost rots.
 - **Idle hands:**
   - Laborers without a job help bring in harvests for a share of a wage.
   - The rest of the time they forage and gather deadwood for their own household.
