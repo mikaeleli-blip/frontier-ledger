@@ -190,6 +190,6 @@ A day lasts 3 minutes at 1× speed. Spring and winter last 14 days, summer and a
 
 - Replace the IMGUI interface with UI Toolkit, and the legacy Input Manager with the Input System
 - Hand-made sprite sheets to replace the generated art
-- More businesses, chosen: ranch, bakery, iron mine, tailor, tannery, brewery, hotel, barber & bathhouse
+- More businesses, chosen: ranch, bakery, iron mine, tailor, tannery, brewery, hotel, barber & bathhouse, butcher, church
 - A railroad station and freight schedule
 - Events: droughts, gold strikes, outlaws, fires
