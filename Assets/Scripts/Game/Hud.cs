@@ -1123,9 +1123,9 @@ namespace FrontierLedger.Game
             {
                 byte t = T.TerrainAt(h.x, h.y); var b = T.OccupantAt(h.x, h.y);
                 if (b != null && b.Type != BuildingType.Road) s = b.Def.Name + ": click to select, then Tear down";
-                else if (t == Tile.Tree) s = "Fell tree · $2 · +2 logs";
+                else if (t == Tile.Tree) s = "Fell tree · $2 · +2 logs" + (T.TownSpace < 2 ? " (stores full)" : "");
                 else if (t == Tile.Sapling) s = "Pull sapling · $2";
-                else if (t == Tile.Rock) s = "Break boulder · $6 · +3 stone";
+                else if (t == Tile.Rock) s = "Break boulder · $6 · +3 stone" + (T.TownSpace < 3 ? " (stores full)" : "");
                 else if (t == Tile.Stump) s = "Pull stump · $0.50";
             }
             else

@@ -463,17 +463,50 @@ namespace FrontierLedger.Simulation
             return c;
         }
 
-        /// <summary>Clears a tree, sapling, stump or boulder for a small fee. Felled trees go to town stores as logs.</summary>
+        public const float LogsPerClearedTree = 2f, StonePerClearedRock = 3f;
+
+        /// <summary>Clears a tree, sapling, stump or boulder for a small fee. Felled trees give logs and broken boulders stone.
+        /// Returns why it can't be done, or a note when the stores had no room for what it gave.</summary>
         public string ClearTile(int x, int y)
         {
             byte t = TerrainAt(x, y); float c = ClearCostOf(t);
             if (c <= 0) return null;
             if (Treasury < c) return "Clearing that costs " + Money(c);
             Treasury -= c; LedgerThisWeek.Construction += c;
-            if (t == Tile.Tree) PutInTown(Good.Logs, 2);
-            if (t == Tile.Rock) PutInTown(Good.Stone, 3);
+            float lost = 0;
+            if (t == Tile.Tree) lost = Salvage(Good.Logs, LogsPerClearedTree);
+            if (t == Tile.Rock) lost = Salvage(Good.Stone, StonePerClearedRock);
             SetTerrain(x, y, Tile.Grass);
+            if (lost > 0.01f) return "The stores are full: " + Math.Round(lost) + (t == Tile.Tree ? " logs" : " stone") + " left lying. Build another storehouse.";
             return null;
+        }
+
+        /// <summary>Timber and stone from clearing land go into the town stores. When those are full they go to a building site
+        /// still waiting on them, then to a business that works them (woodcutter, smithy, builder's yard), which pays wholesale.
+        /// Returns how much had nowhere to go.</summary>
+        float Salvage(Good g, float q)
+        {
+            q -= PutInTown(g, q);
+            foreach (var s in Sites)
+            {
+                if (q <= 0.01f) break;
+                var d = s.Def;
+                float need = (g == Good.Logs ? d.Logs : g == Good.Stone ? d.Stone : 0) - s.Delivered[(int)g];
+                if (need <= 0.01f) continue;
+                float t = Math.Min(need, q); s.Delivered[(int)g] += t; q -= t;
+            }
+            foreach (var b in Businesses)
+            {
+                if (q <= 0.01f) break;
+                bool uses = g == Good.Logs ? b.Type == BuildingType.Woodcutter || b.Type == BuildingType.Smithy || b.Type == BuildingType.BuilderYard
+                                           : g == Good.Stone && b.Type == BuildingType.Smithy;
+                if (!uses) continue;
+                float t = Math.Min(Math.Max(0, 30f - b.Stock[(int)g]), q);
+                if (t <= 0.01f) continue;
+                float pay = Math.Min(Math.Max(0, b.Cash), t * Balance.Wholesale[(int)g]);
+                b.Stock[(int)g] += t; b.Cash -= pay; b.Week.Costs += pay; Treasury += pay; LedgerThisWeek.StoreSales += pay; q -= t;
+            }
+            return Math.Max(0, q);
         }
 
         int CountInRadius(int cx, int cy, int r, Func<byte, bool> pred)
@@ -541,6 +574,8 @@ namespace FrontierLedger.Simulation
                 for (int dy = 0; dy < d.H; dy++)
                 {
                     byte t = TerrainAt(x + dx, y + dy);
+                    if (!free && t == Tile.Tree) Salvage(Good.Logs, LogsPerClearedTree);       // the ground is cleared for the building:
+                    if (!free && t == Tile.Rock) Salvage(Good.Stone, StonePerClearedRock);     // the timber and stone are kept
                     if (t == Tile.Tree || t == Tile.Rock || t == Tile.Sapling || t == Tile.Stump) Terrain[(y + dy) * Cols + x + dx] = Tile.Grass;
                 }
             var b = new Building { Id = NextId++, Type = type, X = x, Y = y, BuiltDay = Day, Built = free || d.Instant };
