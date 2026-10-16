@@ -105,7 +105,7 @@ namespace FrontierLedger.Simulation
                 }
 
             // Then everyone without a roof, families first
-            var adults = People.Where(p => !p.IsChild && p.HomeId < 0 && p.Role != Role.Mayor && Day - p.EvictedDay >= 14)
+            var adults = People.Where(p => !p.IsChild && p.HomeId < 0 && p.Role != Role.Mayor && MayRehouse(p))
                                .OrderBy(p => p.PartnerId >= 0 || ChildrenOf(p).Any() ? 0 : 1).ThenBy(p => p.ArrivedDay).ToList();
             foreach (var a in adults)
             {
@@ -156,6 +156,18 @@ namespace FrontierLedger.Simulation
                             ?? boards.FirstOrDefault(b => FreeIn(b) >= 0.5f);
                 if (spare != null) MoveInto(c, spare);
             }
+        }
+
+        /// <summary>Someone put out for unpaid rent is turned away for two weeks, unless the rent is now free
+        /// or they have two weeks' rent in hand.</summary>
+        bool MayRehouse(Citizen p)
+        {
+            if (Day - p.EvictedDay >= 14) return true;
+            var partner = GetCitizen(p.PartnerId);
+            bool family = partner != null || ChildrenOf(p).Any();
+            float rent = family ? Policy.Rent : Policy.BoardRent;
+            float savings = p.Money + (partner != null ? partner.Money : 0f);
+            return rent <= 0.01f || savings >= rent * 2;
         }
 
         /// <summary>Parents, children and brothers and sisters don't marry.</summary>

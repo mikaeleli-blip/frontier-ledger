@@ -14,7 +14,13 @@ namespace FrontierLedger.EditorTools
     {
         const string ScenePath = "Assets/Scenes/Main.unity";
 
-        static ProjectSetup() { EditorApplication.delayCall += Ensure; }
+        static ProjectSetup()
+        {
+            EditorApplication.delayCall += Ensure;
+            // Edit > Preferences > General > Script Changes While Playing: "Recompile After Finished Playing",
+            // so updated scripts never reload in the middle of a game.
+            if (EditorPrefs.GetInt("ScriptCompilationDuringPlay", 0) == 0) EditorPrefs.SetInt("ScriptCompilationDuringPlay", 1);
+        }
 
         static void Ensure()
         {

@@ -73,6 +73,14 @@ namespace FrontierLedger.Game
             SetTool(ToolKind.Inspect);
         }
 
+#if UNITY_EDITOR
+        // When scripts change while the game is running, Unity reloads them and the running game loses its town.
+        // Save first, so pressing Play again carries on from here.
+        void OnEnable() { UnityEditor.AssemblyReloadEvents.beforeAssemblyReload += SaveBeforeReload; }
+        void OnDisable() { UnityEditor.AssemblyReloadEvents.beforeAssemblyReload -= SaveBeforeReload; }
+        void SaveBeforeReload() { if (Town != null) Save(); }
+#endif
+
         void Hook(Town t)
         {
             t.DayEnded = day => { if (day % 7 == 1) Save(); };
