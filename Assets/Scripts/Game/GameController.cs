@@ -140,7 +140,8 @@ namespace FrontierLedger.Game
             if (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow)) pan.x += 1;
             if (Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.UpArrow)) pan.y -= 1;
             if (Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.DownArrow)) pan.y += 1;
-            if (pan != Vector2.zero) Rig.PanPixels(pan * (520f / Rig.Zoom) * Time.unscaledDeltaTime);
+            float boost = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift) ? 3f : 1f;   // hold Shift to cross a big map quickly
+            if (pan != Vector2.zero) Rig.PanPixels(pan * (520f / Rig.Zoom) * boost * Time.unscaledDeltaTime);
         }
 
         void HandleMouse()

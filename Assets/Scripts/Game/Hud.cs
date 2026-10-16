@@ -314,7 +314,7 @@ namespace FrontierLedger.Game
         // ---------------------------------------------------------------- minimap
         void RebuildMinimap()
         {
-            int w = Town.Cols * 2, h = Town.Rows * 2, si = T.Season;
+            int w = Town.Cols, h = Town.Rows, si = T.Season;   // one pixel a tile
             if (minimap == null) minimap = new Texture2D(w, h, TextureFormat.RGBA32, false) { filterMode = FilterMode.Point, hideFlags = HideFlags.HideAndDontSave };
             if (miniBase == null) miniBase = new Color32[w * h];
             var tileCol = new Color32[7];
@@ -330,14 +330,14 @@ namespace FrontierLedger.Game
                     var b = T.OccupantAt(tx, ty);
                     byte t = T.TerrainAt(tx, ty);
                     var c = b != null ? PixelCanvas.C(b.Type == BuildingType.Road ? "#c49c69" : b.Def.Color) : tileCol[Mathf.Min(6, (int)t)];
-                    for (int dy = 0; dy < 2; dy++) for (int dx = 0; dx < 2; dx++) miniBase[(h - 1 - (ty * 2 + dy)) * w + tx * 2 + dx] = c;
+                    miniBase[(h - 1 - ty) * w + tx] = c;
                 }
             miniVersion = T.MapVersion; miniSeason = si;
         }
 
         void Minimap()
         {
-            var r = Block(new Rect(4, H - 4 - 104, 144, 104));
+            var r = Block(new Rect(4, H - 4 - (MiniH + 16), MiniW + 16, MiniH + 16));
             Ui.Panel(r);
             if (minimap == null || miniVersion != T.MapVersion || miniSeason != T.Season) RebuildMinimap();
             miniTimer -= Time.unscaledDeltaTime;
@@ -350,12 +350,12 @@ namespace FrontierLedger.Game
                 {
                     Vector2 pos;
                     if (!gc.View.TryGetPersonPos(p.Id, out pos)) continue;
-                    int x = Mathf.Clamp((int)(pos.x / 8), 0, w - 1), y = Mathf.Clamp((int)(pos.y / 8), 0, h - 1);
+                    int x = Mathf.Clamp((int)(pos.x / 16), 0, w - 1), y = Mathf.Clamp((int)(pos.y / 16), 0, h - 1);
                     px[(h - 1 - y) * w + x] = new Color32(255, 255, 255, 255);
                 }
                 minimap.SetPixels32(px); minimap.Apply(false);
             }
-            var inner = new Rect(r.x + 8, r.y + 8, 128, 88);
+            var inner = new Rect(r.x + 8, r.y + 8, MiniW, MiniH);
             if (Ui.Repaint) GUI.DrawTexture(inner, minimap, ScaleMode.StretchToFill);
             float sx = inner.width / (Town.Cols * 16f), sy = inner.height / (Town.Rows * 16f);
             var o = gc.Rig.ViewOrigin; var v = gc.Rig.ViewSize;
@@ -371,10 +371,13 @@ namespace FrontierLedger.Game
             }
         }
 
+        /// <summary>Minimap size in UI pixels: about a pixel per tile, in the map's proportions.</summary>
+        const float MiniW = 160f, MiniH = 160f * Town.Rows / Town.Cols;
+
         // ---------------------------------------------------------------- message feed
         void Messages()
         {
-            float y = H - 112;
+            float y = H - 4 - (MiniH + 16) - 8;
             int shown = 0;
             foreach (var l in T.Log)
             {

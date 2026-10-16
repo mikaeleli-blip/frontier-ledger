@@ -625,8 +625,8 @@ namespace FrontierLedger.Simulation
         // =====================================================================
         // New town
         // =====================================================================
-        public const int WagonX = 37, WagonY = 22;
-        public const int TrailRow = 24;   // the wagon trail across the map: the main road
+        public const int WagonX = Cols / 2 + 5, WagonY = Rows / 2 - 1;   // where the settlers stop: a little east of the map centre
+        public const int TrailRow = WagonY + 2;   // the wagon trail across the map: the main road
 
         /// <summary>A handful of families arrive with a supply wagon in early spring. No houses yet.</summary>
         public static Town CreateNew(int seed)
@@ -634,10 +634,10 @@ namespace FrontierLedger.Simulation
             var t = new Town { Seed = seed, Treasury = Balance.StartingTreasury };
             t.Terrain = TerrainGen.Generate(seed, Cols, Rows);
             // Open meadow around the camp
-            for (int y = 18; y <= 29; y++)
-                for (int x = 29; x <= 47; x++)
+            for (int y = WagonY - 4; y <= WagonY + 7; y++)
+                for (int x = WagonX - 8; x <= WagonX + 10; x++)
                 {
-                    double d = Math.Sqrt(Math.Pow((x - 38) / 1.5, 2) + Math.Pow(y - 23.5, 2));
+                    double d = Math.Sqrt(Math.Pow((x - WagonX - 1) / 1.5, 2) + Math.Pow(y - WagonY - 1.5, 2));
                     if (d < 6.5 && t.TerrainAt(x, y) != Tile.Water) t.Terrain[y * Cols + x] = Tile.Grass;
                 }
             // The wagon trail they came in on

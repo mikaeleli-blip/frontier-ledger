@@ -52,7 +52,7 @@ namespace FrontierLedger.Simulation
     /// <summary>All tunable game numbers live here so balancing happens in one place.</summary>
     public static class Balance
     {
-        public const int Cols = 64, Rows = 44;
+        public const int Cols = 160, Rows = 110;   // 16 px tiles
         public const int GoodCount = 6;
         public const int DaysPerSeason = 14, DaysPerYear = 56, StartYear = 1852;
         public const float DaysPerYearF = 56f;

@@ -72,7 +72,7 @@ namespace FrontierLedger.Game
             open.Add(Key(Heur(s, t), si));
             int expanded = 0;
             int[] dx = { 1, -1, 0, 0 }, dy = { 0, 0, 1, -1 };
-            while (open.Count > 0 && expanded < 3000)
+            while (open.Count > 0 && expanded < 24000)
             {
                 long top = open.Min; open.Remove(top);
                 int cur = (int)(top & 0xFFFFF);
@@ -100,7 +100,7 @@ namespace FrontierLedger.Game
             }
             if (stamp[ti] != run) return null;
             var path = new List<Vector2Int>();
-            for (int c = ti; c != -1; c = from[c]) { path.Add(new Vector2Int(c % C, c / C)); if (path.Count > 400) break; }
+            for (int c = ti; c != -1; c = from[c]) { path.Add(new Vector2Int(c % C, c / C)); if (path.Count > 1500) break; }
             path.Reverse();
             return path;
         }

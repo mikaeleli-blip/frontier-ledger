@@ -26,6 +26,9 @@ The town saves once a week and when you quit, to `Application.persistentDataPath
 
 ## The start
 
+The map is 160 by 110 tiles: room for a big town with plenty of country left. A river runs a good walk west of the
+town site and a creek to the east, with lakes, hills and woods around.
+
 Six households arrive by wagon in spring 1852 with food, firewood, logs, stone and tools to last the first few months.
 One of the men is a builder by trade: you pick where his Builder's Yard goes (Industry tab). Until it stands,
 the town hires settlers by the day to build. There are no houses yet; families camp in tents by the wagon.
@@ -47,7 +50,7 @@ A sound opening:
 
 | Action | Input |
 |---|---|
-| Pan | Left-drag on the map, right/middle-drag, WASD or arrows |
+| Pan | Left-drag on the map, right/middle-drag, WASD or arrows (hold Shift to go faster), or click the minimap |
 | Zoom | Mouse wheel, `+` / `-` |
 | Recenter on town | `H` |
 | Pause / speeds | `Space`, `1`–`4` (1×, 3×, 10×, 30×). A day lasts 3 minutes at 1×. |

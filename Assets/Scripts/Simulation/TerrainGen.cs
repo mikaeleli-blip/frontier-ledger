@@ -39,8 +39,9 @@ namespace FrontierLedger.Simulation
 
     public static class TerrainGen
     {
-        /// <summary>Builds the starting map: a winding river, a lake, plateau hills, woods and boulders,
-        /// with open meadow around the town site near the map center.</summary>
+        /// <summary>Builds the starting map: a winding river west of the town site, a creek to the east, lakes, plateau hills,
+        /// woods and boulders, with open meadow around the town site. Everything is placed relative to the town site,
+        /// so the map can be any size.</summary>
         public static byte[] Generate(int seed, int cols, int rows)
         {
             var T = new byte[cols * rows];
@@ -50,35 +51,46 @@ namespace FrontierLedger.Simulation
             var n3 = new Noise.Value2D(seed + 3);
             Func<int, int, bool> inb = (x, y) => x >= 0 && y >= 0 && x < cols && y < rows;
             Func<int, int, int> I = (x, y) => y * cols + x;
+            int cx = Town.WagonX + 1, cy = Town.WagonY + 1;
 
-            // River
-            double ph = r.NextDouble() * 6.28;
-            for (int y = 0; y < rows; y++)
+            // The river, a good walk west of the town site, and a smaller creek to the east
+            Action<double, double, int, double, int> River = (baseX, amp, width, phase, salt) =>
             {
-                double cx = 15 + 3.5 * Math.Sin(y / 7.0 + ph) + 1.6 * Math.Sin(y / 2.9 + ph * 2);
-                int w = 3 + (n1.Sample(3.3f, y / 5f) > 0.55f ? 1 : 0);
-                int x0 = (int)Math.Round(cx - w / 2.0);
-                for (int x = x0; x < x0 + w; x++) if (inb(x, y)) T[I(x, y)] = Tile.Water;
-            }
-            // Lake
-            int lx = 53 + (int)Math.Round(r.NextDouble() * 4 - 2), ly = 37;
-            for (int y = ly - 5; y <= ly + 5; y++)
-                for (int x = lx - 8; x <= lx + 8; x++)
+                for (int y = 0; y < rows; y++)
                 {
-                    if (!inb(x, y)) continue;
-                    double d = Math.Pow((x - lx) / 6.0, 2) + Math.Pow((y - ly) / 3.2, 2) + (n1.Sample(x / 3f, y / 3f) - 0.5) * 0.6;
-                    if (d < 1) T[I(x, y)] = Tile.Water;
+                    double x = baseX + amp * Math.Sin(y / 11.0 + phase) + amp * 0.4 * Math.Sin(y / 4.3 + phase * 2) + amp * 0.5 * Math.Sin(y / 23.0 + phase * 3);
+                    int w = width + (n1.Sample(3.3f + salt, y / 5f) > 0.58f ? 1 : 0);
+                    int x0 = (int)Math.Round(x - w / 2.0);
+                    for (int xx = x0; xx < x0 + w; xx++) if (inb(xx, y)) T[I(xx, y)] = Tile.Water;
                 }
+            };
+            River(cx - 23, 5.5, 3, r.NextDouble() * 6.28, 0);
+            River(cx + 36 + r.Next(-4, 5), 4.0, 2, r.NextDouble() * 6.28, 7);
 
-            Func<int, int, double> dist = (x, y) => Math.Sqrt(Math.Pow((x - 38) / 1.35, 2) + Math.Pow(y - 23, 2));
+            // Lakes: one handy to the south-east of town, others further out
+            Action<int, int, double, double> Lake = (lx, ly, rx, ry) =>
+            {
+                for (int y = ly - (int)ry - 3; y <= ly + ry + 3; y++)
+                    for (int x = lx - (int)rx - 3; x <= lx + rx + 3; x++)
+                    {
+                        if (!inb(x, y)) continue;
+                        double d = Math.Pow((x - lx) / rx, 2) + Math.Pow((y - ly) / ry, 2) + (n1.Sample(x / 3f, y / 3f) - 0.5) * 0.6;
+                        if (d < 1) T[I(x, y)] = Tile.Water;
+                    }
+            };
+            Lake(cx + 15 + r.Next(-2, 3), cy + 14, 6, 3.2);
+            Lake(cx - 45 + r.Next(-5, 6), cy - 32 + r.Next(-4, 5), 9, 5);
+            Lake(cx + 20 + r.Next(-6, 7), cy - 38 + r.Next(-3, 4), 7, 4);
+            Lake(cx - 12 + r.Next(-6, 7), cy + 40 + r.Next(-3, 4), 8, 4.5);
 
+            Func<int, int, double> dist = (x, y) => Math.Sqrt(Math.Pow((x - cx) / 1.35, 2) + Math.Pow(y - cy, 2));
             // Hills
             for (int y = 0; y < rows; y++)
                 for (int x = 0; x < cols; x++)
                 {
                     if (T[I(x, y)] != 0) continue;
                     double f = n2.Sample(x / 9f, y / 9f) * 0.7 + n2.Sample(x / 4f, y / 4f) * 0.3;
-                    if (dist(x, y) > 14 && f > 0.635) T[I(x, y)] = Tile.Hill;
+                    if (dist(x, y) > 14 && f > 0.65) T[I(x, y)] = Tile.Hill;
                 }
             for (int pass = 0; pass < 3; pass++)
             {

@@ -29,8 +29,11 @@ namespace FrontierLedger.Game
         CameraRig rig;
         Nav nav;
         GroundPainter painter;
-        Texture2D groundTex;
-        SpriteRenderer ground;
+        /// <summary>The ground is cut into square chunks so a felled tree only re-uploads its own chunk.</summary>
+        const int ChunkTiles = 32;
+        sealed class GroundChunk { public Texture2D Tex; public SpriteRenderer Sr; public int X0, Y0, W, H; public Color32[] Buf; }
+        readonly List<GroundChunk> chunks = new List<GroundChunk>();
+        int chunkCols;
         int paintedSeason = -1, seenMapVersion = -1;
         float time;
 
@@ -96,10 +99,19 @@ namespace FrontierLedger.Game
 
             layerBuildings = Layer("Buildings"); layerTrees = Layer("Trees"); layerPeople = Layer("Settlers"); layerFx = Layer("Effects");
             painter = new GroundPainter(town);
-            groundTex = new Texture2D(painter.Canvas.W, painter.Canvas.H, TextureFormat.RGBA32, false);
-            groundTex.filterMode = FilterMode.Point; groundTex.wrapMode = TextureWrapMode.Clamp; groundTex.name = "Ground";
-            var gs = Sprite.Create(groundTex, new Rect(0, 0, groundTex.width, groundTex.height), new Vector2(0, 1), Pixels.PerUnit, 0, SpriteMeshType.FullRect);
-            ground = MakeSr("Ground", transform, gs, OrderGround);
+            chunks.Clear();
+            int cpx = ChunkTiles * 16; chunkCols = (painter.Canvas.W + cpx - 1) / cpx;
+            for (int y0 = 0; y0 < painter.Canvas.H; y0 += cpx)
+                for (int x0 = 0; x0 < painter.Canvas.W; x0 += cpx)
+                {
+                    var c = new GroundChunk { X0 = x0, Y0 = y0, W = Mathf.Min(cpx, painter.Canvas.W - x0), H = Mathf.Min(cpx, painter.Canvas.H - y0) };
+                    c.Tex = new Texture2D(c.W, c.H, TextureFormat.RGBA32, false) { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp, name = "Ground" };
+                    c.Buf = new Color32[c.W * c.H];
+                    var gs = Sprite.Create(c.Tex, new Rect(0, 0, c.W, c.H), new Vector2(0, 1), Pixels.PerUnit, 0, SpriteMeshType.FullRect);
+                    c.Sr = MakeSr("Ground", transform, gs, OrderGround);
+                    c.Sr.transform.position = Pixels.ToWorld(x0, y0);
+                    chunks.Add(c);
+                }
 
             night = MakeSr("Night", layerFx, NatureArt.White, OrderNight);
             sunset = MakeSr("Sunset", layerFx, NatureArt.White, OrderNight - 1);
@@ -110,7 +122,7 @@ namespace FrontierLedger.Game
             ghostFoot = MakeSr("GhostFoot", layerFx, NatureArt.White, OrderGhost + 2);
             campfire = MakeSr("Campfire", layerBuildings, PropArt.Campfire(0), 0); campfire.enabled = false;
             for (int i = 0; i < 160; i++) { var s = MakeSr("Sparkle", layerFx, NatureArt.White, OrderBase + 1); s.color = new Color32(214, 238, 250, 255); s.enabled = false; sparkles.Add(s); }
-            for (int i = 0; i < 5; i++)
+            for (int i = 0; i < Mathf.Max(5, Town.Cols * Town.Rows / 560); i++)
             {
                 int rx = Random.Range(40, 90), ry = Random.Range(18, 34);
                 clouds.Add(new Cloud { Sr = MakeSr("Cloud", layerFx, CloudSprite(rx, ry), OrderClouds), X = Random.Range(0f, Town.Cols * 16f), Y = Random.Range(0f, Town.Rows * 16f), Rx = rx });
@@ -172,18 +184,38 @@ namespace FrontierLedger.Game
             if (paintedSeason != si)
             {
                 painter.PaintAll(si);
-                groundTex.SetPixels32(painter.Canvas.Px); groundTex.Apply(false);
+                foreach (var c in chunks) Upload(c);
                 paintedSeason = si; seenMapVersion = town.MapVersion; town.DirtyTiles.Clear();
                 return;
             }
             if (seenMapVersion != town.MapVersion)
             {
-                var done = new HashSet<int>();
-                foreach (int k in town.DirtyTiles) if (done.Add(k)) painter.PaintAround(k % Town.Cols, k / Town.Cols, si);
+                var done = new HashSet<int>(); var dirty = new HashSet<int>();
+                foreach (int k in town.DirtyTiles)
+                {
+                    if (!done.Add(k)) continue;
+                    int tx = k % Town.Cols, ty = k / Town.Cols;
+                    painter.PaintAround(tx, ty, si);
+                    for (int dy = -1; dy <= 1; dy++)   // painting spills a tile each way, which can cross into the next chunk
+                        for (int dx = -1; dx <= 1; dx++)
+                        {
+                            int x = tx + dx, y = ty + dy;
+                            if (x < 0 || y < 0 || x >= Town.Cols || y >= Town.Rows) continue;
+                            dirty.Add((y / ChunkTiles) * chunkCols + x / ChunkTiles);
+                        }
+                }
                 town.DirtyTiles.Clear();
-                groundTex.SetPixels32(painter.Canvas.Px); groundTex.Apply(false);
+                foreach (int i in dirty) if (i >= 0 && i < chunks.Count) Upload(chunks[i]);
                 seenMapVersion = town.MapVersion;
             }
+        }
+
+        /// <summary>Copies a chunk's square of the painted ground into its texture (both bottom-up) and uploads it.</summary>
+        void Upload(GroundChunk c)
+        {
+            var px = painter.Canvas.Px; int W = painter.Canvas.W, H = painter.Canvas.H;
+            for (int j = 0; j < c.H; j++) System.Array.Copy(px, (H - c.Y0 - c.H + j) * W + c.X0, c.Buf, j * c.W, c.W);
+            c.Tex.SetPixels32(c.Buf); c.Tex.Apply(false);
         }
 
         // ---------------------------------------------------------------- buildings
@@ -859,6 +891,7 @@ namespace FrontierLedger.Game
             bool workHours = ph > 0.24f && ph < 0.7f;
             workHoursNow = workHours;
             ScheduleErrands();
+            int repaths = 24;   // long paths on a big map: spread the work over frames
             var alive = new HashSet<int>();
             foreach (var p in town.People)
             {
@@ -926,7 +959,7 @@ namespace FrontierLedger.Game
                 v.Moving = false;
                 if (v.DoorState == Out)
                 {
-                    if (float.IsNaN(v.Goal.x) || (goal - v.Goal).sqrMagnitude > 9f) Repath(v, goal, visit);
+                    if ((float.IsNaN(v.Goal.x) || (goal - v.Goal).sqrMagnitude > 9f) && repaths > 0) { Repath(v, goal, visit); repaths--; }
                     if (v.PathIdx < v.Path.Count)
                     {
                         int tx = Mathf.FloorToInt(v.Pos.x / 16), ty = Mathf.FloorToInt((v.Pos.y - 1) / 16);
