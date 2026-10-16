@@ -84,6 +84,10 @@ Trade, Election, the Gazette and Freight.
   - A family buys with its own savings, in full. Once a Bank is open, the banker lends the rest to a family with a
     quarter of the price, at 1.5% a week. Four missed payments and the bank takes the business back (farms settle at harvest).
   - When a Bank is finished, a banker comes out from back east with money to lend and buys it from the town.
+  - Banking: owned businesses bank everything but a small till each Sunday, and settlers bank all but $15 of pocket money.
+    They draw on their accounts whenever they need to (shopping, rent, taxes, buying a business), and banked money is safe
+    from thieves. The bank keeps 30% of deposits in the vault and lends out the rest. Savers share in what the loans earn,
+    up to 0.3% a week. The banker only takes home the bank's profit.
   - One business to a family. The owner's wife or husband and grown children at home work it alongside them for no wage,
     and only leave it for paid work when it isn't paying its way or the town needs food.
 - **Jobs:** settlers take the best-paying work going, and food work first while the town has less than a month's food

@@ -166,7 +166,7 @@ namespace FrontierLedger.Simulation
             var partner = GetCitizen(p.PartnerId);
             bool family = partner != null || ChildrenOf(p).Any();
             float rent = family ? Policy.Rent : Policy.BoardRent;
-            float savings = p.Money + (partner != null ? partner.Money : 0f);
+            float savings = Savings(p) + Savings(partner);
             return rent <= 0.01f || savings >= rent * 2;
         }
 
@@ -244,12 +244,14 @@ namespace FrontierLedger.Simulation
                 if (heir != null && !heir.IsChild && OwnedBusiness(heir) == null && heir.Role != Role.Mayor)
                 {
                     if (Employed(heir.Role)) QuitJob(heir);
-                    own.OwnerId = heir.Id; heir.Role = Role.Owner; heir.WorkId = own.Id; heir.Money += p.Money; p.Money = 0;
+                    own.OwnerId = heir.Id; heir.Role = Role.Owner; heir.WorkId = own.Id; heir.Money += p.Money; p.Money = 0; MergeAccount(p, heir);
                     AddLog(heir.Name + " takes over the " + own.Def.Name + ".");
                 }
                 else
                 {
                     own.OwnerId = -1;
+                    if (own.Type == BuildingType.Bank) CloseBank(own);   // no banker, no bank
+                    if (own.Deposit > 0) WithdrawFor(own, own.Deposit);   // a town-run business keeps its money in the till
                     if (own.Debt > 0.01f && GetBuilding(own.LenderId) != null) AddLog("The bank wrote off " + Money(own.Debt) + " still owed on the " + own.Def.Name + ".", LogKind.Bad);
                     own.Debt = 0; own.LenderId = -1; own.MissedPayments = 0;
                     foreach (var id in own.Employees) { var e = GetCitizen(id); if (e != null) e.FamilyHand = false; }
@@ -257,7 +259,7 @@ namespace FrontierLedger.Simulation
                 }
             }
             var partner = GetCitizen(p.PartnerId);
-            if (partner != null) { partner.PartnerId = -1; partner.Money += p.Money; }
+            if (partner != null) { partner.PartnerId = -1; partner.Money += p.Money; MergeAccount(p, partner); }
             foreach (var c in People.Where(c => c.ParentId == p.Id)) c.ParentId = partner != null ? partner.Id : -1;
             LeaveHome(p);
             if (Campaign.Active)
@@ -283,7 +285,7 @@ namespace FrontierLedger.Simulation
             RehouseEveryone();
         }
 
-        float Standing(Citizen p) { return p.Money + (OwnedBusiness(p) != null ? 30 : 0) + p.Happy * 0.3f + (MayorId == p.Id ? 15 : 0) + Math.Min(20, p.Age - 18) * 0.5f; }
+        float Standing(Citizen p) { return Savings(p) + (OwnedBusiness(p) != null ? 30 : 0) + p.Happy * 0.3f + (MayorId == p.Id ? 15 : 0) + Math.Min(20, p.Age - 18) * 0.5f; }
         List<Citizen> Eligible() { return People.Where(p => !p.IsChild && p.Age >= 21 && p.Role != Role.Sheriff && p.Role != Role.Deputy && p.Role != Role.Teacher && p.Role != Role.Doctor && p.Jail == 0 && Day - p.ArrivedDay >= 3).ToList(); }
         bool Employable(Citizen p) { return !p.IsChild && p.Role == Role.Laborer && p.Jail == 0 && p.Age < 66; }
 
@@ -373,7 +375,7 @@ namespace FrontierLedger.Simulation
             // Families buy businesses with their own savings, in full, or with a bank loan for the rest.
             // Until someone can, the town runs it.
             float price = DeedPrice(b);
-            var bank = b.Type == BuildingType.Bank ? null : Banks.Where(k => IsOpen(k)).OrderByDescending(k => k.Cash).FirstOrDefault();
+            var bank = b.Type == BuildingType.Bank ? null : Banks.Where(k => IsOpen(k)).OrderByDescending(k => Lendable(k)).FirstOrDefault();
             Citizen buyer = null; float best = 0, loan = 0;
             foreach (var p in People)
             {
@@ -381,10 +383,10 @@ namespace FrontierLedger.Simulation
                 if (FamilyBusiness(p) != null) continue;   // one business to a family
                 if (SkilledWork(b.Type) && !Schooled(p)) continue;   // a store or bank needs someone who can keep the books
                 var sp = GetCitizen(p.PartnerId);
-                float savings = p.Money + (sp != null ? sp.Money : 0f);
+                float savings = Savings(p) + Savings(sp);
                 float need = 0;
                 if (savings - 5f >= price) need = 0;
-                else if (bank != null && savings - 5f >= price * Balance.MinDown && bank.Cash - 20f >= price - (savings - 5f)) need = price - (savings - 5f);
+                else if (bank != null && savings - 5f >= price * Balance.MinDown && Lendable(bank) >= price - (savings - 5f)) need = price - (savings - 5f);
                 else continue;
                 if (savings > best) { best = savings; buyer = p; loan = need; }
             }
@@ -398,7 +400,7 @@ namespace FrontierLedger.Simulation
             Treasury += price; LedgerThisWeek.Deeds += price;
             // the town takes back what's in its till; the family puts some savings in, and the town a little start-up money
             Treasury += Math.Max(0, b.Cash); LedgerThisWeek.TownTakings += Math.Max(0, b.Cash); b.Cash = 0;
-            float capital = Collect(payers, payers.Sum(x => Math.Max(0, x.Money)) * (b.Type == BuildingType.Bank ? 0.8f : 0.3f));
+            float capital = Collect(payers, payers.Sum(x => Math.Max(0, Savings(x))) * (b.Type == BuildingType.Bank ? 0.8f : 0.3f));
             float grant = Math.Min(20f, Math.Max(0f, Treasury)); Treasury -= grant; LedgerThisWeek.Grants += grant;
             b.Cash = capital + grant; b.OwnerId = buyer.Id; buyer.Role = Role.Owner; buyer.WorkId = b.Id; b.LossWeeks = 0; b.BuiltDay = Day;
             foreach (var id in b.Employees) { var e = GetCitizen(id); if (e != null) e.FamilyHand = false; }

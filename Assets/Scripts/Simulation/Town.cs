@@ -11,7 +11,7 @@ namespace FrontierLedger.Simulation
     [Serializable]
     public partial class Town
     {
-        public const int CurrentVersion = 7;
+        public const int CurrentVersion = 8;
         public int Version = CurrentVersion;
         public int Seed;
         public int Day = 1;
@@ -129,6 +129,13 @@ namespace FrontierLedger.Simulation
                 foreach (var o in Orders) { o.OrderedDay = remap(o.OrderedDay); o.ArriveDay = remap(o.ArriveDay); }
                 Version = 7;
             }
+            if (Version < 8)
+            {
+                // version 8: bank accounts
+                foreach (var p in People) { p.Deposit = 0; p.BankId = -1; }
+                foreach (var b in Buildings) { b.Deposit = 0; b.BankId = -1; }
+                Version = 8;
+            }
         }
 
         /// <summary>Resizes a per-good array to the current number of goods, keeping what's there.</summary>
@@ -211,6 +218,61 @@ namespace FrontierLedger.Simulation
             var sp = GetCitizen(p.PartnerId); return sp != null ? OwnedBusiness(sp) : null;
         }
         public IEnumerable<Building> Banks { get { return Businesses.Where(b => b.Type == BuildingType.Bank && b.OwnerId >= 0); } }
+
+        // =====================================================================
+        // Banking
+        // =====================================================================
+        /// <summary>The bank new accounts are opened at.</summary>
+        public Building HomeBank { get { return Banks.OrderBy(b => b.Id).FirstOrDefault(); } }
+        public float Savings(Citizen p) { return p == null ? 0f : p.Money + p.Deposit; }
+        public float DepositsAt(Building bank)
+        {
+            float s = 0;
+            foreach (var p in People) if (p.BankId == bank.Id) s += p.Deposit;
+            foreach (var b in Buildings) if (b.BankId == bank.Id) s += b.Deposit;
+            return s;
+        }
+        /// <summary>What a bank keeps in the vault: a share of its deposits, and a little for itself.</summary>
+        public float VaultReserve(Building bank) { return 20f + Balance.ReserveRatio * DepositsAt(bank); }
+        public float Lendable(Building bank) { return Math.Max(0, bank.Cash - VaultReserve(bank)); }
+
+        /// <summary>Takes money out of a settler's account into their pocket, as far as the bank's vault allows.</summary>
+        float WithdrawFor(Citizen p, float amount)
+        {
+            var bank = GetBuilding(p.BankId);
+            float t = bank == null ? 0 : Math.Min(Math.Min(amount, p.Deposit), Math.Max(0, bank.Cash));
+            if (t <= 0) return 0;
+            p.Deposit -= t; bank.Cash -= t; p.Money += t;
+            if (p.Deposit < 0.005f) p.Deposit = 0;
+            return t;
+        }
+        /// <summary>Takes money out of a business's account into its till.</summary>
+        float WithdrawFor(Building b, float amount)
+        {
+            var bank = GetBuilding(b.BankId);
+            float t = bank == null ? 0 : Math.Min(Math.Min(amount, b.Deposit), Math.Max(0, bank.Cash));
+            if (t <= 0) return 0;
+            b.Deposit -= t; bank.Cash -= t; b.Cash += t;
+            if (b.Deposit < 0.005f) b.Deposit = 0;
+            return t;
+        }
+        /// <summary>Hands a settler's account to someone else (an heir or a widow).</summary>
+        void MergeAccount(Citizen from, Citizen to)
+        {
+            if (from.Deposit <= 0) return;
+            if (to.BankId < 0 || to.BankId == from.BankId) { to.BankId = from.BankId; to.Deposit += from.Deposit; }
+            else to.Money += WithdrawFor(from, from.Deposit);
+            from.Deposit = 0;
+        }
+        /// <summary>A bank closing pays out every account from its vault; what it can't pay is lost.</summary>
+        void CloseBank(Building bank)
+        {
+            float owed = DepositsAt(bank), paid = 0;
+            foreach (var p in People.Where(x => x.BankId == bank.Id).ToList()) { paid += WithdrawFor(p, p.Deposit); p.Deposit = 0; p.BankId = -1; }
+            foreach (var b in Buildings.Where(x => x.BankId == bank.Id).ToList()) { paid += WithdrawFor(b, b.Deposit); b.Deposit = 0; b.BankId = -1; }
+            if (owed > paid + 0.5f) AddLog("The bank closed owing its depositors " + Money(owed - paid) + " it couldn't pay out.", LogKind.Bad);
+            else if (owed > 0.5f) AddLog("The bank closed and paid out its depositors.", LogKind.Info);
+        }
         public float DeedPrice(Building b) { var d = b.Def; return (float)Math.Round(b.BuildCost > 0 ? b.BuildCost : 8f + (d.Logs + d.Stone) * 0.6f, 2); }
         public Citizen Mayor { get { return GetCitizen(MayorId); } }
         bool MayorBonus(Platform p) { return MayorId >= 0 && MayorPlatform == p; }
@@ -647,6 +709,8 @@ namespace FrontierLedger.Simulation
                 var m = Mayor; if (m != null) UnseatMayor(m, false);
                 Campaign.Active = false;
             }
+            if (b.Type == BuildingType.Bank) CloseBank(b);
+            if (b.Deposit > 0) { WithdrawFor(b, b.Deposit); b.Deposit = 0; b.BankId = -1; }
             foreach (var id in b.Residents.ToList()) { var p = GetCitizen(id); if (p != null) p.HomeId = -1; }
             foreach (var id in b.Employees.ToList()) { var p = GetCitizen(id); if (p != null) { p.WorkId = -1; p.Role = Role.Laborer; } }
             foreach (var p in People) if (p.WorkId == b.Id && p.Role == Role.Builder) p.WorkId = -1;

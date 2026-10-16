@@ -67,6 +67,8 @@ namespace FrontierLedger.Simulation
         public float TownOwes;                        // contract money the treasury couldn't pay yet (yards)
         public int Backlog;                           // crew a yard could use on its jobs today
         public int VacantDays;                        // a school or doctor's office waiting for someone to take the post
+        public float Deposit;                         // an owned business's money in the bank
+        public int BankId = -1;                       // the bank holding it
         public PeriodStats Week = new PeriodStats();
         public WeekReport Last = new WeekReport();
         public DayStats Today = new DayStats();
@@ -139,6 +141,8 @@ namespace FrontierLedger.Simulation
         public int IllnessKind;          // index into Defs.Illnesses
         public bool SeenToday;           // the doctor saw them today
         public bool Physician;           // trained as a doctor
+        public float Deposit;            // savings in the bank (Money is what they keep at home)
+        public int BankId = -1;          // the bank holding them
         public string Name { get { return First + " " + Family; } }
         public bool IsChild { get { return Age < Balance.AdultAge; } }
     }

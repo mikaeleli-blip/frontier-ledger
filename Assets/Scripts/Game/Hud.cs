@@ -809,7 +809,8 @@ namespace FrontierLedger.Game
                 var task = T.GetBuilding(p.TaskId);
                 if (task != null && task != work) Row("At", task.Def.Name);
             }
-            Row("Savings", Town.Money(p.Money));
+            if (p.Deposit > 0.01f) { Row("Savings at home", Town.Money(p.Money)); Row("In the bank", Town.Money(p.Deposit)); }
+            else Row("Savings", Town.Money(p.Money));
             foreach (var e in T.Errands.Where(x => x.PersonId == p.Id))
             {
                 var to = T.GetBuilding(e.ToId); if (to == null) continue;
@@ -917,7 +918,9 @@ namespace FrontierLedger.Game
                     float price = T.DeedPrice(b);
                     Para("Run by the town until a family buys it, for " + Town.Money(price) + (T.Banks.Any() ? " (or " + Town.Money(price * Balance.MinDown) + " down with a bank loan)." : " in full."), Ui.Warn);
                 }
-                Row("Cash", Town.Money(b.Cash));
+                if (b.Type == BuildingType.Bank) Row("In the vault", Town.Money(b.Cash));
+                else if (b.Deposit > 0.01f) { Row("In the till", Town.Money(b.Cash)); Row("In the bank", Town.Money(b.Deposit)); }
+                else Row("Cash", Town.Money(b.Cash));
                 Row("Wage", Town.Money(b.Wage) + "/day");
                 Row("Staff", T.WorkersAt(b) + " working · " + b.Employees.Count + "/" + d.MaxEmployees + " hired");
                 if (b.Debt > 0.5f)
@@ -945,10 +948,16 @@ namespace FrontierLedger.Game
                     case BuildingType.Bank:
                     {
                         var loans = T.Buildings.Where(x => x.LenderId == b.Id && x.Debt > 0.01f).ToList();
-                        Row("To lend", Town.Money(Mathf.Max(0, b.Cash - 20)));
+                        int savers = T.People.Count(x => x.BankId == b.Id && x.Deposit > 0.01f), firms = T.Buildings.Count(x => x.BankId == b.Id && x.Deposit > 0.01f);
+                        Heading("The bank's books");
+                        Row("Deposits", Town.Money(T.DepositsAt(b)));
+                        Row("Accounts", savers + (savers == 1 ? " settler, " : " settlers, ") + firms + (firms == 1 ? " business" : " businesses"));
+                        Row("Kept in the vault", Town.Money(T.VaultReserve(b)) + " (" + Mathf.RoundToInt(Balance.ReserveRatio * 100) + "% of deposits)");
+                        Row("Free to lend", Town.Money(T.Lendable(b)), T.Lendable(b) < 20 ? Ui.Warn : Ui.Good);
                         Row("Loans out", loans.Count + (loans.Count > 0 ? ", " + Town.Money(loans.Sum(x => x.Debt)) + " owed" : ""));
-                        Row("Interest", Mathf.RoundToInt(Balance.LoanInterest * 1000) / 10f + "% a week");
-                        Para("Lends a family the rest of a business's price once they have a quarter of it.", Ui.InkSoft);
+                        Row("Interest on loans", Mathf.RoundToInt(Balance.LoanInterest * 1000) / 10f + "% a week");
+                        Row("Interest on savings", "up to " + Mathf.RoundToInt(Balance.DepositInterest * 1000) / 10f + "% a week");
+                        Para("Businesses bank their takings and settlers their savings, keeping " + Town.Money(Balance.PocketMoney) + " at home. They can draw on it any day. The banker lends out the rest of the vault to families buying a business: a quarter down, the rest paid weekly. Savers share in what the loans earn.", Ui.InkSoft);
                         break;
                     }
                     case BuildingType.BuilderYard:

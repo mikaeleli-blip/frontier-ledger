@@ -22,7 +22,7 @@ namespace FrontierLedger.Simulation
             if (c.Platform == Platform.Farm && (foodJob || Market.Shortfall > 1)) s += 0.5f;
             if (c.Platform == Platform.Trade && tradeJob) s += 0.45f;
             if (c.Platform == Platform.Law) s += Math.Min(0.8f, CrimesLast * 0.12f + CrimesWeek * 0.1f) + (Day - v.RobbedDay < 20 ? 0.5f : 0);
-            if (c.Platform == Platform.People && (v.Role == Role.Laborer || v.Money < 10 || v.Happy < 40 || v.HomeId < 0)) s += 0.55f;
+            if (c.Platform == Platform.People && (v.Role == Role.Laborer || Savings(v) < 10 || v.Happy < 40 || v.HomeId < 0)) s += 0.55f;
             if (MayorId == c.CitizenId) s += (AverageHappiness - 50) / 80;
             return s;
         }

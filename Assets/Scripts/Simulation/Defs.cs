@@ -122,6 +122,11 @@ namespace FrontierLedger.Simulation
         public const float MinDown = 0.25f;                // a bank wants this share of the price paid down
         public const float LoanTerm = 12f;                 // weeks a loan is meant to be paid back over
         public const float BankCapital = 300f;             // what a new banker brings out from back east to lend
+        // Banking: owned businesses bank everything but a small till; settlers keep pocket money at home and bank the rest
+        public const float DepositInterest = 0.003f;       // at most this a week on savings (about 3% a year), paid out of what the bank earns on loans
+        public const float DepositShare = 0.6f;            // share of its loan interest a bank pays its savers
+        public const float ReserveRatio = 0.3f;            // share of deposits a bank keeps in its vault so people can draw on them
+        public const float PocketMoney = 15f;              // what a settler keeps at home
         // Furniture: made by idle yard crews from logs, bought by households for comfort
         public const float FurnitureLogs = 2f, FurniturePerWorker = 0.5f, FurnitureCap = 20f, FurnitureWear = 0.003f;
         public const float FurnitureSavings = 25f;         // a household spends on furniture only above this much
@@ -210,7 +215,7 @@ namespace FrontierLedger.Simulation
             Add(new BuildingDef { Type = BuildingType.Stall, Category = Category.Trade, Name = "Market Stall", W = 1, H = 1, Logs = 4, Work = 2, IsBusiness = true, IsRetail = true, MaxEmployees = 1, BaseWage = 2.0f, Capacity = 40, Color = "#b5432f",
                 Sells = new[] { Good.Food }, Blurb = "A small food stand. Cheap to build." });
             Add(new BuildingDef { Type = BuildingType.Bank, Category = Category.Trade, Name = "Bank", W = 2, H = 2, Logs = 14, Stone = 18, Work = 12, IsBusiness = true, MaxEmployees = 1, BaseWage = 3f, Color = "#8a5a4a",
-                Blurb = "The banker lends settlers what they lack to buy a business: a quarter down, the rest paid back weekly with interest. Miss four payments and the bank takes it back. Without a bank, a business only sells to a family that can pay in full." });
+                Blurb = "Settlers bank their savings and businesses their takings, for a little interest, and can draw on them any time. The banker lends out part of it, always keeping some in the vault: families can buy a business with a quarter down and pay the rest weekly with interest. Miss four payments and the bank takes it back." });
             Add(new BuildingDef { Type = BuildingType.Saloon, Category = Category.Trade, Name = "Saloon", W = 2, H = 2, Logs = 20, Stone = 8, Work = 12, IsBusiness = true, MaxEmployees = 2, BaseWage = 2.4f, Color = "#8a5a32",
                 Blurb = "Drinks and company. Cheers settlers up." });
             Add(new BuildingDef { Type = BuildingType.Sheriff, Category = Category.Civic, Name = "Sheriff's Office", W = 2, H = 2, Logs = 16, Stone = 14, Work = 12, IsPublic = true, Unique = true, Color = "#9c8b74",

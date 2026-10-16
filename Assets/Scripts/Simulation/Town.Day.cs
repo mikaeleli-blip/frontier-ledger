@@ -25,6 +25,7 @@ namespace FrontierLedger.Simulation
             Lessons(si);
             OddJobs(si);
             Produce(si);
+            BankWithdrawals();
             Trade(si);
             Households(si);
             if (DayOfSeason == 1 && si >= 2 && Homeless > 0)
@@ -565,12 +566,68 @@ namespace FrontierLedger.Simulation
             foreach (var b in biz)
             {
                 var o = GetCitizen(b.OwnerId); if (o == null) continue;
-                float need = b.Wage * (b.Employees.Count + 1) * 2 + (b.Type == BuildingType.Woodcutter || b.Type == BuildingType.Smithy || b.Def.IsRetail ? 25 : 8);
-                if (b.Cash >= need || o.Money <= 8) continue;
-                float put = Math.Min(need - b.Cash, o.Money - 8);
+                float need = TillFor(b);
+                if (b.Cash >= need || Savings(o) <= 8) continue;
+                float put = Math.Min(need - b.Cash, Savings(o) - 8);
+                if (o.Money - 8 < put) WithdrawFor(o, put - Math.Max(0, o.Money - 8));
+                put = Math.Min(put, o.Money - 8); if (put <= 0) continue;
                 o.Money -= put; b.Cash += put;
             }
         }
+
+        /// <summary>What a business keeps in its till for a couple of days' wages and supplies.</summary>
+        float TillFor(Building b)
+        {
+            return b.Wage * (b.Employees.Count + 1) * 2 + (b.Def.IsRetail ? 60 : b.Type == BuildingType.Woodcutter || b.Type == BuildingType.Smithy ? 25 : 8);   // shops need money to restock
+        }
+
+        /// <summary>Each morning businesses top up their tills from the bank and settlers their pockets; a town-run business
+        /// takes its whole account back.</summary>
+        void BankWithdrawals()
+        {
+            foreach (var b in Buildings)
+            {
+                if (b.Deposit <= 0) continue;
+                if (b.OwnerId < 0 || !b.Def.IsBusiness) WithdrawFor(b, b.Deposit);
+                else if (b.Cash < TillFor(b)) WithdrawFor(b, TillFor(b) - b.Cash);
+            }
+            foreach (var p in People)
+                if (p.Deposit > 0 && p.Money < Balance.PocketMoney * 0.5f) WithdrawFor(p, Balance.PocketMoney - p.Money);
+        }
+
+        /// <summary>Sunday: businesses bank all but their till, settlers all but their pocket money, and savings earn interest.</summary>
+        void BankDeposits()
+        {
+            var home = HomeBank;
+            foreach (var b in Businesses)
+            {
+                if (b.OwnerId < 0 || b.Type == BuildingType.Bank) continue;
+                var bank = GetBuilding(b.BankId) ?? home; if (bank == null || bank.OwnerId < 0) continue;
+                float extra = b.Cash - TillFor(b) * 1.5f;
+                if (extra < 1f) continue;
+                b.Cash -= extra; b.Deposit += extra; b.BankId = bank.Id; bank.Cash += extra;
+            }
+            foreach (var p in People)
+            {
+                if (p.IsChild) continue;
+                var bank = GetBuilding(p.BankId) ?? home; if (bank == null || bank.OwnerId < 0) continue;
+                float extra = p.Money - Balance.PocketMoney;
+                if (extra < 2f) continue;
+                p.Money -= extra; p.Deposit += extra; p.BankId = bank.Id; bank.Cash += extra;
+            }
+            // savers get a share of what the bank earned on its loans this week, up to the usual rate; it's added to their accounts
+            foreach (var bank in Banks.ToList())
+            {
+                float deposits = DepositsAt(bank);
+                if (deposits < 1f) continue;
+                float rate = Math.Min(Balance.DepositInterest, Balance.DepositShare * Math.Max(0, bank.Last.Revenue) / deposits);
+                if (rate <= 0) continue;
+                foreach (var p in People) if (p.BankId == bank.Id && p.Deposit > 0) { float i = p.Deposit * rate; p.Deposit += i; bank.Week.Costs += i; }
+                foreach (var b in Buildings) if (b.BankId == bank.Id && b.Deposit > 0) { float i = b.Deposit * rate; b.Deposit += i; bank.Week.Costs += i; }
+            }
+        }
+
+        public float LoansOut(Building bank) { float s = 0; foreach (var b in Buildings) if (b.LenderId == bank.Id) s += b.Debt; return s; }
 
         float SpareLogs() { return OfType(BuildingType.LumberCamp).Sum(b => b.Stock[(int)Good.Logs]); }
 
@@ -1039,8 +1096,9 @@ namespace FrontierLedger.Simulation
             if (Unburied > 0 && Day % 14 == 0) Unburied--;
             // A drifter with nothing to stay for may move on
             foreach (var p in People.ToList())
-                if (!p.IsChild && p.PartnerId < 0 && !ChildrenOf(p).Any() && p.Happy < 8 && p.Money < 5 && p.Role != Role.Mayor)
+                if (!p.IsChild && p.PartnerId < 0 && !ChildrenOf(p).Any() && p.Happy < 8 && Savings(p) < 5 && p.Role != Role.Mayor)
                 {
+                    WithdrawFor(p, p.Deposit);
                     RemovePerson(p);
                     AddLog(p.Name + " packed up and left town, fed up with life here.", LogKind.Bad);
                 }
@@ -1090,6 +1148,7 @@ namespace FrontierLedger.Simulation
             int n = b.Employees.Count;
             bool townRun = b.OwnerId < 0;   // the treasury covers the wages, so cash doesn't hold it back
             int afford = townRun ? d.MaxEmployees : (int)(b.Cash / Math.Max(0.5f, b.Wage * 2));
+            if (b.Type == BuildingType.Bank) return LoansOut(b) > 150f ? 1 : 0;   // a clerk once there's lending business to keep
             if (b.Type == BuildingType.BuilderYard)
             {
                 // keep the crew the jobs need, but no builder takes more than one in four of the town's adults;
@@ -1143,6 +1202,7 @@ namespace FrontierLedger.Simulation
             }
             float interest = b.Debt * Balance.LoanInterest;
             float due = Math.Min(b.Debt + interest, interest + b.Debt / Balance.LoanTerm + Math.Max(0, profit) * 0.2f);
+            if (b.Cash - b.Wage * 2 < due && b.Deposit > 0) WithdrawFor(b, due - (b.Cash - b.Wage * 2));
             float paid = Math.Min(due, Math.Max(0, b.Cash - b.Wage * 2));
             b.Cash -= paid; b.Week.Costs += Math.Min(paid, interest);
             bank.Cash += paid; bank.Week.Revenue += Math.Min(paid, interest);
@@ -1161,6 +1221,7 @@ namespace FrontierLedger.Simulation
             }
             // foreclosure: the bank takes the business back and sells it on; what's left owing is the bank's loss
             AddLog((banker != null ? banker.Name : "The bank") + " took the " + b.Def.Name + " from " + o.Name + " after four missed payments. The town runs it until it sells again.", LogKind.Bad);
+            if (b.Deposit > 0) WithdrawFor(b, b.Deposit);
             o.Money += Math.Max(0, b.Cash) * 0.5f;
             Treasury += Math.Max(0, b.Cash) * 0.5f; b.Cash = 0;
             foreach (var id in b.Employees) { var e = GetCitizen(id); if (e != null && e.FamilyHand) { e.FamilyHand = false; } }
@@ -1173,14 +1234,21 @@ namespace FrontierLedger.Simulation
         // Rent: families pay the town for their cottage every week
         // =====================================================================
         /// <summary>Takes up to amount from a household's adults, richest first. Returns what was paid.</summary>
-        static float Collect(List<Citizen> payers, float amount)
+        float Collect(List<Citizen> payers, float amount)
         {
             float paid = 0;
             foreach (var p in payers.OrderByDescending(x => x.Money))
             {
                 float t = Math.Min(Math.Max(0, p.Money), amount - paid);
                 p.Money -= t; paid += t;
+                if (paid >= amount - 0.001f) return paid;
+            }
+            // the rest from their bank accounts
+            foreach (var p in payers.OrderByDescending(x => x.Deposit))
+            {
                 if (paid >= amount - 0.001f) break;
+                float t = WithdrawFor(p, amount - paid);
+                p.Money -= t; paid += t;
             }
             return paid;
         }
@@ -1215,6 +1283,7 @@ namespace FrontierLedger.Simulation
                     {
                         if (Policy.Charity && p.CharityDays > 0) continue;
                         float due = Policy.BoardRent + Math.Min(p.RentOwed, Policy.BoardRent);
+                        if (p.Money < due) WithdrawFor(p, due - p.Money);
                         float paid = Math.Min(Math.Max(0, p.Money), due);
                         p.Money -= paid; Treasury += paid; LedgerThisWeek.Rent += paid;
                         p.RentOwed = Math.Max(0, p.RentOwed + Policy.BoardRent - paid);
@@ -1240,7 +1309,7 @@ namespace FrontierLedger.Simulation
                 if (payers.Count == 0) continue;
                 float target = h.Type == BuildingType.Estate ? 5f : 3f;
                 if (h.Stock[(int)Good.Furniture] > target - 0.5f) continue;
-                if (payers.Sum(p => p.Money) < Balance.FurnitureSavings) continue;
+                if (payers.Sum(p => Savings(p)) < Balance.FurnitureSavings) continue;
                 h.Stock[(int)Good.Furniture] += Purchase(Good.Furniture, 1f, payers);
             }
         }
@@ -1255,6 +1324,7 @@ namespace FrontierLedger.Simulation
             foreach (var p in Adults)
             {
                 float a = Policy.HeadTax; if (a <= 0) continue;
+                if (p.Money < a) WithdrawFor(p, a - p.Money);
                 if (p.Money >= a) { p.Money -= a; Treasury += a; LedgerThisWeek.HeadTax += a; }
                 else p.Happy -= 3;
             }
@@ -1270,7 +1340,22 @@ namespace FrontierLedger.Simulation
                     tax = Math.Min(Math.Max(0, b.Cash), Math.Max(0, profit) * Policy.BusinessTax);
                     b.Cash -= tax; Treasury += tax; LedgerThisWeek.BusinessTax += tax;
                     PayLoan(b, o, profit, reserve);
-                    if (b.OwnerId >= 0 && b.Cash > reserve) { draw = (b.Cash - reserve) * 0.6f; b.Cash -= draw; o.Money += draw; }
+                    if (b.OwnerId >= 0 && b.Type == BuildingType.Bank)
+                    {
+                        // the banker takes home part of the bank's profit, never the depositors' money
+                        draw = Math.Min(Math.Max(0, profit) * 0.6f, Math.Max(0, b.Cash - VaultReserve(b) - b.Wage * 4));
+                        b.Cash -= draw; o.Money += draw;
+                    }
+                    else if (b.OwnerId >= 0 && b.Cash + b.Deposit > reserve)
+                    {
+                        draw = (b.Cash + b.Deposit - reserve) * 0.6f;
+                        float fromAccount = Math.Min(draw, b.Deposit);
+                        if (fromAccount > 0 && (o.BankId < 0 || o.BankId == b.BankId)) { b.Deposit -= fromAccount; o.Deposit += fromAccount; o.BankId = b.BankId; }   // a transfer in the bank's books
+                        else fromAccount = 0;
+                        float fromTill = Math.Min(draw - fromAccount, Math.Max(0, b.Cash));
+                        b.Cash -= fromTill; o.Money += fromTill;
+                        draw = fromAccount + fromTill;
+                    }
                 }
                 else if (b.Cash > reserve)
                 {
@@ -1306,6 +1391,7 @@ namespace FrontierLedger.Simulation
                     }
                 b.Week.Clear();
             }
+            BankDeposits();
             LedgerLastWeek = LedgerThisWeek; HasLastWeek = true; LedgerThisWeek = new TownLedger();
             CrimesLast = CrimesWeek; CaughtLast = CaughtWeek; CrimesWeek = 0; CaughtWeek = 0;
         }
