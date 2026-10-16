@@ -1098,14 +1098,14 @@ namespace FrontierLedger.Simulation
                 if (want == 0 && b.Stock[(int)Good.Furniture] < Balance.FurnitureCap * 0.5f && b.Cash > b.Wage * 10) want = 1;
                 return Math.Min(want, afford);
             }
-            int nextSeason = (((Day) % Balance.DaysPerYear) / Balance.DaysPerSeason);
+            int nextSeason = SeasonOf(Day + 1);
             if (b.Type == BuildingType.Farm)
             {
                 // two hands tend the field; harvest needs every hand there is; nothing to do in winter
                 int want;
                 if (Season == 3) want = nextSeason == 0 ? 2 : 0;
                 else if (Season == 2) want = b.CropLeft > 1 ? d.MaxEmployees : 0;
-                else want = Season == 1 && DayOfSeason > 7 ? d.MaxEmployees : 2;
+                else want = Season == 1 && DayOfSeason > DaysInSeason - 7 ? d.MaxEmployees : 2;   // every hand for the last week of summer
                 return Math.Min(want, Math.Max(afford, 1));
             }
             if (b.Type == BuildingType.Gatherer && nextSeason == 3) return 0;

@@ -11,7 +11,7 @@ namespace FrontierLedger.Simulation
     [Serializable]
     public partial class Town
     {
-        public const int CurrentVersion = 6;
+        public const int CurrentVersion = 7;
         public int Version = CurrentVersion;
         public int Seed;
         public int Day = 1;
@@ -110,6 +110,25 @@ namespace FrontierLedger.Simulation
                 }
                 Version = 6;
             }
+            if (Version < 7)
+            {
+                // version 7: summer and autumn last three weeks. Every date keeps its season and day of the season.
+                Func<int, int> remap = d =>
+                {
+                    if (d <= 0) return d;
+                    int y = (d - 1) / 56, r = (d - 1) % 56;
+                    return y * Balance.DaysPerYear + Balance.SeasonStart(r / 14) + r % 14 + 1;
+                };
+                Day = remap(Day); TermEnd = remap(TermEnd);
+                if (Campaign != null) Campaign.VoteDay = remap(Campaign.VoteDay);
+                if (LastElection != null) LastElection.Day = remap(LastElection.Day);
+                foreach (var b in Buildings) b.BuiltDay = remap(b.BuiltDay);
+                foreach (var p in People) { p.ArrivedDay = remap(p.ArrivedDay); p.EvictedDay = remap(p.EvictedDay); p.RobbedDay = remap(p.RobbedDay); }
+                foreach (var h in History) h.Day = remap(h.Day);
+                foreach (var l in Log) l.Day = remap(l.Day);
+                foreach (var o in Orders) { o.OrderedDay = remap(o.OrderedDay); o.ArriveDay = remap(o.ArriveDay); }
+                Version = 7;
+            }
         }
 
         /// <summary>Resizes a per-good array to the current number of goods, keeping what's there.</summary>
@@ -124,13 +143,21 @@ namespace FrontierLedger.Simulation
         // =====================================================================
         // Calendar
         // =====================================================================
-        public int Season { get { return ((Day - 1) % Balance.DaysPerYear) / Balance.DaysPerSeason; } }
+        /// <summary>The season a day falls in (seasons aren't all the same length).</summary>
+        public static int SeasonOf(int day)
+        {
+            int d = (day - 1) % Balance.DaysPerYear;
+            for (int s = 0; s < 4; s++) { if (d < Balance.SeasonDays[s]) return s; d -= Balance.SeasonDays[s]; }
+            return 3;
+        }
+        public int Season { get { return SeasonOf(Day); } }
         public int Year { get { return Balance.StartYear + (Day - 1) / Balance.DaysPerYear; } }
-        public int DayOfSeason { get { return ((Day - 1) % Balance.DaysPerSeason) + 1; } }
+        public int DayOfSeason { get { return (Day - 1) % Balance.DaysPerYear - Balance.SeasonStart(Season) + 1; } }
+        public int DaysInSeason { get { return Balance.SeasonDays[Season]; } }
         public string Weekday { get { return Defs.Weekdays[(Day - 1) % 7]; } }
         public string DateLabel { get { return Defs.Seasons[Season] + " " + DayOfSeason + ", " + Year; } }
         /// <summary>0..1 through the current season.</summary>
-        public float SeasonProgress { get { return (DayOfSeason - 1 + TimeOfDay) / Balance.DaysPerSeason; } }
+        public float SeasonProgress { get { return (DayOfSeason - 1 + TimeOfDay) / DaysInSeason; } }
         /// <summary>0 in daylight, rising to 1 at the darkest point of night.</summary>
         public float Nightness
         {

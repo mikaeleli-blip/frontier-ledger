@@ -54,8 +54,12 @@ namespace FrontierLedger.Simulation
     {
         public const int Cols = 160, Rows = 110;   // 16 px tiles
         public const int GoodCount = 6;
-        public const int DaysPerSeason = 14, DaysPerYear = 56, StartYear = 1852;
-        public const float DaysPerYearF = 56f;
+        /// <summary>Days in spring, summer, autumn and winter: a long summer to grow and a long autumn to bring it in.</summary>
+        public static readonly int[] SeasonDays = { 14, 21, 21, 14 };
+        public const int DaysPerYear = 70, StartYear = 1852;
+        public const float DaysPerYearF = 70f;
+        /// <summary>The day of the year (from 0) a season starts on.</summary>
+        public static int SeasonStart(int s) { int d = 0; for (int i = 0; i < s; i++) d += SeasonDays[i]; return d; }
 
         // Food
         public static readonly float[] GardenBySeason = { 0.9f, 1.3f, 1.0f, 0f };
@@ -132,7 +136,8 @@ namespace FrontierLedger.Simulation
 
         // School: children from 5 until they come of age, in the summer and winter terms
         public const float SchoolAge = 5f;
-        public const float SchoolDaysFull = 112f;          // school days for a full schooling (four years of terms)
+        public const float SchoolYearsFull = 4f;           // years of terms for a full schooling
+        public static float SchoolDaysFull { get { return SchoolYearsFull * (SeasonDays[1] + SeasonDays[3]); } }   // summer and winter terms
         public const float SchooledAt = 0.5f;              // enough to read, write and reckon
         public const float UnschooledFactor = 0.9f;        // hands who can't read or reckon get this much done, and are paid this much
         public const float SchooledNewcomers = 0.8f;       // share of grown newcomers who had schooling back east

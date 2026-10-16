@@ -110,7 +110,7 @@ Trade, Election, the Gazette and Freight.
   - Gardens cover part of it in spring through autumn and nothing in winter.
   - The rest is bought at shops, or from the town storehouse when no shop has stock.
   - With charity on, the town feeds households that can't pay.
-- **Fields:** crops grow while hands work them in spring and summer. They are harvested in autumn, and whatever is still standing at the first frost rots.
+- **Fields:** crops grow while hands work them in spring and the three weeks of summer. They are harvested through the three weeks of autumn, and whatever is still standing at the first frost rots.
 - **Idle hands:**
   - Laborers without a job help bring in harvests for a share of a wage.
   - The rest of the time they forage and gather deadwood for their own household.
@@ -180,7 +180,7 @@ Assets/Editor/
   ProjectSetup.cs      Creates and opens the Main scene on first load
 ```
 
-A day lasts 3 minutes at 1× speed. The simulation doesn't depend on frame rate or Unity, so it can be tested on its own.
+A day lasts 3 minutes at 1× speed. Spring and winter last 14 days, summer and autumn 21, so a year is 70 days. The simulation doesn't depend on frame rate or Unity, so it can be tested on its own.
 
 ## Roadmap
 

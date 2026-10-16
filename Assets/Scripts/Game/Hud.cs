@@ -796,7 +796,7 @@ namespace FrontierLedger.Game
             Row("Work", work != null ? work.Def.Name + (p.FamilyHand ? " (family)" : work.OwnerId < 0 && work.Def.IsBusiness ? " (town)" : "") : p.IsChild ? "too young" : p.Role == Role.Laborer ? "laborer" : "none");
             if (p.IsChild && p.Age >= Balance.SchoolAge)
             {
-                float years = p.Schooling * Balance.SchoolDaysFull / (Balance.DaysPerSeason * 2f);
+                float years = p.Schooling * Balance.SchoolYearsFull;
                 Row("Schooling", years < 0.05f ? "none yet" : years.ToString("0.0") + " years" + (Town.Schooled(p) ? ", reads and reckons" : ""), Town.Schooled(p) ? Ui.Good : Ui.Ink);
                 Row("Today", p.Chore == Chore.School ? "at school" : Town.LaidUp(p) ? "in bed" : p.Age >= 6 ? "helping at home" : "playing");
             }
