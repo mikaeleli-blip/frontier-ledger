@@ -235,7 +235,7 @@ namespace FrontierLedger.Game
                 if (b != null)
                 {
                     if (!first) return;   // tearing down buildings needs a deliberate click
-                    if (b.Type == BuildingType.Wagon) { Hud.Toast("The supply wagon stays until you build a storehouse and empty it."); return; }
+                    if (b.Type == BuildingType.Wagon) { Hud.Toast(System.Linq.Enumerable.Any(Town.OfType(BuildingType.Storehouse)) ? "The settlers are unloading the wagon into the storehouse." : "Build a storehouse and the settlers will unload the wagon into it."); return; }
                     Selected = Selection.Building(b.Id);
                     SetTool(ToolKind.Inspect);
                     Hud.Toast("Use Tear down in the panel to remove the " + b.Def.Name + ".");

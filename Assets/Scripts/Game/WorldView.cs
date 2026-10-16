@@ -659,6 +659,17 @@ namespace FrontierLedger.Game
                         if (v.Carry) { goal = SiteDrop(site, p); visit = site; } else { goal = Front(src, p, 0.6f); visit = src; }
                     }
                 }
+                // unloading the supply wagon into the storehouse, a sack at a time
+                if (workHours && p.Jail == 0 && p.Chore == Chore.Unload && v.DoorState == Out)
+                {
+                    var store = town.GetBuilding(p.TaskId);
+                    var wagon = town.OfType(BuildingType.Wagon).FirstOrDefault();
+                    if (store != null && wagon != null)
+                    {
+                        hauling = true; inside = false;
+                        if (v.Carry) { goal = Front(store, p, 0.6f); visit = store; } else { goal = Front(wagon, p, 0.8f); visit = wagon; }
+                    }
+                }
                 if (!hauling) { v.Carry = false; v.Pause = 0; }
 
                 if (float.IsNaN(v.Pos.x))
@@ -758,7 +769,7 @@ namespace FrontierLedger.Game
                 if (v.Carry)
                 {
                     bool log = p.Chore == Chore.HaulLogs;
-                    v.Held.enabled = true; v.Held.sprite = log ? PropArt.CarriedLog() : PropArt.CarriedStone();
+                    v.Held.enabled = true; v.Held.sprite = log ? PropArt.CarriedLog() : p.Chore == Chore.Unload ? PropArt.CarriedSack() : PropArt.CarriedStone();
                     v.Held.transform.localPosition = log ? Pixels.ToWorld(-6, -17) : Pixels.ToWorld(-4, -12);
                 }
                 // builders up on a site draw in front of the walls they're raising

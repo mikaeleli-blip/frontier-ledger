@@ -227,10 +227,11 @@ namespace FrontierLedger.Simulation
         public float TownStored { get { float s = 0; foreach (var b in Storages) for (int i = 0; i < Balance.GoodCount; i++) s += b.Stock[i]; return s; } }
         public float TownSpace { get { return Math.Max(0, TownCapacity - TownStored); } }
 
+        /// <summary>The town takes from the supply wagon first and stores into it last, so it empties into the storehouse.</summary>
         float TakeFromTown(Good g, float q)
         {
             float taken = 0;
-            foreach (var b in Storages)
+            foreach (var b in Storages.OrderBy(s => s.Type == BuildingType.Wagon ? 0 : 1))
             {
                 if (q - taken <= 0) break;
                 float t = Math.Min(b.Stock[(int)g], q - taken);
@@ -242,7 +243,7 @@ namespace FrontierLedger.Simulation
         float PutInTown(Good g, float q)
         {
             float put = 0;
-            foreach (var b in Storages)
+            foreach (var b in Storages.OrderBy(s => s.Type == BuildingType.Wagon ? 1 : 0))
             {
                 float free = b.Def.Capacity - b.Stock.Sum();
                 float p = Math.Min(free, q - put);

@@ -19,6 +19,7 @@ namespace FrontierLedger.Simulation
             GrowLand();
             Wear(si);
             Construct();
+            UnloadWagon();
             Lessons(si);
             OddJobs(si);
             Produce(si);
@@ -210,6 +211,37 @@ namespace FrontierLedger.Simulation
             if (logs < 0.01f) return;
             y.Stock[(int)Good.Logs] -= logs;
             Make(y, Good.Furniture, logs / Balance.FurnitureLogs * ToolFactor(y, 1));
+        }
+
+        /// <summary>Once a storehouse stands, settlers without a job carry the supply wagon's load into it, paid by the day.
+        /// With nobody free, folk do it a bit at a time after work. The empty wagon is sold to a passing freighter.</summary>
+        void UnloadWagon()
+        {
+            var wagon = OfType(BuildingType.Wagon).FirstOrDefault();
+            if (wagon == null) return;
+            var stores = OfType(BuildingType.Storehouse).ToList();
+            if (stores.Count == 0) return;
+            if (wagon.Stock.Sum() > 0.01f)
+            {
+                var hands = People.Where(p => DayLaborer(p) && p.TaskId < 0).Take(4).ToList();
+                float can = Balance.UnloadPerDay * Math.Max(1, hands.Count), moved = 0;
+                Building into = null;
+                foreach (var s in stores.OrderByDescending(x => x.Def.Capacity - x.Stock.Sum()))
+                    for (int g = 0; g < Balance.GoodCount && can - moved > 0.01f; g++)
+                    {
+                        float q = Math.Min(Math.Min(wagon.Stock[g], s.Def.Capacity - s.Stock.Sum()), can - moved);
+                        if (q <= 0.01f) continue;
+                        wagon.Stock[g] -= q; s.Stock[g] += q; moved += q;
+                        if (into == null) into = s;
+                    }
+                if (moved <= 0.01f) return;   // the storehouse is full: the rest waits in the wagon, which the town uses up first
+                foreach (var p in hands.Take((int)Math.Ceiling(moved / Balance.UnloadPerDay - 0.01f))) { p.Chore = Chore.Unload; p.TaskId = into.Id; }
+                if (wagon.Stock.Sum() > 0.01f) return;
+            }
+            Buildings.Remove(wagon);
+            MarkDirty(wagon);
+            Treasury += Balance.WagonSale; LedgerThisWeek.Exports += Balance.WagonSale;
+            AddLog("The supply wagon is unloaded. A passing freighter bought the empty wagon for " + Money(Balance.WagonSale) + ".", LogKind.Good);
         }
 
         /// <summary>Without a builder's yard the town hires settlers without a job by the day.</summary>

@@ -698,6 +698,7 @@ namespace FrontierLedger.Game
                 case Chore.Craft: return "making furniture";
                 case Chore.School: return p.IsChild ? "at school" : "teaching";
                 case Chore.Tend: return "seeing patients";
+                case Chore.Unload: return "unloading the wagon";
                 default: return "idle";
             }
         }
@@ -924,6 +925,14 @@ namespace FrontierLedger.Game
                 Row("Holds", Mathf.FloorToInt(b.Stock.Sum()) + " / " + d.Capacity);
                 ConditionRows(b);
                 Stocks(b, Good.Food, Good.Firewood, Good.Logs, Good.Stone, Good.Tools);
+                if (b.Type == BuildingType.Wagon)
+                {
+                    int carrying = T.People.Count(x => x.Chore == Chore.Unload);
+                    if (!T.OfType(BuildingType.Storehouse).Any()) Para("Build a storehouse and the settlers will unload the wagon into it.", Ui.Warn);
+                    else if (T.OfType(BuildingType.Storehouse).All(s => s.Stock.Sum() >= s.Def.Capacity - 1f) && carrying == 0)
+                        Para("The storehouse is full. The rest waits here and gets used first; build another storehouse to empty it sooner.", Ui.Warn);
+                    else Para(carrying > 0 ? carrying + (carrying == 1 ? " settler is" : " settlers are") + " carrying it into the storehouse." : "Being unloaded into the storehouse, a little each day after work.", Ui.Good);
+                }
                 Para(d.Blurb);
             }
             else if (b.Type == BuildingType.Sheriff)

@@ -11,7 +11,7 @@ namespace FrontierLedger.Simulation
     public enum Category { Roads, Housing, Food, Industry, Trade, Civic, Hidden }
     public enum Role { Child, Laborer, Worker, Owner, Builder, Sheriff, Deputy, Mayor, Teacher, Doctor }   // Builder is unused (old saves)
     /// <summary>What a laborer or a builder's crew is doing today.</summary>
-    public enum Chore { None, HaulLogs, HaulStone, Build, Harvest, Repair, Craft, School, Tend }
+    public enum Chore { None, HaulLogs, HaulStone, Build, Harvest, Repair, Craft, School, Tend, Unload }
     public enum Platform { None = -1, Law, Farm, Trade, People }
     public enum LogKind { Info, Good, Bad, Vote, Build, Death, Birth }
 
@@ -65,6 +65,8 @@ namespace FrontierLedger.Simulation
         public const float GrowthPerWorker = 0.022f;       // field growth per worker-day in spring/summer
         /// <summary>Logs or stone one laborer carries to a building site in a day.</summary>
         public const float HaulPerDay = 8f;
+        /// <summary>Sacks and crates one settler carries from the supply wagon into the storehouse in a day, and what the empty wagon fetches.</summary>
+        public const float UnloadPerDay = 40f, WagonSale = 40f;
         /// <summary>Most laborers that fit on one building site.</summary>
         public static int SiteCrew(BuildingDef d) { return Math.Max(2, Math.Min(5, d.W * d.H / 2 + 1)); }
         public const float HarvestPerWorker = 7f;          // food per worker-day in autumn
@@ -211,7 +213,7 @@ namespace FrontierLedger.Simulation
             Add(new BuildingDef { Type = BuildingType.Cemetery, Category = Category.Civic, Name = "Cemetery", W = 3, H = 3, Stone = 8, Work = 4, IsPublic = true, Graves = 18, Color = "#6f7a5a",
                 Blurb = "Somewhere to bury the dead. Without one, every death weighs on the whole town." });
             Add(new BuildingDef { Type = BuildingType.Wagon, Category = Category.Hidden, Name = "Supply Wagon", W = 2, H = 2, IsPublic = true, IsStorage = true, Capacity = 300, Color = "#c49c69",
-                Blurb = "Everything the settlers brought with them. Holds town stores until a storehouse is built." });
+                Blurb = "Everything the settlers brought with them. Once a storehouse is built, settlers unload it there and the empty wagon is sold." });
         }
 
         static void Add(BuildingDef d) { map[d.Type] = d; }

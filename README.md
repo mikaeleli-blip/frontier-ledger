@@ -40,7 +40,7 @@ A sound opening:
 1. Place the Builder's Yard, then a boarding house to get people out of the tents, then cottages for the families.
 2. Build a gatherer's hut or fishing dock for food.
 3. Build a lumber camp and a woodcutter so there is firewood for winter.
-4. Build a storehouse so the wagon can be unloaded.
+4. Build a storehouse. Settlers without a job carry the wagon's load into it (the town pays them by the day), and the empty wagon is sold. If the storehouse fills up, the rest waits in the wagon and is used first.
 5. Then build crop fields, which are planted in spring and harvested in autumn.
 
 ## Controls

@@ -163,6 +163,18 @@ namespace FrontierLedger.Game.Art
         }
 
         /// <summary>A block of stone held against the chest (pivot top-left).</summary>
+        public static Sprite CarriedSack()
+        {
+            return Cached("carry_sack", () =>
+            {
+                var g = new PixelCanvas(9, 8);
+                g.R(2, 1, 5, 6, "#d8c49a"); g.R(1, 3, 7, 4, "#d8c49a"); g.R(6, 2, 2, 5, "#b8a478");
+                g.R(3, 0, 3, 1, "#b8a478"); g.D(4, 1, "#8a7a58"); g.D(3, 4, "#f0e0bc");
+                g.Outline(OL);
+                return g;
+            }, new Vector2(0, 1));
+        }
+
         public static Sprite CarriedStone()
         {
             return Cached("carry_stone", () =>
