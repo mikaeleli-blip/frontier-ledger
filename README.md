@@ -22,7 +22,7 @@ Built in Unity 6. All art is generated in code as 3/4-view pixel art, so there a
 4. Press **Play**. The game builds itself from code, so the scene stays empty in the editor.
 
 The town saves once a week and when you quit, to `Application.persistentDataPath/frontier-ledger-save-v2.json`.
-**Start a new town** is at the bottom of the Ledger book.
+**Start a new town** is at the bottom of the Ledger's Rules page.
 
 ## The start
 
@@ -58,8 +58,16 @@ A sound opening:
 | Build | Hotbar at the bottom: Roads, Housing, Food, Industry, Trade, Civic |
 | Inspect | Click a settler or building. Tear down is in the building panel. |
 
-The six books at the top right are the Ledger (taxes, wages, contract rate, rent, reserves, the town's books), Citizens,
-Trade, Election, the Gazette and Freight.
+The six books at the top right are the Ledger, Citizens, Trade, Election, the Gazette and Freight.
+
+The Ledger has five pages:
+- **Town**: the treasury, what came in and went out this week and last (point at a line for the detail), who holds the money
+  (treasury, settlers, businesses, the bank's own), and the richest, poorest and typical settler.
+- **People**: every grown-up with their work, what they earned last week after tax, and what they have at home and in the bank.
+  Sort by money, earnings, name or job; a gold mark means they own the business. Point at a name for spending and family money.
+- **Business**: every business by last week's profit, with owner, take-home, cash and loans.
+- **Bank**: the vault, savers' money, loans, the bank's own money, and lists of savers and loans.
+- **Rules**: taxes, wages, rent, the stores, elections and Start a new town.
 
 ## How it works
 
