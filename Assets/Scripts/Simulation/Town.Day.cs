@@ -750,6 +750,17 @@ namespace FrontierLedger.Simulation
                 var d = r.Def; float per = d.Capacity / (float)d.Sells.Length;
                 foreach (var g in d.Sells) BuyFor(r, g, per - r.Stock[(int)g]);
             }
+            // The town's own fields, docks, camps and quarries fill its stores first: it doesn't buy from itself
+            foreach (var b in biz.Where(x => x.OwnerId < 0 && x.Built))
+                foreach (var g in AllGoods)
+                {
+                    if (!Produces(b.Type, g) || b.Stock[(int)g] < 0.5f) continue;
+                    float reserve = g == Good.Food ? Math.Max(Policy.Reserve[0], People.Count * 10f) : Policy.Reserve[(int)g];
+                    float q = Math.Min(Math.Min(b.Stock[(int)g], reserve - TownStock(g)), TownSpace);
+                    if (q < 0.5f) continue;
+                    b.Stock[(int)g] -= q; PutInTown(g, q);
+                    if (q >= 1f) Deliver(b, OfType(BuildingType.Storehouse).FirstOrDefault(), g);
+                }
             // The town keeps its reserves of firewood and building materials
             foreach (var g in AllGoods)
             {
@@ -993,6 +1004,39 @@ namespace FrontierLedger.Simulation
             return got;
         }
 
+        /// <summary>What it would cost a household to buy qty of a good today, as far as there's any for sale.</summary>
+        float CostOf(Good g, float qty)
+        {
+            float cost = 0;
+            foreach (var src in Sources(g))
+            {
+                if (qty <= 0.001f) break;
+                float q = Math.Min(qty, src.B.Stock[(int)g]);
+                cost += q * src.Price; qty -= q;
+            }
+            return cost;
+        }
+
+        /// <summary>An owner takes what the family needs out of the business, from whatever it holds beyond the float it
+        /// works on (wages and supplies), till first, then its bank account. A banker only takes the bank's own money,
+        /// never the savers'. Returns what was taken.</summary>
+        float OwnerKeep(Building b, Citizen o, float amount)
+        {
+            float avail;
+            if (b.Type == BuildingType.Bank) avail = Math.Max(0, Math.Min(b.Cash + LoansOut(b) - DepositsAt(b), b.Cash - VaultReserve(b)));
+            else
+            {
+                float spare = b.Cash + b.Deposit - TillFor(b);
+                if (spare <= 0.01f) return 0;
+                if (b.Cash < Math.Min(amount, spare) && b.Deposit > 0) WithdrawFor(b, Math.Min(amount, spare) - b.Cash);
+                avail = Math.Min(spare, b.Cash);
+            }
+            float t = Math.Min(amount, avail);
+            if (t <= 0.01f) return 0;
+            b.Cash -= t; o.Money += t; b.Week.Drawn += t;
+            return t;
+        }
+
         void Households(int si)
         {
             var report = new MarketReport();
@@ -1012,6 +1056,14 @@ namespace FrontierLedger.Simulation
                 }
                 float appetite = rs.Sum(p => p.IsChild ? Balance.ChildAppetite : 1f);
                 var payers = rs.Where(p => !p.IsChild).ToList();
+                // a family that farms, fishes, gathers, butchers, bakes or cuts firewood lives off its own work first
+                var fam = payers.Select(FamilyBusiness).FirstOrDefault(x => x != null);
+                if (fam != null && fam.Built)
+                {
+                    foreach (var g in new[] { Good.Meat, Good.Bread, Good.Food })
+                        if (Produces(fam.Type, g)) { float t = Math.Min(fam.Stock[(int)g], Math.Max(0, appetite * 2f - Pantry(h))); fam.Stock[(int)g] -= t; h.Stock[(int)g] += t; }
+                    if (Produces(fam.Type, Good.Firewood)) { float t = Math.Min(fam.Stock[(int)Good.Firewood], Math.Max(0, heatNeed * 2.5f - h.Stock[(int)Good.Firewood])); fam.Stock[(int)Good.Firewood] -= t; h.Stock[(int)Good.Firewood] += t; }
+                }
                 // with money to spare, part of the table is bread from the baker and meat from the butcher
                 float spare = payers.Count == 0 ? 0 : payers.Sum(p => Savings(p)) / payers.Count;
                 float treat = Clamp((spare - Balance.TreatsFrom) / (Balance.TreatsFull - Balance.TreatsFrom), 0, 1);
@@ -1025,9 +1077,24 @@ namespace FrontierLedger.Simulation
                 float needNow = Math.Max(0, appetite - Pantry(h));
                 report.Demand += needNow;
                 float gotFood = Purchase(Good.Food, wantFood, payers);
-                report.Bought += Math.Min(gotFood, needNow);
                 h.Stock[(int)Good.Food] += gotFood;
                 h.Stock[(int)Good.Firewood] += Purchase(Good.Firewood, wantWood, payers);
+                // there's food and firewood for sale but not the money for today's: savings first, then the owner
+                // takes it out of the family business
+                float lackFood = Math.Max(0, appetite - Pantry(h)), lackWood = Math.Max(0, heatNeed - h.Stock[(int)Good.Firewood]);
+                if (lackFood > 0.01f || lackWood > 0.01f)
+                {
+                    float need = CostOf(Good.Food, lackFood) + CostOf(Good.Firewood, lackWood) - payers.Sum(p => Math.Max(0, p.Money));
+                    foreach (var p in payers) if (need > 0.01f && p.Deposit > 0) need -= WithdrawFor(p, need);
+                    var o = fam != null ? GetCitizen(fam.OwnerId) : null;
+                    if (need > 0.01f && o != null) OwnerKeep(fam, o, need * 1.02f);
+                    if (payers.Sum(p => Math.Max(0, p.Money)) > 0.01f)
+                    {
+                        float more = Purchase(Good.Food, lackFood, payers); h.Stock[(int)Good.Food] += more; gotFood += more;
+                        h.Stock[(int)Good.Firewood] += Purchase(Good.Firewood, lackWood, payers);
+                    }
+                }
+                report.Bought += Math.Min(gotFood, needNow);
                 bool helped = false;
                 if (Policy.Charity)
                 {
@@ -1660,7 +1727,7 @@ namespace FrontierLedger.Simulation
                     // a town-run business: the takings go to the treasury
                     float sweep = b.Cash - reserve; b.Cash -= sweep; Treasury += sweep; LedgerThisWeek.TownTakings += sweep;
                 }
-                b.Last = new WeekReport { Valid = true, Revenue = b.Week.Revenue, Costs = b.Week.Costs, Profit = profit, Tax = tax, OwnerDraw = draw, Sold = b.Week.Sold, Made = b.Week.Made };
+                b.Last = new WeekReport { Valid = true, Revenue = b.Week.Revenue, Costs = b.Week.Costs, Profit = profit, Tax = tax, OwnerDraw = draw + b.Week.Drawn, Sold = b.Week.Sold, Made = b.Week.Made };
                 b.Wage = Math.Max(Policy.MinWage, b.Wage);
                 if (Day - b.BuiltDay >= 6)
                 {

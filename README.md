@@ -113,7 +113,9 @@ Trade, Election, the Gazette and Freight.
 - **Food:** each adult eats 1 food a day, each child 0.6.
   - Gardens cover part of it in spring through autumn and nothing in winter.
   - The rest is bought at shops, or from the town storehouse when no shop has stock.
-  - With charity on, the town feeds households that can't pay.
+  - With charity on, the town feeds households that can't pay. Town-run fields, docks, camps and quarries fill the
+    storehouse up to its reserves before the town buys anything, so charity has food even when the treasury is empty.
+  - Families that farm, fish, gather, butcher, bake or cut firewood eat and burn their own first.
 - **Fields:** a fully tended field yields 600 food, a year's food for about eight people. Crops grow while hands work them in spring and the three weeks of summer. They are harvested through the three weeks of autumn, and whatever is still standing at the first frost rots.
 - **Idle hands:**
   - Laborers without a job help bring in harvests for a share of a wage.
@@ -146,7 +148,9 @@ Trade, Election, the Gazette and Freight.
   keep out the cold, and mean less illness in winter. Households buy from the tailor, or clothes ordered from back east.
 - **Running a business:**
   - Owners hire when trade is good and lay hands off when it isn't. Fields take on hands for the harvest.
-  - Owners take home the weekly profit above a reserve.
+  - Owners take home the weekly profit above a reserve. If the family can't afford the day's food or firewood, they spend
+    their savings first, then the owner takes what's needed from whatever the business holds beyond its working money.
+    A banker can only take the bank's own money, never the savers'.
   - When no shop is open, farmers, fishers and woodcutters sell at their own gate.
 - **Freight from back east:** in the Freight book, order food, firewood, logs, stone, tools, iron, wool and clothes, or pay passage for laborers
   ($25) and families ($60).

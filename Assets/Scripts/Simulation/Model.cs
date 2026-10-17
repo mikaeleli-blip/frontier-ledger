@@ -7,7 +7,8 @@ namespace FrontierLedger.Simulation
     public class PeriodStats
     {
         public float Revenue, Costs, Sold, Made;
-        public void Clear() { Revenue = Costs = Sold = Made = 0f; }
+        public float Drawn;   // what the owner took out during the week to keep the family fed and warm
+        public void Clear() { Revenue = Costs = Sold = Made = Drawn = 0f; }
     }
 
     [Serializable]
