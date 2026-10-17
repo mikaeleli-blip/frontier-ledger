@@ -11,7 +11,7 @@ namespace FrontierLedger.Simulation
     [Serializable]
     public partial class Town
     {
-        public const int CurrentVersion = 13;
+        public const int CurrentVersion = 14;
         public int Version = CurrentVersion;
         public int Seed;
         public int Day = 1;
@@ -35,6 +35,8 @@ namespace FrontierLedger.Simulation
         public TownLedger LedgerLastWeek = new TownLedger();
         public bool HasLastWeek;
         public bool PeopleWeekValid;             // settlers' earned and spent figures cover a whole week
+        public float TownDebt;                   // what the treasury owes the bank
+        public int TownLenderId = -1;
         public int CrimesWeek, CrimesLast, CaughtWeek, CaughtLast;
         public int Births, Deaths, Unburied;
         public int FounderBuilderId = -1;        // the builder who came with the wagon; owns the first yard
@@ -171,6 +173,14 @@ namespace FrontierLedger.Simulation
                 // so every repair goes back in line (they were all booked, and paid, with whichever yard got them first)
                 foreach (var b in Buildings) { b.RepairBy = -1; b.RepairPaid = false; }
                 Version = 13;
+            }
+            if (Version < 14)
+            {
+                // version 14: the town pays the banker, sends for one when the bank stands empty, and can borrow
+                var fresh = new TownPolicy();
+                Policy.BankerSalary = fresh.BankerSalary; Policy.TownBorrows = fresh.TownBorrows;
+                TownDebt = 0; TownLenderId = -1;
+                Version = 14;
             }
         }
 
@@ -329,6 +339,7 @@ namespace FrontierLedger.Simulation
             float owed = DepositsAt(bank), paid = 0;
             foreach (var p in People.Where(x => x.BankId == bank.Id).ToList()) { paid += WithdrawFor(p, p.Deposit); p.Deposit = 0; p.BankId = -1; }
             foreach (var b in Buildings.Where(x => x.BankId == bank.Id).ToList()) { paid += WithdrawFor(b, b.Deposit); b.Deposit = 0; b.BankId = -1; }
+            if (TownLenderId == bank.Id) { TownDebt = 0; TownLenderId = -1; }   // nobody left to pay it to
             if (owed > paid + 0.5f) AddLog("The bank closed owing its depositors " + Money(owed - paid) + " it couldn't pay out.", LogKind.Bad);
             else if (owed > 0.5f) AddLog("The bank closed and paid out its depositors.", LogKind.Info);
         }
@@ -816,7 +827,8 @@ namespace FrontierLedger.Simulation
             Treasury += price; LedgerThisWeek.Deeds += price;
             banker.Schooling = 1f; spouse.Schooling = Math.Max(spouse.Schooling, 0.6f);
             bank.OwnerId = banker.Id; banker.Role = Role.Owner; banker.WorkId = bank.Id;
-            bank.Cash = Balance.BankCapital; bank.Desired = 1; bank.BuiltDay = Day;
+            if (bank.Cash > 0) { Treasury += bank.Cash; LedgerThisWeek.TownTakings += bank.Cash; }
+            bank.Cash = Balance.BankCapital; bank.VacantDays = 0; bank.Desired = 1; bank.BuiltDay = Day;
             AddLog(banker.Name + " came out from back east with " + Money(Balance.BankCapital) + " to lend, paid the town " + Money(price) + " for the Bank and opened its doors.", LogKind.Good);
             RehouseEveryone();
         }

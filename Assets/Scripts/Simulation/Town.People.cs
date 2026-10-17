@@ -560,7 +560,7 @@ namespace FrontierLedger.Simulation
             foreach (var b in Businesses.ToList())
             {
                 var o = GetCitizen(b.OwnerId);
-                if (o == null || o.WorkId != b.Id || b.Employees.Count >= b.Def.MaxEmployees || PaysByShare(b.Type)) continue;
+                if (o == null || o.WorkId != b.Id || b.Employees.Count >= Math.Min(b.Def.MaxEmployees, b.Desired) || PaysByShare(b.Type)) continue;   // only as many as there's work for
                 var sp = GetCitizen(o.PartnerId);
                 var kin = new List<Citizen>(); if (sp != null) kin.Add(sp);
                 kin.AddRange(People.Where(c => !c.IsChild && c.PartnerId < 0 && (c.MotherId == o.Id || c.FatherId == o.Id || (sp != null && (c.MotherId == sp.Id || c.FatherId == sp.Id)))));
@@ -614,6 +614,12 @@ namespace FrontierLedger.Simulation
             }
             foreach (var v in open)
                 if ((v.Role == Role.Teacher || v.Role == Role.Doctor || v.Role == Role.Preacher) && v.B.Employees.Count == 0) SendForStaff(v.B, v.Role);
+            // a bank with nobody to run it: after a week the town writes back east, and a banker comes once there's room for the family
+            foreach (var bk in OfType(BuildingType.Bank).Where(x => x.OwnerId < 0).ToList())
+            {
+                if (++bk.VacantDays < Balance.SendForStaffDays || FreeBeds < 2) continue;
+                BankerArrives(bk);
+            }
             // a brothel that no woman in town will work at draws women up the road from the camps and river towns, once there's a bed
             foreach (var b in OfType(BuildingType.Brothel).Where(x => x.Built).ToList())
             {

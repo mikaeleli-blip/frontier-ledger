@@ -214,8 +214,9 @@ namespace FrontierLedger.Simulation
         public float IncomeTax, HeadTax, BusinessTax, Deeds, Claims, Refunds, StoreSales, Exports, Rent, TownTakings;   // income
         public float Salaries, Builders, Relief, Upkeep, Grants, Materials, Construction, Contracts, TownTills, Imports; // spending
         public float CharityGoods;                                                                         // value handed out, not money
-        public float Income { get { return IncomeTax + HeadTax + BusinessTax + Deeds + Claims + Refunds + StoreSales + Exports + Rent + TownTakings; } }
-        public float Spending { get { return Salaries + Builders + Relief + Upkeep + Grants + Materials + Construction + Contracts + TownTills + Imports; } }
+        public float Borrowed, LoanPayments;                                                                // the town's own bank loan
+        public float Income { get { return IncomeTax + HeadTax + BusinessTax + Deeds + Claims + Refunds + StoreSales + Exports + Rent + TownTakings + Borrowed; } }
+        public float Spending { get { return Salaries + Builders + Relief + Upkeep + Grants + Materials + Construction + Contracts + TownTills + Imports + LoanPayments; } }
         public float Net { get { return Income - Spending; } }
     }
 
@@ -233,6 +234,8 @@ namespace FrontierLedger.Simulation
         public float Rent = 2.5f;          // per cottage per week
         public float BoardRent = 0.75f;    // per boarder per week
         public float LargeRent = 5f;       // per large house per week
+        public float BankerSalary = 3f;    // a day, from the treasury, to whoever runs the bank
+        public bool TownBorrows = true;    // the treasury borrows from the bank when it runs dry
         public float ManorRent = 12f;      // per manor house per week
         public float ReliefWage = 0.6f;    // paid to laborers on days without work
         public bool Charity = true;        // the storehouse feeds and warms those who can't pay

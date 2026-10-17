@@ -528,11 +528,13 @@ namespace FrontierLedger.Game
             Book("Rent", C, L, x => x.Rent, 1, x => "rent from cottages, large houses, manors and boarders " + M(x.Rent) + ".");
             Book("Sales", C, L, x => x.StoreSales + x.Exports + x.TownTakings, 1, x => "storehouse sales " + M(x.StoreSales) + ", takings from town-run businesses " + M(x.TownTakings) + (x.Exports > 0 ? ", the wagon sold " + M(x.Exports) : "") + ".");
             Book("Deeds & claims", C, L, x => x.Deeds + x.Claims, 1, x => "businesses sold to families " + M(x.Deeds) + ", land claims from newcomers " + M(x.Claims) + ".");
+            if (C.Borrowed > 0.01f || (L != null && L.Borrowed > 0.01f)) Book("Borrowed", C, L, x => x.Borrowed, 1, x => "borrowed from the bank when the treasury ran dry " + M(x.Borrowed) + ".");
             Ui.Text(bx, by, "Went out", Ui.InkSoft); by += 10;
-            Book("Wages & relief", C, L, x => x.Salaries + x.Builders + x.Relief, -1, x => "salaries for the sheriff, teacher, doctor and the rest " + M(x.Salaries) + (x.Builders > 0 ? ", day labor " + M(x.Builders) : "") + ", relief for laborers with no work " + M(x.Relief) + ".");
+            Book("Wages & relief", C, L, x => x.Salaries + x.Builders + x.Relief, -1, x => "salaries for the sheriff, teacher, doctor, banker and the rest " + M(x.Salaries) + (x.Builders > 0 ? ", day labor " + M(x.Builders) : "") + ", relief for laborers with no work " + M(x.Relief) + ".");
             Book("Building", C, L, x => x.Contracts + x.Construction, -1, x => "builder's yard contracts " + M(x.Contracts) + ", clearing land and roads " + M(x.Construction) + ".");
             Book("Supplies", C, L, x => x.Materials + x.Imports - x.Refunds + x.TownTills, -1, x => "food, firewood and materials for the stores " + M(x.Materials) + (x.Imports > 0 ? ", freight from back east " + M(x.Imports - x.Refunds) : "") + ", cash put in town-run tills " + M(x.TownTills) + ".");
             Book("Upkeep & grants", C, L, x => x.Upkeep + x.Grants, -1, x => "upkeep " + M(x.Upkeep) + ", grants to new owners " + M(x.Grants) + ".");
+            if (C.LoanPayments > 0.01f || (L != null && L.LoanPayments > 0.01f) || T.TownDebt > 0.01f) Book("Bank loan", C, L, x => x.LoanPayments, -1, x => "interest and repayment on the town's loan " + M(x.LoanPayments) + ".");
             Ui.Line(bx, by, bw, Ui.Hex("#c8a070")); by += 2;
             Book("Net", C, L, x => x.Net, 0, null);
             if (C.CharityGoods > 0.5f) Para("Handed out free this week: goods worth " + M(C.CharityGoods) + ".");
@@ -548,6 +550,7 @@ namespace FrontierLedger.Game
             }
             foreach (var b in T.Buildings)
                 if (b.Debt > 0.01f) { if (T.GetBuilding(b.LenderId) != null) lent += b.Debt; else owedTown += b.Debt; }
+            lent += T.TownDebt;
             float bankOwn = vault + lent - deposits;
             bool hasBank = vault > 0.01f || lent > 0.01f || deposits > 0.01f;
 
@@ -567,7 +570,8 @@ namespace FrontierLedger.Game
             Legend(cols[1], "Settlers", home + banked, "at home " + M(home) + (banked > 0.01f ? ", in the bank " + M(banked) : ""));
             Legend(cols[2], "Businesses", till + acct, "in the tills " + M(till) + (acct > 0.01f ? ", in the bank " + M(acct) : ""));
             if (hasBank) Legend(cols[3], "The bank's own", bankOwn, "vault " + M(vault) + " + lent out " + M(lent) + " - savers' money " + M(deposits));
-            if (lent > 0.5f) Row("Businesses owe the bank", M(lent), Ui.Warn);
+            if (lent - T.TownDebt > 0.5f) Row("Businesses owe the bank", M(lent - T.TownDebt), Ui.Warn);
+            if (T.TownDebt > 0.5f) Row("The town owes the bank", M(T.TownDebt), Ui.Warn);
             if (owedTown > 0.5f) Row("Businesses owe the town", M(owedTown), Ui.Warn);
 
             // settlers at a glance
@@ -767,18 +771,20 @@ namespace FrontierLedger.Game
                 var loans = T.Buildings.Where(x => x.LenderId == bank.Id && x.Debt > 0.01f).OrderByDescending(x => x.Debt).ToList();
                 var savers = T.People.Where(x => x.BankId == bank.Id && x.Deposit > 0.01f).OrderByDescending(x => x.Deposit).ToList();
                 var firms = T.Buildings.Where(x => x.BankId == bank.Id && x.Deposit > 0.01f).OrderByDescending(x => x.Deposit).ToList();
-                float dep = T.DepositsAt(bank), lent = loans.Sum(x => x.Debt), own = bank.Cash + lent - dep;
+                float townLoan = T.TownLenderId == bank.Id ? T.TownDebt : 0;
+                float dep = T.DepositsAt(bank), lent = loans.Sum(x => x.Debt) + townLoan, own = bank.Cash + lent - dep;
                 Row("In the vault", M(bank.Cash));
                 Row("Savers' money", M(dep) + " (" + (savers.Count + firms.Count) + (savers.Count + firms.Count == 1 ? " account)" : " accounts)"));
-                Row("Lent out", M(lent) + " (" + loans.Count + (loans.Count == 1 ? " loan)" : " loans)"));
+                int nLoans = loans.Count + (townLoan > 0.01f ? 1 : 0);
+                Row("Lent out", M(lent) + " (" + nLoans + (nLoans == 1 ? " loan)" : " loans)"));
                 Row("Free to lend", M(T.Lendable(bank)), T.Lendable(bank) < 20 ? Ui.Warn : Ui.Good);
                 Row("The bank's own money", M(own), own < 0 ? Ui.Bad : Ui.Title);
                 if (bank.Last.Valid)
                 {
                     Row("Profit last week", M(bank.Last.Profit), bank.Last.Profit < 0 ? Ui.Bad : Ui.Good);
-                    if (o != null) Row("Banker took home", M(bank.Last.OwnerDraw));
+                    if (o != null) Row("Banker took home", M(bank.Last.OwnerDraw) + " + " + M(T.Policy.BankerSalary * 7) + " salary");
                 }
-                Para("The vault plus what's lent out, less what it owes savers, is the bank's own. Loans pay " + Mathf.RoundToInt(Balance.LoanInterest * 1000) / 10f +
+                Para("The town pays the banker " + M(T.Policy.BankerSalary) + " a day. The bank lends to families buying a business, to owners short of working money or repairs, and to the town when the treasury runs dry. The vault plus what's lent out, less what it owes savers, is the bank's own. Loans pay " + Mathf.RoundToInt(Balance.LoanInterest * 1000) / 10f +
                      "% a week; savers get up to " + Mathf.RoundToInt(Balance.DepositInterest * 1000) / 10f + "%. It keeps " + Mathf.RoundToInt(Balance.ReserveRatio * 100) + "% of savers' money in the vault.");
                 Heading("Savers");
                 foreach (var p in savers) { if (PickRow(p.Name, M(p.Deposit), Ui.Ink, Ui.Title, Selection.Person(p.Id))) hoverTip = MoneyTip(p); }
@@ -793,7 +799,8 @@ namespace FrontierLedger.Game
                     else if (lo == null) { Ui.Text(bx + 6, by - 1, "Repossessed: paid first when it sells.", Ui.InkSoft); by += 10; }
                     if (hov) hoverTip = BizTip(l, lo);
                 }
-                if (loans.Count == 0) Para("No loans out.");
+                if (townLoan > 0.01f) Row("The town", M(townLoan), Ui.Title);
+                if (nLoans == 0) Para("No loans out.");
             }
         }
 
@@ -828,6 +835,10 @@ namespace FrontierLedger.Game
             P.Reserve[1] = SliderRow("Keep firewood", Mathf.RoundToInt(P.Reserve[1]).ToString(), P.Reserve[1], 0, 200, 10, null);
             P.Reserve[2] = SliderRow("Keep logs", Mathf.RoundToInt(P.Reserve[2]).ToString(), P.Reserve[2], 0, 150, 5, null);
             P.Reserve[3] = SliderRow("Keep stone", Mathf.RoundToInt(P.Reserve[3]).ToString(), P.Reserve[3], 0, 150, 5, null);
+            Heading("Bank");
+            P.BankerSalary = SliderRow("Banker's salary", M(P.BankerSalary) + "/day", P.BankerSalary, 0, 6, 0.25f, "The town pays whoever runs the bank, so a banker can make a living. When the bank stands empty a week, the town sends back east for one.");
+            P.TownBorrows = Ui.Toggle(new Rect(bx, by, bw, 11), P.TownBorrows, "Borrow from the bank when the treasury runs dry"); by += 13;
+            Para("Up to " + M(Balance.TownCreditLimit) + ", paid back each Sunday with interest." + (T.TownDebt > 0.01f ? " The town owes " + M(T.TownDebt) + " now." : ""));
             Heading("Population");
             P.Births = Ui.Toggle(new Rect(bx, by, bw, 11), P.Births, "Couples have babies"); by += 13;
             P.Newcomers = Ui.Toggle(new Rect(bx, by, bw, 11), P.Newcomers, "Newcomers settle here"); by += 13;
@@ -1282,7 +1293,7 @@ namespace FrontierLedger.Game
             {
                 var o = T.GetCitizen(b.OwnerId);
                 if (o != null) Para("Owned by " + o.Name + (o.WorkId != b.Id ? " (away)" : ""), Ui.Ink);
-                else if (b.Type == BuildingType.Bank) Para("No banker. The town doesn't lend.", Ui.Warn);
+                else if (b.Type == BuildingType.Bank) Para("No banker. The town doesn't lend. After a week empty the town sends back east for one" + (T.FreeBeds < 2 ? ", once there are two free beds." : ".") , Ui.Warn);
                 else
                 {
                     float price = T.DeedPrice(b);
@@ -1393,9 +1404,11 @@ namespace FrontierLedger.Game
                         Row("Vault reserve", Town.Money(T.VaultReserve(b)));
                         Row("Free to lend", Town.Money(T.Lendable(b)), T.Lendable(b) < 20 ? Ui.Warn : Ui.Good);
                         Row("Loans out", loans.Count + (loans.Count > 0 ? ", " + Town.Money(loans.Sum(x => x.Debt)) + " owed" : ""));
+                        if (T.TownLenderId == b.Id && T.TownDebt > 0.01f) Row("The town owes", Town.Money(T.TownDebt), Ui.Warn);
+                        Row("Banker's salary", Town.Money(T.Policy.BankerSalary) + "/day from the town");
                         Row("Interest on loans", Mathf.RoundToInt(Balance.LoanInterest * 1000) / 10f + "% a week");
                         Row("Savings earn", "up to " + Mathf.RoundToInt(Balance.DepositInterest * 1000) / 10f + "% a week");
-                        Para("Businesses bank their takings and settlers their savings, keeping " + Town.Money(Balance.PocketMoney) + " at home. They can draw on it any day. The bank keeps " + Mathf.RoundToInt(Balance.ReserveRatio * 100) + "% of deposits in the vault and lends out the rest to families buying a business: a quarter down, the rest paid weekly. Savers share in what the loans earn.", Ui.InkSoft);
+                        Para("Businesses bank their takings and settlers their savings, keeping " + Town.Money(Balance.PocketMoney) + " at home. They can draw on it any day. The bank keeps " + Mathf.RoundToInt(Balance.ReserveRatio * 100) + "% of deposits in the vault and lends out the rest: to families buying a business (a quarter down, the rest paid weekly), to owners short of working money or a repair, and to the town when the treasury runs dry. A business can owe up to what it's worth, and gets no more while it's behind on payments or has lost money three weeks running. Savers share in what the loans earn.", Ui.InkSoft);
                         break;
                     }
                     case BuildingType.BuilderYard:

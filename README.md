@@ -98,6 +98,12 @@ The Ledger has five pages:
     and a single boarder gives up their bed to a family with little ones.
 - **Rent:** cottages, large houses and manors pay weekly rent per family, boarders pay per head. Four weeks behind and they're put out.
   Families living on charity pay nothing.
+- **The bank:** the town pays whoever runs it a salary (Rules page, $3/day by default). If the bank stands empty for a week,
+  the town sends back east for a banker, who comes once there are two free beds. Besides lending to families buying a business,
+  the bank lends working money to owners whose till runs short, lends owners the price of a repair, and lends to the town
+  when the treasury falls under $30 (up to $500, a switch on the Rules page). A business can owe up to what it's worth, and
+  gets nothing more while behind on payments or after three losing weeks (repairs excepted). All loans pay 1.5% a week.
+  The bank hires a clerk only once its loans earn his wage.
 - **Owning a business:** a finished business is run by the town until a family can buy it at what it cost to build.
   - The town hires and pays its hands and keeps its takings meanwhile.
   - A family buys with its own savings, in full. Once a Bank is open, the banker lends the rest to a family with a

@@ -125,6 +125,8 @@ namespace FrontierLedger.Simulation
         public const float MinDown = 0.25f;                // a bank wants this share of the price paid down
         public const float LoanTerm = 26f;                 // weeks a loan is meant to be paid back over
         public const float BankCapital = 300f;             // what a new banker brings out from back east to lend
+        public const float CreditLimit = 1f;               // a business can owe the bank up to what it's worth
+        public const float TownFloor = 30f, TownBorrowStep = 100f, TownCreditLimit = 500f;   // the town borrows when the treasury falls below the floor
         // Banking: owned businesses bank everything but a small till; settlers keep pocket money at home and bank the rest
         public const float DepositInterest = 0.003f;       // at most this a week on savings (about 3% a year), paid out of what the bank earns on loans
         public const float DepositShare = 0.6f;            // share of its loan interest a bank pays its savers

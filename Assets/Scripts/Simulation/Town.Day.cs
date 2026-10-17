@@ -20,6 +20,7 @@ namespace FrontierLedger.Simulation
 
             GrowLand();
             Wear(si);
+            TownCredit();
             Construct();
             UnloadWagon();
             Lessons(si);
@@ -36,6 +37,7 @@ namespace FrontierLedger.Simulation
             Saloons();
             Barbers();
             Brothels();
+            TownCredit();
             Payroll();
             int crimes = Crime();
             HealthAndMood(si, crimes);
@@ -205,6 +207,15 @@ namespace FrontierLedger.Simulation
             float price = RepairPrice(b);
             if (b.Def.IsBusiness && b.OwnerId >= 0)
             {
+                // the owner puts in what they can spare, and the bank lends the rest
+                var o = GetCitizen(b.OwnerId);
+                if (b.Cash < price && o != null && Savings(o) > 8f)
+                {
+                    float put = Math.Min(price - b.Cash, Savings(o) - 8f);
+                    if (o.Money < put) WithdrawFor(o, put - o.Money);
+                    put = Math.Min(put, Math.Max(0, o.Money)); o.Money -= put; b.Cash += put;
+                }
+                if (b.Cash < price) Borrow(b, price - b.Cash, true);
                 if (b.Cash < price) return false;
                 b.Cash -= price; b.Week.Costs += price;
             }
@@ -665,6 +676,66 @@ namespace FrontierLedger.Simulation
             }
         }
 
+        /// <summary>A business still short of working money after the owner has put in what they can borrows it from the bank,
+        /// if the bank thinks it's good for it.</summary>
+        void BankCredit(List<Building> biz)
+        {
+            foreach (var b in biz)
+            {
+                if (b.OwnerId < 0 || b.Type == BuildingType.Bank) continue;
+                float need = TillFor(b) - b.Cash;
+                if (need >= 2f) Borrow(b, need, false);
+            }
+        }
+
+        /// <summary>Lends an owned business money against what it's worth: not to one behind on its payments, nor (except
+        /// for repairs) to one that has lost money three weeks running. Returns what it lent.</summary>
+        float Borrow(Building b, float amount, bool repair)
+        {
+            if (b.OwnerId < 0 || b.MissedPayments > 0 || (!repair && b.LossWeeks >= 3)) return 0;
+            var lender = GetBuilding(b.LenderId);
+            if (b.Debt > 0.01f && lender == null) return 0;   // still owes the town, from an older save
+            var bank = b.Debt > 0.01f ? lender : Banks.Where(IsOpen).OrderByDescending(Lendable).FirstOrDefault();
+            if (bank == null || bank.OwnerId < 0 || !IsOpen(bank)) return 0;
+            float t = Math.Min(Math.Min(amount, DeedPrice(b) * Balance.CreditLimit - b.Debt), Lendable(bank));
+            if (t < 1f) return 0;
+            bool fresh = b.Debt < 0.01f;
+            bank.Cash -= t; b.Cash += t; b.Debt += t; b.LenderId = bank.Id;
+            var o = GetCitizen(b.OwnerId); var banker = GetCitizen(bank.OwnerId);
+            if (fresh && o != null)
+                AddLog(o.Name + " borrowed " + Money(t) + " from " + (banker != null ? banker.Name + "'s bank" : "the bank") + (repair ? " to repair the " : " to keep the ") + b.Def.Name + (repair ? "." : " going."), LogKind.Info);
+            return t;
+        }
+
+        /// <summary>When the treasury runs dry the town borrows from the bank, up to a limit, and pays it back each Sunday.</summary>
+        void TownCredit()
+        {
+            if (!Policy.TownBorrows || Treasury >= Balance.TownFloor) return;
+            var lender = GetBuilding(TownLenderId);
+            var bank = TownDebt > 0.01f && lender != null ? lender : Banks.Where(IsOpen).OrderByDescending(Lendable).FirstOrDefault();
+            if (bank == null || bank.OwnerId < 0 || !IsOpen(bank)) return;
+            float t = Math.Min(Math.Min(Balance.TownBorrowStep, Balance.TownCreditLimit - TownDebt), Lendable(bank));
+            if (t < 5f) return;
+            bool fresh = TownDebt < 0.01f;
+            bank.Cash -= t; Treasury += t; TownDebt += t; TownLenderId = bank.Id; LedgerThisWeek.Borrowed += t;
+            if (fresh) AddLog("The treasury ran dry and the town borrowed " + Money(t) + " from the bank.", LogKind.Info);
+        }
+
+        /// <summary>Sunday: the town pays the bank its interest and a twenty-sixth of the loan, as far as the treasury allows.</summary>
+        void TownLoanPayment()
+        {
+            if (TownDebt <= 0.01f) { TownDebt = 0; TownLenderId = -1; return; }
+            var bank = GetBuilding(TownLenderId);
+            if (bank == null || bank.OwnerId < 0) { TownDebt = 0; TownLenderId = -1; return; }
+            float interest = TownDebt * Balance.LoanInterest;
+            float due = Math.Min(TownDebt + interest, interest + TownDebt / Balance.LoanTerm);
+            float paid = Math.Max(0, Math.Min(due, Treasury - Balance.TownFloor));
+            Treasury -= paid; LedgerThisWeek.LoanPayments += paid;
+            bank.Cash += paid; bank.Week.Revenue += Math.Min(paid, interest);
+            TownDebt = Math.Max(0, TownDebt + interest - paid);
+            if (TownDebt <= 0.01f) { TownDebt = 0; TownLenderId = -1; AddLog("The town paid off its loan from the bank.", LogKind.Good); }
+        }
+
         /// <summary>What a business keeps in its till for a couple of days' wages and supplies.</summary>
         float TillFor(Building b)
         {
@@ -724,7 +795,7 @@ namespace FrontierLedger.Simulation
             }
         }
 
-        public float LoansOut(Building bank) { float s = 0; foreach (var b in Buildings) if (b.LenderId == bank.Id) s += b.Debt; return s; }
+        public float LoansOut(Building bank) { float s = TownLenderId == bank.Id ? TownDebt : 0; foreach (var b in Buildings) if (b.LenderId == bank.Id) s += b.Debt; return s; }
 
         float SpareLogs() { return OfType(BuildingType.LumberCamp).Sum(b => b.Stock[(int)Good.Logs]); }
 
@@ -746,6 +817,7 @@ namespace FrontierLedger.Simulation
             float xF = MayorBonus(Platform.Trade) ? 1.25f : 1f;
             var biz = Businesses.ToList();
             OwnersTopUp(biz);
+            BankCredit(biz);
             TownTopUp(biz);
             // Inputs and tools
             foreach (var b in biz)
@@ -1302,6 +1374,15 @@ namespace FrontierLedger.Simulation
                         break;
                 }
             }
+            // the town pays whoever runs the bank, so there's always someone to keep it
+            foreach (var bank in Banks.ToList())
+            {
+                var o = GetCitizen(bank.OwnerId);
+                float pay = Policy.BankerSalary;
+                if (o == null || o.WorkId != bank.Id || o.Jail > 0 || pay <= 0 || Treasury < pay) continue;
+                Treasury -= pay; L.Salaries += pay;
+                float tax = pay * Policy.IncomeTax; o.Money += pay - tax; o.Earned += pay - tax; Treasury += tax; L.IncomeTax += tax;
+            }
             float up = Buildings.Count(b => b.Built && b.Def.IsPublic && b.Type != BuildingType.Wagon) * 0.12f;
             Treasury -= up; L.Upkeep += up;
         }
@@ -1545,7 +1626,7 @@ namespace FrontierLedger.Simulation
             int n = b.Employees.Count;
             bool townRun = b.OwnerId < 0;   // the treasury covers the wages, so cash doesn't hold it back
             int afford = townRun ? d.MaxEmployees : (int)(b.Cash / Math.Max(0.5f, b.Wage * 2));
-            if (b.Type == BuildingType.Bank) return LoansOut(b) > 150f ? 1 : 0;   // a clerk once there's lending business to keep
+            if (b.Type == BuildingType.Bank) return LoansOut(b) * Balance.LoanInterest > b.Wage * 7f ? 1 : 0;   // a clerk once the loans pay his wage
             var owner = GetCitizen(b.OwnerId); int self = owner != null && owner.WorkId == b.Id ? 1 : 0;
             if (b.Type == BuildingType.Brothel)
             {
@@ -1864,6 +1945,7 @@ namespace FrontierLedger.Simulation
                 b.Week.Clear();
             }
             BankDeposits();
+            TownLoanPayment();   // once the week's taxes and rents are in
             foreach (var p in People)
             {
                 float worth = Savings(p);
