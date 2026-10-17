@@ -11,7 +11,7 @@ namespace FrontierLedger.Game.Art
     /// shirts, dresses and patterns, hats, bonnets and kerchiefs. Children take after their mother or father.
     /// Roles and trades show through: lawmen's badges, the mayor's top hat, the preacher's collar, tradesmen's aprons.
     /// </summary>
-    public static class PeopleArt
+    public static partial class PeopleArt
     {
         public const int Down = 0, Up = 1, Left = 2, Right = 3;
         const string OL = "#2b1d1a";
@@ -259,17 +259,19 @@ namespace FrontierLedger.Game.Art
 
         /// <summary>Canvas 11 wide; adults stand about 17 px tall (taller or shorter by a pixel), children 14 (big-headed).
         /// Feet sit two rows above the bottom.</summary>
-        static PixelCanvas Draw(Look L, int dir, int frame)
+        static PixelCanvas Draw(Look L, int dir, int frame, Act act = Act.None, int phase = 0)
         {
-            if (dir == Right) return Draw(L, Left, frame).Mirrored();
+            if (dir == Right) return Draw(L, Left, frame, act, phase).Mirrored();
             int torso = L.Child ? 2 : 4, legs = L.Child ? 2 : L.Tall ? 4 : L.Short ? 2 : 3;
             const int hy = 3;                         // top of the head
             int ty = hy + 7, ly = ty + torso, fy = ly + legs;
-            int H = fy + 3;
-            var g = new PixelCanvas(11, H);
-            const int ox = 1;
-            System.Action<int, int, string> P = (x, y, c) => g.D(x + ox, y, c);
-            System.Action<int, int, int, int, string> RR = (x, y, w, h, c) => g.R(x + ox, y, w, h, c);
+            bool posed = act != Act.None;
+            int padX = posed ? PadX : 0, padT = posed ? PadT : 0, padB = posed ? PadB : 0;   // room for tools held out
+            int H = fy + 3 + padT + padB;
+            var g = new PixelCanvas(11 + padX * 2, H);
+            int ox = 1 + padX, oy = padT;
+            System.Action<int, int, string> P = (x, y, c) => g.D(x + ox, y + oy, c);
+            System.Action<int, int, int, int, string> RR = (x, y, w, h, c) => g.R(x + ox, y + oy, w, h, c);
             bool side = dir == Left;
             bool skirt = L.Female && !L.Child;
             int l1 = frame == 1 ? 1 : 0, l2 = frame == 2 ? 1 : 0;
@@ -336,8 +338,11 @@ namespace FrontierLedger.Game.Art
                 if (L.Apron != null && dir == Down) { RR(3, ty + 1, 3, torso - 1, L.Apron); RR(3, ly, 3, Mathf.Min(legs, skirt ? 2 : 1), L.Apron); }
                 int arm = L.Child ? 1 : 2, la = frame == 1 ? -1 : frame == 2 ? 1 : 0;
                 int axl = bx - 1, axr = bx + bw;
-                RR(axl, ty + 1, 1, arm + la, arms); P(axl, ty + 1 + arm + la, L.Skin);
-                RR(axr, ty + 1, 1, arm - la, armShade); P(axr, ty + 1 + arm - la, L.SkinShade);
+                if (!posed)
+                {
+                    RR(axl, ty + 1, 1, arm + la, arms); P(axl, ty + 1 + arm + la, L.Skin);
+                    RR(axr, ty + 1, 1, arm - la, armShade); P(axr, ty + 1 + arm - la, L.SkinShade);
+                }
             }
             else
             {
@@ -353,7 +358,7 @@ namespace FrontierLedger.Game.Art
                 if (L.Badge) P(2, ty + 1, "#f2d04a");
                 if (L.Coat || L.Collar) P(2, ty, L.Collar ? "#f8f8f4" : "#ece4d2");
                 int arm = L.Child ? 1 : 2, swg = frame == 1 ? -1 : frame == 2 ? 1 : 0;
-                RR(3 + swg, ty + 1, 2, arm, armShade); RR(3 + swg, ty + 1 + arm, 2, 1, L.Skin);
+                if (!posed) { RR(3 + swg, ty + 1, 2, arm, armShade); RR(3 + swg, ty + 1 + arm, 2, 1, L.Skin); }
             }
 
             // ---------- head ----------
@@ -476,8 +481,11 @@ namespace FrontierLedger.Game.Art
                 }
             }
 
+            Pen pen = null;
+            if (posed) { pen = new Pen(g, ox, oy, L, dir, ty, fy, bx, bw, arms, armShade); Pose(pen, act, phase); }
             g.Outline(OL);
-            g.RBlend(ox + 1, H - 1, 7, 1, new Color32(0, 0, 0, 70));
+            if (pen != null) pen.Finish();   // fishing lines and thread go on after the outline so they stay thin
+            g.RBlend(ox + 1, fy + 2 + oy, 7, 1, new Color32(0, 0, 0, 70));
             return g;
         }
 

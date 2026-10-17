@@ -56,7 +56,7 @@ namespace FrontierLedger.Game
             public int Dir; public float Step; public bool Moving; public bool Inside;
             public SpriteRenderer Held;            // log, stone or hammer in hand
             public int DoorState, DoorB = -1;      // Out / Entering / In / Exiting, and which building
-            public float DoorT, Pause; public bool Carry; public int LastHammer;
+            public float DoorT, Pause; public bool Carry; public int LastHammer, LastPhase = -1;
             public bool Shown; public Vector2 ShownPos;   // drawn inside a building whose roof is lifted
         }
         struct ErrandSlot { public Errand E; public float Start; }
@@ -66,7 +66,21 @@ namespace FrontierLedger.Game
         const int Out = 0, Entering = 1, In = 2, Exiting = 3;
         const float DoorTime = 0.8f;
         const int FxSmoke = 0, FxSmokeDark = 1, FxDust = 2, FxSpark = 3;
-        sealed class Particle { public SpriteRenderer Sr; public float X, Y, Life, Max, Vx; public int Kind; }
+        // bits thrown up by work: wood chips, rock grit, soil, hay and chaff, seed, spray, flour, leaves, sawdust
+        const int FxChip = 4, FxGrit = 5, FxSoil = 6, FxHay = 7, FxSeed = 8, FxSplash = 9, FxFlour = 10, FxLeaf = 11, FxSawdust = 12;
+        static readonly Color32[] BitColors =
+        {
+            new Color32(216, 176, 122, 255), new Color32(168, 160, 148, 255), new Color32(94, 62, 36, 255), new Color32(224, 192, 112, 255),
+            new Color32(232, 216, 144, 255), new Color32(220, 236, 244, 255), new Color32(248, 244, 236, 255), new Color32(106, 150, 62, 255),
+            new Color32(232, 212, 168, 255)
+        };
+        sealed class Particle { public SpriteRenderer Sr; public float X, Y, Life, Max, Vx, Vy; public int Kind; }
+        /// <summary>What a settler is doing at their place of work, where they stand for it and which way they face.</summary>
+        struct Job { public PeopleArt.Act Act; public int Dir; public Vector2 Spot; public int Tile; public bool Front; public Building B; }
+        Job curJob;
+        readonly Dictionary<int, List<int>> nearTiles = new Dictionary<int, List<int>>(); int nearVersion = -1;
+        readonly Dictionary<int, Vector3> treePos = new Dictionary<int, Vector3>();
+        readonly Dictionary<int, float> treeShake = new Dictionary<int, float>();
         sealed class Cloud { public SpriteRenderer Sr; public float X, Y; public int Rx; }
 
         readonly Dictionary<int, BuildingView> buildings = new Dictionary<int, BuildingView>();
@@ -178,6 +192,7 @@ namespace FrontierLedger.Game
             SyncTents(si);
             SyncCaravan();
             SyncPeople();
+            ShakeTrees();
             UpdateEffects(si);
             UpdateNight();
             UpdateSelection();
@@ -497,9 +512,11 @@ namespace FrontierLedger.Game
                     bool exists = trees.TryGetValue(k, out sr);
                     if (exists && !reseason && treeKinds.TryGetValue(k, out was) && was == t) continue;
                     var pl = NatureArt.At(tx, ty, t, si);
+                    if (exists && treeKinds.TryGetValue(k, out was) && was == Tile.Tree && t == Tile.Stump && !reseason) Felled(tx, ty, si);
                     if (!exists) { sr = MakeSr("Growth", layerTrees, pl.Sprite, 0); trees[k] = sr; }
                     sr.sprite = pl.Sprite;
                     sr.transform.position = Pixels.ToWorld(pl.Px, pl.Py);
+                    treePos[k] = sr.transform.position;
                     sr.sortingOrder = SortOrder(pl.Py);
                     treeKinds[k] = t;
                 }
@@ -507,8 +524,46 @@ namespace FrontierLedger.Game
             {
                 var gone = new List<int>();
                 foreach (var kv in trees) if (!want.Contains(kv.Key)) gone.Add(kv.Key);
-                foreach (int k in gone) { Destroy(trees[k].gameObject); trees.Remove(k); treeKinds.Remove(k); }
+                foreach (int k in gone)
+                {
+                    byte was;
+                    if (treeKinds.TryGetValue(k, out was) && was == Tile.Rock) Broken(k % Town.Cols, k / Town.Cols);
+                    Destroy(trees[k].gameObject); trees.Remove(k); treeKinds.Remove(k); treePos.Remove(k); treeShake.Remove(k);
+                }
             }
+        }
+
+        /// <summary>A tree comes down: a burst of leaves, chips and dust where it stood.</summary>
+        void Felled(int tx, int ty, int si)
+        {
+            float x = tx * 16 + 8, y = ty * 16 + 14;
+            for (int i = 0; i < 8; i++) SpawnFx(x + (Random.value - 0.5f) * 14, y - Random.value * 4, FxDust, (Random.value - 0.5f) * 30, 0.8f + Random.value * 0.6f);
+            Bits(x, y - 4, FxChip, 6, 0, 40, 30);
+            if (si != 3) for (int i = 0; i < 6; i++) SpawnFx(x + (Random.value - 0.5f) * 16, y - 10 - Random.value * 10, FxLeaf, (Random.value - 0.5f) * 10, 1.4f + Random.value, 6);
+        }
+
+        /// <summary>A boulder broken up for stone.</summary>
+        void Broken(int tx, int ty)
+        {
+            float x = tx * 16 + 8, y = ty * 16 + 12;
+            for (int i = 0; i < 6; i++) SpawnFx(x + (Random.value - 0.5f) * 12, y - Random.value * 4, FxDust, (Random.value - 0.5f) * 24, 0.8f + Random.value * 0.5f);
+            Bits(x, y - 2, FxGrit, 8, 0, 40, 34);
+        }
+
+        /// <summary>Trees shiver for a moment when the axe bites.</summary>
+        void ShakeTrees()
+        {
+            if (treeShake.Count == 0) return;
+            List<int> done = null;
+            foreach (var kv in treeShake)
+            {
+                SpriteRenderer sr; Vector3 at;
+                if (!trees.TryGetValue(kv.Key, out sr) || !treePos.TryGetValue(kv.Key, out at)) { (done = done ?? new List<int>()).Add(kv.Key); continue; }
+                if (time >= kv.Value) { sr.transform.position = at; (done = done ?? new List<int>()).Add(kv.Key); continue; }
+                float off = (Mathf.FloorToInt(time * 40) % 2 == 0 ? 1 : -1) / (float)Pixels.PerUnit;
+                sr.transform.position = at + new Vector3(off, 0, 0);
+            }
+            if (done != null) foreach (int k in done) treeShake.Remove(k);
         }
 
         // ---------------------------------------------------------------- tents for the homeless
@@ -622,52 +677,236 @@ namespace FrontierLedger.Game
             return new Vector2(x * 16 + 8 + ox + (p.Seed - 0.5f) * 6, y * 16 + 15);
         }
 
-        Vector2 WorkSpot(Building b, Citizen p)
+        Vector2 WorkSpot(Building b, Citizen p) { curJob = JobAt(b, p); return curJob.Spot; }
+
+        /// <summary>The nearest trees or boulders to a camp or quarry, nearest first (the order the work takes them in).</summary>
+        List<int> NearTiles(Building b, byte kind)
+        {
+            if (nearVersion != town.MapVersion) { nearTiles.Clear(); nearVersion = town.MapVersion; }
+            List<int> l;
+            if (nearTiles.TryGetValue(b.Id, out l)) return l;
+            var d = b.Def; int r = d.Radius, cx = b.X + d.W / 2, cy = b.Y + d.H / 2;
+            var found = new List<KeyValuePair<int, int>>();
+            for (int y = cy - r; y <= cy + r; y++)
+                for (int x = cx - r; x <= cx + r; x++)
+                {
+                    int dd = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+                    if (dd > r * r || town.TerrainAt(x, y) != kind) continue;
+                    found.Add(new KeyValuePair<int, int>(dd, y * Town.Cols + x));
+                }
+            l = found.OrderBy(kv => kv.Key).Take(6).Select(kv => kv.Value).ToList();
+            nearTiles[b.Id] = l;
+            return l;
+        }
+
+        /// <summary>Spreads hands over the nearest trees or rocks: one each, then the far side, then a step further out.
+        /// Returns which side of it they stand (-1 west, 1 east).</summary>
+        int SideOf(List<int> near, int idx, out int tile, out float extra)
+        {
+            int n = near.Count, round = idx / n;
+            tile = near[idx % n];
+            int side = round % 2 == 0 ? -1 : 1;
+            int tx = tile % Town.Cols, ty = tile / Town.Cols;
+            byte here = town.TerrainAt(tx, ty);
+            if (town.TerrainAt(tx + side, ty) == here && town.TerrainAt(tx - side, ty) != here) side = -side;   // the other side's clear
+            extra = (round / 2) * 6;
+            return side;
+        }
+
+        /// <summary>Where a settler does their job at a building, what the work looks like and which way they face.</summary>
+        Job JobAt(Building b, Citizen p)
         {
             var d = b.Def;
+            var j = new Job { Act = PeopleArt.Act.None, Dir = PeopleArt.Down, Tile = -1, B = b };
             float wob = Mathf.Floor(time / 6f + p.Seed * 10);
+            int idx = b.Employees.IndexOf(p.Id); if (idx < 0) idx = p.Id;
+            float X = b.X * 16, Y = b.Y * 16;
             switch (b.Type)
             {
                 case BuildingType.Farm:
                 {
-                    float fx = Noise.Hash(p.Id, (int)wob, 1), fy = Noise.Hash((int)wob, p.Id, 2);
-                    return new Vector2(b.X * 16 + 6 + fx * 36, b.Y * 16 + 8 + Mathf.Floor(fy * 9) * 4 + 3);
+                    // working along a row a step at a time; the season says what the work is
+                    float prog = time * 0.9f + p.Seed * 34f + p.Id * 7f;
+                    int lap = Mathf.FloorToInt(prog / 34f);
+                    int row = Mathf.FloorToInt(Noise.Hash(p.Id, lap, 2) * 9);
+                    j.Spot = new Vector2(X + 7 + (prog - lap * 34f), Y + 8 + row * 4 + 3);
+                    j.Dir = PeopleArt.Right;
+                    int si = town.Season, stage = PropArt.FieldStage(b, si);
+                    if (si == 2) j.Act = stage == 4 ? PeopleArt.Act.Scythe : PeopleArt.Act.Fork;
+                    else if (si == 3) j.Act = PeopleArt.Act.Fork;   // spreading muck on the frozen ground
+                    else if (si == 0 && stage <= 1 && p.Id % 2 == 0) j.Act = PeopleArt.Act.Sow;
+                    else j.Act = PeopleArt.Act.Hoe;
+                    return j;
                 }
                 case BuildingType.LumberCamp:
+                {
+                    var near = NearTiles(b, Tile.Tree);
+                    if (near.Count > 0)
+                    {
+                        // a tree each, nearest first; a second hand on the far side of the trunk
+                        int t; float off; int side = SideOf(near, idx, out t, out off);
+                        j.Spot = new Vector2((t % Town.Cols) * 16 + 8 + side * (9 + off), (t / Town.Cols) * 16 + 15);
+                        j.Dir = side < 0 ? PeopleArt.Right : PeopleArt.Left; j.Tile = t; j.Act = PeopleArt.Act.Chop;
+                        return j;
+                    }
+                    // no trees in reach: limbing logs at the chopping stump
+                    j.Spot = new Vector2(X + 20 - (idx % 2) * 8, Y + 27); j.Dir = PeopleArt.Right; j.Act = PeopleArt.Act.Chop; j.Front = true;
+                    return j;
+                }
                 case BuildingType.Quarry:
-                    if (b.TargetTile >= 0) return TileSpot(b.TargetTile, p, p.Seed < 0.5f ? -8 : 8);
-                    break;
+                {
+                    var near = NearTiles(b, Tile.Rock);
+                    if (near.Count > 0)
+                    {
+                        int t; float off; int side = SideOf(near, idx, out t, out off);
+                        j.Spot = new Vector2((t % Town.Cols) * 16 + 8 + side * (10 + off), (t / Town.Cols) * 16 + 14);
+                        j.Dir = side < 0 ? PeopleArt.Right : PeopleArt.Left; j.Tile = t; j.Act = PeopleArt.Act.Pick;
+                        return j;
+                    }
+                    // breaking stone at the quarry face
+                    j.Spot = new Vector2(X + 13 - (idx % 3) * 5, Y + 28 + (idx % 2)); j.Dir = PeopleArt.Right; j.Act = PeopleArt.Act.Pick; j.Front = true;
+                    return j;
+                }
+                case BuildingType.Woodcutter:
+                    if (idx % 3 == 1) { j.Spot = new Vector2(X + 17, Y + 19); j.Dir = PeopleArt.Left; j.Act = PeopleArt.Act.Saw; }   // at the sawhorse
+                    else { j.Spot = new Vector2(idx % 3 == 0 ? X + 10 - (idx / 3) * 5 : X + 23 + (idx / 3) * 5, Y + 27); j.Dir = idx % 3 == 0 ? PeopleArt.Right : PeopleArt.Left; j.Act = PeopleArt.Act.Maul; }   // splitting at the block
+                    j.Front = true;
+                    return j;
                 case BuildingType.Gatherer:
                 {
                     int r = d.Radius, cx = b.X + 1, cy = b.Y + 1;
                     for (int k = 0; k < 12; k++)
                     {
                         int x = cx + Mathf.RoundToInt((Noise.Hash(p.Id, k + (int)wob * 13, 3) - 0.5f) * 2 * r), y = cy + Mathf.RoundToInt((Noise.Hash(k + (int)wob * 13, p.Id, 4) - 0.5f) * 2 * r);
-                        if (town.TerrainAt(x, y) == Tile.Tree && town.TerrainAt(x, y + 1) != Tile.Water) return new Vector2(x * 16 + 8, y * 16 + 18);
+                        if (town.TerrainAt(x, y) == Tile.Tree && town.TerrainAt(x, y + 1) != Tile.Water)
+                        {
+                            j.Spot = new Vector2(x * 16 + 8 + 3, y * 16 + 18); j.Dir = PeopleArt.Up; j.Act = PeopleArt.Act.Pluck; j.Tile = y * Town.Cols + x;
+                            return j;
+                        }
+                    }
+                    var trees = NearTiles(b, Tile.Tree);
+                    for (int k = 0; k < trees.Count; k++)
+                    {
+                        int t = trees[(idx + (int)wob + k) % trees.Count];
+                        if (town.TerrainAt(t % Town.Cols, t / Town.Cols + 1) == Tile.Water) continue;
+                        j.Spot = new Vector2(t % Town.Cols * 16 + 11, t / Town.Cols * 16 + 18); j.Dir = PeopleArt.Up; j.Act = PeopleArt.Act.Pluck; j.Tile = t;
+                        return j;
                     }
                     break;
                 }
-                case BuildingType.Ranch:
-                {
-                    // riding herd in the paddock
-                    var spots = ArtFor(b).Herd;
-                    if (spots.Count > 0) { var sp = spots[(p.Id + (int)wob) % spots.Count]; return new Vector2(b.X * 16 + sp.x + 6, b.Y * 16 + sp.y + 3); }
-                    break;
-                }
-                case BuildingType.Tannery: return new Vector2(b.X * 16 + 14 + (p.Seed - 0.5f) * 16, (b.Y + d.H) * 16 - 4);   // by the pits
-                case BuildingType.IronMine: return new Vector2(b.X * 16 + (p.Id % 2 == 0 ? 10 : 20), (b.Y + d.H) * 16 - 3);   // at the shaft or the furnace
                 case BuildingType.Fishery:
                 {
-                    int[] dx = { 0, 1, -1, 2, 0, 1 }, dy = { 2, 2, 0, 0, -1, -1 };
-                    for (int k = 0; k < 6; k++)
+                    // on the bank, line out over the water
+                    int n = idx % 3;
+                    for (int r = 0; r < 2; r++)
                     {
-                        int x = b.X + dx[k], y = b.Y + dy[k];
-                        if (town.TerrainAt(x, y) == Tile.Water) return new Vector2(x * 16 + 8, y * 16 + 10);
+                        if (town.TerrainAt(b.X - 1, b.Y + r) == Tile.Water) { j.Spot = new Vector2(X + 3, Y + r * 16 + 12 + n * 3); j.Dir = PeopleArt.Left; j.Act = PeopleArt.Act.Fish; return j; }
+                        if (town.TerrainAt(b.X + 2, b.Y + r) == Tile.Water) { j.Spot = new Vector2(X + 29, Y + r * 16 + 12 + n * 3); j.Dir = PeopleArt.Right; j.Act = PeopleArt.Act.Fish; return j; }
+                    }
+                    for (int c = 0; c < 2; c++)
+                        if (town.TerrainAt(b.X + c, b.Y + 2) == Tile.Water) { j.Spot = new Vector2(X + c * 16 + 5 + n * 5, Y + 31); j.Dir = PeopleArt.Down; j.Act = PeopleArt.Act.Fish; j.Front = true; return j; }
+                    for (int c = 0; c < 2; c++)
+                        if (town.TerrainAt(b.X + c, b.Y - 1) == Tile.Water) { j.Spot = new Vector2(X + c * 16 + 4 + n * 5, Y + 1); j.Dir = PeopleArt.Up; j.Act = PeopleArt.Act.Fish; return j; }
+                    // only a corner touches the water
+                    bool westward = town.TerrainAt(b.X - 1, b.Y - 1) == Tile.Water || town.TerrainAt(b.X - 1, b.Y + 2) == Tile.Water;
+                    bool north = town.TerrainAt(westward ? b.X - 1 : b.X + 2, b.Y - 1) == Tile.Water;
+                    j.Spot = new Vector2(westward ? X + 2 + n * 4 : X + 30 - n * 4, north ? Y + 2 : Y + 31);
+                    j.Dir = westward ? PeopleArt.Left : PeopleArt.Right; j.Act = PeopleArt.Act.Fish;
+                    return j;
+                }
+                case BuildingType.Ranch:
+                    if (idx == 0) { j.Spot = new Vector2(X + 25, Y + 44); j.Dir = PeopleArt.Left; j.Act = PeopleArt.Act.Fork; j.Front = true; return j; }   // forking hay off the stack
+                    {
+                        // riding herd in the paddock, a rope at the ready
+                        var spots = ArtFor(b).Herd;
+                        if (spots.Count > 0) { var sp = spots[(p.Id + (int)wob) % spots.Count]; j.Spot = new Vector2(X + sp.x + 6, Y + sp.y + 3); j.Act = PeopleArt.Act.Lasso; return j; }
                     }
                     break;
-                }
+                case BuildingType.Tannery:
+                    switch (idx % 3)
+                    {
+                        case 0: j.Spot = new Vector2(X + 29 + (idx / 3) * 5, Y + 27); j.Dir = PeopleArt.Left; j.Act = PeopleArt.Act.Stir; break;      // working the hides in the pit
+                        case 1: j.Spot = new Vector2(X + 9, Y + 29); j.Dir = PeopleArt.Right; j.Act = PeopleArt.Act.Scrape; break;    // fleshing a hide on the beam
+                        default: j.Spot = new Vector2(X + 33 + (idx / 3) * 5, Y + 31); j.Dir = PeopleArt.Up; j.Act = PeopleArt.Act.Stir; break;
+                    }
+                    j.Front = true;
+                    return j;
+                case BuildingType.IronMine:
+                    if (idx % 3 == 0) { j.Spot = new Vector2(X + 9 - (idx / 3) * 5, Y + 27); j.Dir = PeopleArt.Up; j.Act = PeopleArt.Act.Pull; }   // hauling ore up the shaft
+                    else if (idx % 3 == 1) { j.Spot = new Vector2(X + 17, Y + 29); j.Dir = PeopleArt.Right; j.Act = PeopleArt.Act.Shovel; }       // charging the furnace
+                    else { j.Spot = new Vector2(X + 32, Y + 29); j.Dir = PeopleArt.Left; j.Act = PeopleArt.Act.Shovel; }
+                    j.Front = true;
+                    return j;
+                case BuildingType.Cemetery: j.Spot = Front(b, p); j.Dir = PeopleArt.Left; j.Act = PeopleArt.Act.Shovel; return j;
+                case BuildingType.BuilderYard: j.Spot = Front(b, p); j.Dir = p.Seed < 0.5f ? PeopleArt.Left : PeopleArt.Right; j.Act = PeopleArt.Act.Saw; return j;
+                case BuildingType.Storehouse: case BuildingType.BoardingHouse: j.Spot = Front(b, p); j.Act = PeopleArt.Act.Sweep; return j;
             }
-            return Front(b, p);
+            j.Spot = Front(b, p);
+            return j;
+        }
+
+        /// <summary>Where the tool lands, relative to the worker's feet, for the dust, chips and splashes.</summary>
+        static Vector2 ToolTip(PeopleArt.Act a, int dir)
+        {
+            Vector2 o;
+            switch (a)
+            {
+                case PeopleArt.Act.Chop: o = new Vector2(-10, -6); break;
+                case PeopleArt.Act.Pick: o = new Vector2(-10, -1); break;
+                case PeopleArt.Act.Hoe: o = new Vector2(-9, 0); break;
+                case PeopleArt.Act.Scythe: o = new Vector2(-11, -1); break;
+                case PeopleArt.Act.Sow: o = new Vector2(-6, -9); break;
+                case PeopleArt.Act.Fork: o = new Vector2(-9, -19); break;
+                case PeopleArt.Act.Shovel: o = new Vector2(-9, -12); break;
+                case PeopleArt.Act.Maul: o = new Vector2(-8, -3); break;
+                case PeopleArt.Act.Saw: o = new Vector2(-9, -3); break;
+                case PeopleArt.Act.Fish: o = dir == PeopleArt.Down ? new Vector2(7, 8) : dir == PeopleArt.Up ? new Vector2(7, -15) : new Vector2(-16, 1); break;
+                case PeopleArt.Act.Pluck: o = new Vector2(-4, -17); break;
+                case PeopleArt.Act.Sweep: o = new Vector2(-2, 0); break;
+                case PeopleArt.Act.Knead: o = new Vector2(0, -3); break;
+                default: o = new Vector2(-6, -6); break;
+            }
+            if (dir == PeopleArt.Right) o.x = -o.x;
+            else if ((dir == PeopleArt.Down || dir == PeopleArt.Up) && a != PeopleArt.Act.Fish) o.x = a == PeopleArt.Act.Sweep ? (Random.value - 0.5f) * 6 : o.x * 0.3f;
+            return o;
+        }
+
+        /// <summary>A spray of little bits thrown up where a tool lands.</summary>
+        void Bits(float x, float y, int kind, int n, float vx0, float spread, float up)
+        {
+            for (int i = 0; i < n; i++)
+                SpawnFx(x + (Random.value - 0.5f) * 3, y - Random.value * 2, kind, vx0 + (Random.value - 0.5f) * spread, 0.35f + Random.value * 0.35f, -up * (0.5f + Random.value * 0.7f));
+        }
+
+        /// <summary>Chips, grit, soil, hay, seed and spray as the tool lands; the tree shivers under the axe.</summary>
+        void WorkFx(PeopleArt.Act a, int dir, Vector2 at, Job j)
+        {
+            var o = ToolTip(a, dir); float x = at.x + o.x, y = at.y + o.y;
+            float away = dir == PeopleArt.Right ? 1 : dir == PeopleArt.Left ? -1 : 0;
+            switch (a)
+            {
+                case PeopleArt.Act.Chop:
+                    Bits(x, y, FxChip, 4, -away * 10, 30, 30);
+                    if (j.Tile >= 0) { treeShake[j.Tile] = time + 0.18f; if (town.Season != 3 && Random.value < 0.35f) SpawnFx(j.Tile % Town.Cols * 16 + 4 + Random.value * 8, j.Tile / Town.Cols * 16 - 6 - Random.value * 8, FxLeaf, (Random.value - 0.5f) * 8, 1.6f, 5); }
+                    break;
+                case PeopleArt.Act.Pick:
+                    Bits(x, y, FxGrit, 4, -away * 8, 30, 28);
+                    if (Random.value < 0.35f) SpawnFx(x, y - 1, FxSpark, (Random.value - 0.5f) * 30, 0.3f);
+                    break;
+                case PeopleArt.Act.Maul: Bits(x, y, FxChip, 5, 0, 44, 34); break;
+                case PeopleArt.Act.Hoe: Bits(x, y, town.Season == 3 ? FxFlour : FxSoil, 3, 0, 20, 18); break;
+                case PeopleArt.Act.Scythe: Bits(x, y, FxHay, 4, away * 12, 26, 22); break;
+                case PeopleArt.Act.Sow: Bits(x, y, FxSeed, 6, away * 26, 18, 10); break;
+                case PeopleArt.Act.Fork: Bits(x, y, town.Season == 3 ? FxSoil : FxHay, 5, away * 10, 24, 16); break;
+                case PeopleArt.Act.Shovel:
+                    if (j.B != null && j.B.Type == BuildingType.IronMine) { for (int i = 0; i < 4; i++) SpawnFx(j.B.X * 16 + 23 + Random.value * 4, j.B.Y * 16 + 21, FxSpark, (Random.value - 0.5f) * 20, 0.4f + Random.value * 0.3f); }
+                    else Bits(x, y, FxSoil, 5, away * 14, 24, 26);
+                    break;
+                case PeopleArt.Act.Saw: Bits(x, y, FxSawdust, 2, 0, 14, 4); break;
+                case PeopleArt.Act.Fish: Bits(x, y, FxSplash, 6, 0, 24, 26); break;
+                case PeopleArt.Act.Pluck: if (town.Season != 3 && Random.value < 0.6f) SpawnFx(x, y, FxLeaf, (Random.value - 0.5f) * 8, 1.4f, 5); break;
+                case PeopleArt.Act.Sweep: SpawnFx(x, y - 1, FxDust, (Random.value - 0.5f) * 16, 0.6f); break;
+            }
         }
 
         bool HasDoor(Building b) { return b != null && b.Built && ArtFor(b).HasDoor; }
@@ -715,7 +954,7 @@ namespace FrontierLedger.Game
         /// <summary>Where a settler wants to be right now, and whether they're indoors there.</summary>
         Vector2 TargetFor(Citizen p, out bool inside, out Building visit)
         {
-            inside = false; visit = null;
+            inside = false; visit = null; curJob = default(Job);
             float ph = town.TimeOfDay;
             bool workHours = ph > 0.24f && ph < 0.7f, evening = ph >= 0.7f && ph < 0.86f, nightTime = ph >= 0.86f || ph < 0.2f;
             if (p.Jail > 0) { var off = town.Office; if (off != null) { visit = off; inside = true; return HasDoor(off) ? DoorStep(off, p) : Front(off, p, 0.3f); } }
@@ -879,6 +1118,8 @@ namespace FrontierLedger.Game
                 var b = bv.B; var it = bv.In;
                 float ox = b.X * 16, oy = b.Y * 16 - bv.Art.Lift; int foot = (b.Y + b.Def.H) * 16;
                 int nw = 0, nv = 0, ns = 0, nb = 0;
+                int callers = people.Values.Count(x => x.DoorState == In && x.DoorB == b.Id && x.P.WorkId != b.Id && x.P.HomeId != b.Id);
+                bool working = workHoursNow || ((b.Type == BuildingType.Saloon || b.Type == BuildingType.Hotel) && !night);
                 foreach (var v in people.Values.Where(x => x.DoorState == In && x.DoorB == b.Id).OrderBy(x => x.P.Id))
                 {
                     var p = v.P;
@@ -912,9 +1153,25 @@ namespace FrontierLedger.Game
                         if (hf == 1 && v.LastHammer == 0) for (int k = 0; k < 3; k++) SpawnFx(ox + it.Sparks.x + Random.value * 4 - 2, oy + it.Sparks.y - Random.value * 3, FxSpark, (Random.value - 0.5f) * 24, 0.35f + Random.value * 0.3f);
                         v.LastHammer = hf;
                     }
-                    else if (list == it.Work && workHoursNow) frame = (Mathf.FloorToInt(time * 3 + p.Seed * 5) % 2) * 2;
-                    else if (Noise.Hash(p.Id, Mathf.FloorToInt(time * 0.5f), 17) < 0.15f) frame = 1;   // a fidget now and then
-                    v.Sr.sprite = PeopleArt.Get(p, sp.Dir, frame);
+                    var act = list == it.Work && working && !smith ? IndoorAct(b.Type, idx % list.Count, callers) : PeopleArt.Act.None;
+                    if (act != PeopleArt.Act.None)
+                    {
+                        bool landing;
+                        int phase = PeopleArt.PhaseAt(act, time * Mathf.Min(gameSpeed, 2) + p.Seed * 5, out landing);
+                        if (landing && phase != v.LastPhase)
+                        {
+                            if (act == PeopleArt.Act.Pull && it.Fire.x >= 0) for (int k = 0; k < 3; k++) SpawnFx(ox + it.Fire.x + Random.value * 4 - 2, oy + it.Fire.y - Random.value * 3, FxSpark, (Random.value - 0.5f) * 16, 0.4f + Random.value * 0.3f);
+                            else if (act == PeopleArt.Act.Knead && Random.value < 0.6f) SpawnFx(x + (Random.value - 0.5f) * 6, y - 4, FxFlour, (Random.value - 0.5f) * 12, 0.7f, -4);
+                        }
+                        v.LastPhase = phase;
+                        v.Sr.sprite = PeopleArt.Working(p, sp.Dir, act, phase);
+                    }
+                    else
+                    {
+                        if (list == it.Work && workHoursNow && !smith) frame = (Mathf.FloorToInt(time * 3 + p.Seed * 5) % 2) * 2;
+                        else if (Noise.Hash(p.Id, Mathf.FloorToInt(time * 0.5f), 17) < 0.15f) frame = 1;   // a fidget now and then
+                        v.Sr.sprite = PeopleArt.Get(p, sp.Dir, frame);
+                    }
                     v.Sr.transform.position = Pixels.ToWorld(x, y);
                     var room = it.Room;
                     v.Sr.sortingOrder = SortOrder(foot, 1 + Mathf.Clamp((sp.Y - room.y) * 3 / Mathf.Max(1, room.height), 0, 2));
@@ -932,6 +1189,30 @@ namespace FrontierLedger.Game
                     sr.sortingOrder = SortOrder(foot, 1 + Mathf.Clamp((sp.Y - it.Room.y) * 3 / Mathf.Max(1, it.Room.height), 0, 2));
                 }
             }
+        }
+
+        /// <summary>What the staff at each station indoors are seen doing.</summary>
+        static PeopleArt.Act IndoorAct(BuildingType t, int station, int callers)
+        {
+            switch (t)
+            {
+                case BuildingType.Store: return station % 2 == 0 ? PeopleArt.Act.Serve : PeopleArt.Act.Write;
+                case BuildingType.Saloon: return PeopleArt.Act.Wipe;
+                case BuildingType.Bank: case BuildingType.Estate: return PeopleArt.Act.Write;
+                case BuildingType.Sheriff: return station == 0 ? PeopleArt.Act.Write : PeopleArt.Act.None;
+                case BuildingType.Smithy: return station == 1 ? PeopleArt.Act.Pull : PeopleArt.Act.None;   // working the bellows
+                case BuildingType.School: return PeopleArt.Act.Point;
+                case BuildingType.DoctorOffice: return station == 0 && callers > 0 ? PeopleArt.Act.Tend : PeopleArt.Act.Write;
+                case BuildingType.Butcher: return station == 0 ? PeopleArt.Act.Cleaver : PeopleArt.Act.Serve;
+                case BuildingType.Bakery: return station == 0 ? PeopleArt.Act.Peel : PeopleArt.Act.Knead;
+                case BuildingType.Tailor: return station == 0 ? PeopleArt.Act.Shears : PeopleArt.Act.Sew;
+                case BuildingType.Hotel: return station == 0 ? PeopleArt.Act.Write : station == 1 ? PeopleArt.Act.Serve : PeopleArt.Act.Stir;
+                case BuildingType.Barber: return callers > station ? PeopleArt.Act.Shave : PeopleArt.Act.Sweep;
+                case BuildingType.Church: return callers > 0 ? PeopleArt.Act.Preach : PeopleArt.Act.Write;
+                case BuildingType.Brewery: return PeopleArt.Act.Stir;
+                case BuildingType.BoardingHouse: return PeopleArt.Act.Stir;
+            }
+            return PeopleArt.Act.None;
         }
 
         /// <summary>A stranger passing through: drummers in bowlers, cattlemen, families on the road west.</summary>
@@ -989,6 +1270,7 @@ namespace FrontierLedger.Game
                 }
                 bool inside; Building visit;
                 var goal = TargetFor(p, out inside, out visit);
+                var job = curJob;
 
                 // haulers shuttle between the town stores and the site, a load at a time
                 bool hauling = false;
@@ -1013,7 +1295,7 @@ namespace FrontierLedger.Game
                         if (v.Carry) { goal = Front(store, p, 0.6f); visit = store; } else { goal = Front(wagon, p, 0.8f); visit = wagon; }
                     }
                 }
-                if (!hauling) { v.Carry = false; v.Pause = 0; }
+                if (!hauling) { v.Carry = false; v.Pause = 0; } else job = default(Job);
 
                 if (float.IsNaN(v.Pos.x))
                 {
@@ -1061,7 +1343,7 @@ namespace FrontierLedger.Game
                         v.Pause += anim;
                         if (v.Pause > 0.7f) { v.Pause = 0; v.Carry = !v.Carry; if (!v.Carry) SpawnFx(v.Pos.x, v.Pos.y - 2, FxDust, (Random.value - 0.5f) * 10, 0.6f); }
                     }
-                    else if (arrived) v.Dir = Hammering(p) && workHours ? PeopleArt.Up : p.Role == Role.Worker ? v.Dir : PeopleArt.Down;
+                    else if (arrived) v.Dir = Hammering(p) && workHours ? PeopleArt.Up : job.Act != PeopleArt.Act.None && workHours ? job.Dir : p.Role == Role.Worker ? v.Dir : PeopleArt.Down;
                 }
                 else if (v.DoorState == Entering || v.DoorState == Exiting)
                 {
@@ -1080,6 +1362,7 @@ namespace FrontierLedger.Game
                 float x = Mathf.Round(v.Pos.x), y = Mathf.Round(v.Pos.y);
                 int frame = v.Moving ? ((Mathf.FloorToInt(v.Step / 5) % 4) == 1 ? 1 : (Mathf.FloorToInt(v.Step / 5) % 4) == 3 ? 2 : 0) : 0;
                 int order = SortOrder(y, 2);
+                var act = PeopleArt.Act.None; int phase = 0;
                 var tint = Color.white;
                 if (v.DoorState == Entering || v.DoorState == Exiting)
                 {
@@ -1107,6 +1390,16 @@ namespace FrontierLedger.Game
                         v.Held.transform.localPosition = Pixels.ToWorld(1, hf == 0 ? -18 : -14);
                         if (hf == 1 && v.LastHammer == 0 && Random.value < 0.5f) SpawnFx(x + 3 + Random.value * 4, y - 12 - Random.value * 4, FxDust, (Random.value - 0.5f) * 12, 0.5f);
                         v.LastHammer = hf;
+                    }
+                    else if (job.Act != PeopleArt.Act.None && (v.Pos - job.Spot).sqrMagnitude < 36f)
+                    {
+                        // at the job: swinging, hoeing, hauling, casting
+                        act = job.Act; v.Dir = job.Dir;
+                        bool landing;
+                        phase = PeopleArt.PhaseAt(act, time * Mathf.Min(gameSpeed, 2) + p.Seed * 5, out landing);
+                        if (landing && phase != v.LastPhase && particles.Count < 520) WorkFx(act, v.Dir, new Vector2(x, y), job);
+                        v.LastPhase = phase;
+                        if (job.Front && job.B != null) order = Mathf.Max(order, SortOrder((job.B.Y + job.B.Def.H) * 16, 3));
                     }
                     else if (p.Role == Role.Worker) frame = (Mathf.FloorToInt(time * 3 + p.Seed * 5) % 2) * 2;
                 }
@@ -1141,7 +1434,7 @@ namespace FrontierLedger.Game
                         if (y < foot && x >= site.X * 16 - 4 && x <= (site.X + site.Def.W) * 16 + 4) order = SortOrder(foot, 3);
                     }
                 }
-                v.Sr.sprite = PeopleArt.Get(p, v.Dir, frame);
+                v.Sr.sprite = act != PeopleArt.Act.None ? PeopleArt.Working(p, v.Dir, act, phase) : PeopleArt.Get(p, v.Dir, frame);
                 v.Sr.color = tint; v.Held.color = tint;
                 v.Sr.transform.position = Pixels.ToWorld(x, y);
                 v.Sr.sortingOrder = order; v.Held.sortingOrder = order + 1;
@@ -1228,6 +1521,24 @@ namespace FrontierLedger.Game
                         p.X += p.Vx * dt; p.Y -= 14 * dt; sz = 1;
                         p.Sr.color = new Color(1f, 242 / 255f, 160 / 255f, (Mathf.FloorToInt(time * 12 + i) % 3 == 0 ? 0.4f : 1f) * (1 - k));
                         break;
+                    case FxLeaf:
+                        // drifts down, rocking side to side
+                        p.X += (p.Vx + Mathf.Sin(time * 5 + i) * 10) * dt; p.Y += p.Vy * dt; sz = 1;
+                        { var c = BitColors[FxLeaf - FxChip]; p.Sr.color = new Color(c.r / 255f, c.g / 255f, c.b / 255f, Mathf.Min(1, 3 * (1 - k))); }
+                        break;
+                    case FxFlour:
+                        p.X += p.Vx * dt; p.Vx *= Mathf.Max(0, 1 - 3f * dt); p.Y += p.Vy * dt; p.Vy *= Mathf.Max(0, 1 - 4f * dt); p.Y -= 3 * dt;
+                        sz = 1 + Mathf.FloorToInt(k * 2);
+                        p.Sr.color = new Color(1f, 1f, 0.97f, 0.85f * (1 - k));
+                        break;
+                    case FxChip: case FxGrit: case FxSoil: case FxHay: case FxSeed: case FxSplash: case FxSawdust:
+                    {
+                        // thrown up, then falling back
+                        p.X += p.Vx * dt; p.Y += p.Vy * dt; p.Vy += (p.Kind == FxSawdust ? 30 : 110) * dt; sz = 1;
+                        var c = BitColors[p.Kind - FxChip];
+                        p.Sr.color = new Color(c.r / 255f, c.g / 255f, c.b / 255f, Mathf.Min(1, 4 * (1 - k)));
+                        break;
+                    }
                     default:
                         p.X += (3 + p.Vx) * dt; p.Y -= 7 * dt;
                         sz = 1 + Mathf.FloorToInt(k * 3);
@@ -1287,12 +1598,12 @@ namespace FrontierLedger.Game
             }
         }
 
-        void SpawnFx(float x, float y, int kind, float vx, float life)
+        void SpawnFx(float x, float y, int kind, float vx, float life, float vy = 0)
         {
             if (particles.Count >= 600) return;
             var sr = particlePool.Count > 0 ? particlePool.Pop() : MakeSr("Fx", layerFx, NatureArt.White, OrderSmoke);
             sr.enabled = true;
-            particles.Add(new Particle { Sr = sr, X = x, Y = y, Life = life, Max = life, Vx = vx, Kind = kind });
+            particles.Add(new Particle { Sr = sr, X = x, Y = y, Life = life, Max = life, Vx = vx, Vy = vy, Kind = kind });
         }
 
         void UpdateNight()

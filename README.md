@@ -169,6 +169,14 @@ Trade, Election, the Gazette and Freight.
     the butcher, baker, tailor, barber, brewer and hotel staff. Butchers, bakers and barbers wear aprons.
   - On Sunday morning most of the town walks to church. Ranch hands ride herd among the cattle, steers are led to the
     butcher on a rope, and travellers' horses stand at the hotel's rail in the evening.
+  - Everyone is seen at their work. Farm hands sow and hoe in spring and summer, scythe the ripe grain in autumn and fork
+    hay and muck. Lumberjacks chop at the nearest trees, which shake and drop chips until they come down. Quarrymen
+    swing picks at boulders, woodcutters split logs with a maul and saw at the sawhorse, fishers cast from the bank,
+    and gatherers pick into baskets. Ranch hands fork hay and swing a rope among the herd. Tanners scrape hides and work
+    the pits, and miners haul the ore rope and shovel charcoal into the furnace.
+  - Indoors the butcher cleaves, the baker kneads and works the oven peel, the tailor cuts and sews, the barber shaves
+    whoever's in the chair, the brewer stirs the kettle, the barkeep wipes the bar, clerks serve and keep the books,
+    the smith's striker works the bellows, the teacher points at the blackboard and the preacher preaches.
   - Every purchase is a trip: someone from the household walks to the shop, goes in, and comes home with a sack.
     Those at work shop after hours. Farmers, fishers, gatherers and woodcutters carry what they sell to the store or storehouse.
 - **Seeing inside:** click a cottage, the boarding house, the estate, the storehouse, store, saloon, bank, sheriff's office,
