@@ -19,6 +19,7 @@ namespace FrontierLedger.Simulation
                 Female = female,
                 Age = age,
                 Money = money,
+                WorthStart = money,
                 Role = age < Balance.AdultAge ? Role.Child : Role.Laborer,
                 Happy = Rnd(55, 70),
                 Health = Rnd(85, 100),

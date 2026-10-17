@@ -150,6 +150,9 @@ namespace FrontierLedger.Simulation
         public int BathedDay = -999;     // last bath and shave at the barber's
         public int ChurchDay = -999;     // last Sunday at church
         public bool AteMeat, AteBread;   // what was on the table today
+        public float Earned;             // money coming in this week (wages after tax, shares, an owner's take, interest)
+        public float EarnedLast, SpentLast;   // and last week: what came in, and what went out
+        public float WorthStart;         // home money plus savings when the week began
         public string Name { get { return First + " " + Family; } }
         public bool IsChild { get { return Age < Balance.AdultAge; } }
     }

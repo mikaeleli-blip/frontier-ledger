@@ -11,7 +11,7 @@ namespace FrontierLedger.Simulation
     [Serializable]
     public partial class Town
     {
-        public const int CurrentVersion = 9;
+        public const int CurrentVersion = 10;
         public int Version = CurrentVersion;
         public int Seed;
         public int Day = 1;
@@ -34,6 +34,7 @@ namespace FrontierLedger.Simulation
         public TownLedger LedgerThisWeek = new TownLedger();
         public TownLedger LedgerLastWeek = new TownLedger();
         public bool HasLastWeek;
+        public bool PeopleWeekValid;             // settlers' earned and spent figures cover a whole week
         public int CrimesWeek, CrimesLast, CaughtWeek, CaughtLast;
         public int Births, Deaths, Unburied;
         public int FounderBuilderId = -1;        // the builder who came with the wagon; owns the first yard
@@ -142,6 +143,13 @@ namespace FrontierLedger.Simulation
                 foreach (var p in People) { p.Clothes = Rnd(0.6f, 1f); p.BathedDay = -999; p.ChurchDay = -999; }
                 foreach (var b in Buildings) { b.Attendance = 0; b.Collection = 0; }
                 Version = 9;
+            }
+            if (Version < 10)
+            {
+                // version 10: each settler's earnings and spending, counted from now
+                foreach (var p in People) { p.Earned = 0; p.EarnedLast = 0; p.SpentLast = 0; p.WorthStart = Savings(p); }
+                PeopleWeekValid = false;
+                Version = 10;
             }
         }
 

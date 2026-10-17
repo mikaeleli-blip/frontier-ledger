@@ -334,7 +334,7 @@ namespace FrontierLedger.Simulation
                         float h = Math.Min(f.CropLeft, Balance.HarvestPerWorker * Balance.HelperHarvest * FoodBonus);
                         f.CropLeft -= h; Make(f, Good.Food, h);
                         float pay = Math.Max(0, Math.Min(f.Cash, f.Wage * Balance.HelperPay));
-                        f.Cash -= pay; f.Week.Costs += pay; p.Money += pay;
+                        f.Cash -= pay; f.Week.Costs += pay; p.Money += pay; p.Earned += pay;
                     }
             for (; k < idle.Count; k++)
             {
@@ -705,7 +705,7 @@ namespace FrontierLedger.Simulation
                 if (deposits < 1f) continue;
                 float rate = Math.Min(Balance.DepositInterest, Balance.DepositShare * Math.Max(0, bank.Last.Revenue) / deposits);
                 if (rate <= 0) continue;
-                foreach (var p in People) if (p.BankId == bank.Id && p.Deposit > 0) { float i = p.Deposit * rate; p.Deposit += i; bank.Week.Costs += i; }
+                foreach (var p in People) if (p.BankId == bank.Id && p.Deposit > 0) { float i = p.Deposit * rate; p.Deposit += i; p.Earned += i; bank.Week.Costs += i; }
                 foreach (var b in Buildings) if (b.BankId == bank.Id && b.Deposit > 0) { float i = b.Deposit * rate; b.Deposit += i; bank.Week.Costs += i; }
             }
         }
@@ -915,7 +915,7 @@ namespace FrontierLedger.Simulation
                     float price = Balance.VisitPrice, share = price * Balance.VisitShare, house = price - share;
                     p.Money -= price;
                     float tax = share * Policy.IncomeTax;
-                    w.Money += share - tax; Treasury += tax; LedgerThisWeek.IncomeTax += tax;
+                    w.Money += share - tax; w.Earned += share - tax; Treasury += tax; LedgerThisWeek.IncomeTax += tax;
                     b.Cash += house; b.Week.Revenue += house; b.Today.Sold++; b.Week.Sold++;
                     p.Happy = Math.Min(100, p.Happy + 3f);
                     Visit(p, b);
@@ -930,7 +930,7 @@ namespace FrontierLedger.Simulation
                     if (w == null) continue;
                     left[w.Id]--;
                     float price = Balance.VisitPrice, share = price * Balance.VisitShare, house = price - share, tax = share * Policy.IncomeTax;
-                    w.Money += share - tax; Treasury += tax; LedgerThisWeek.IncomeTax += tax;
+                    w.Money += share - tax; w.Earned += share - tax; Treasury += tax; LedgerThisWeek.IncomeTax += tax;
                     b.Cash += house; b.Week.Revenue += house; b.Today.Sold++; b.Week.Sold++;
                 }
             }
@@ -963,7 +963,7 @@ namespace FrontierLedger.Simulation
                 // the town makes up a thin plate so the preacher can live
                 float topUp = Math.Max(0, Math.Min(Balance.PlateTopUp - plate, Treasury));
                 Treasury -= topUp; LedgerThisWeek.Salaries += topUp;
-                rev.Money += plate + topUp;
+                rev.Money += plate + topUp; rev.Earned += plate + topUp;
                 c.Attendance = n; c.Collection = plate; c.Today.Sold = n;
             }
         }
@@ -1073,7 +1073,7 @@ namespace FrontierLedger.Simulation
             }
             float t = Math.Min(amount, avail);
             if (t <= 0.01f) return 0;
-            b.Cash -= t; o.Money += t; b.Week.Drawn += t;
+            b.Cash -= t; o.Money += t; o.Earned += t; b.Week.Drawn += t;
             return t;
         }
 
@@ -1228,7 +1228,7 @@ namespace FrontierLedger.Simulation
             if (Treasury >= amount)
             {
                 Treasury -= amount; ledgerLine += amount;
-                float tax = amount * Policy.IncomeTax; p.Money += amount - tax; Treasury += tax; LedgerThisWeek.IncomeTax += tax; p.Unpaid = 0;
+                float tax = amount * Policy.IncomeTax; p.Money += amount - tax; p.Earned += amount - tax; Treasury += tax; LedgerThisWeek.IncomeTax += tax; p.Unpaid = 0;
             }
             else
             {
@@ -1255,7 +1255,7 @@ namespace FrontierLedger.Simulation
                     {
                         b.Cash -= wage; b.Week.Costs += wage;
                         float tax = wage * Policy.IncomeTax;
-                        p.Money += wage - tax; Treasury += tax; LedgerThisWeek.IncomeTax += tax;
+                        p.Money += wage - tax; p.Earned += wage - tax; Treasury += tax; LedgerThisWeek.IncomeTax += tax;
                     }
                     else
                     {
@@ -1397,7 +1397,7 @@ namespace FrontierLedger.Simulation
                 {
                     p.SeenToday = true;
                     var payer = p.IsChild ? GetCitizen(p.ParentId) : p;
-                    if (payer != null && payer.Money > 5f + Balance.VisitFee) { payer.Money -= Balance.VisitFee; doc.Money += Balance.VisitFee; }
+                    if (payer != null && payer.Money > 5f + Balance.VisitFee) { payer.Money -= Balance.VisitFee; doc.Money += Balance.VisitFee; doc.Earned += Balance.VisitFee; }
                 }
                 // a house call on the worst case, otherwise office hours
                 var worst = patients.FirstOrDefault(p => p.HomeId >= 0);
@@ -1767,7 +1767,7 @@ namespace FrontierLedger.Simulation
                     {
                         // the banker takes home part of the bank's profit, never the depositors' money
                         draw = Math.Min(Math.Max(0, profit) * 0.6f, Math.Max(0, b.Cash - VaultReserve(b) - b.Wage * 4));
-                        b.Cash -= draw; o.Money += draw;
+                        b.Cash -= draw; o.Money += draw; o.Earned += draw;
                     }
                     else if (b.OwnerId >= 0 && b.Cash + b.Deposit > reserve)
                     {
@@ -1777,7 +1777,7 @@ namespace FrontierLedger.Simulation
                         else fromAccount = 0;
                         float fromTill = Math.Min(draw - fromAccount, Math.Max(0, b.Cash));
                         b.Cash -= fromTill; o.Money += fromTill;
-                        draw = fromAccount + fromTill;
+                        draw = fromAccount + fromTill; o.Earned += draw;
                     }
                 }
                 else if (b.Cash > reserve)
@@ -1820,6 +1820,13 @@ namespace FrontierLedger.Simulation
                 b.Week.Clear();
             }
             BankDeposits();
+            foreach (var p in People)
+            {
+                float worth = Savings(p);
+                p.EarnedLast = p.Earned; p.SpentLast = Math.Max(0, p.Earned - (worth - p.WorthStart));
+                p.Earned = 0; p.WorthStart = worth;
+            }
+            PeopleWeekValid = true;
             LedgerLastWeek = LedgerThisWeek; HasLastWeek = true; LedgerThisWeek = new TownLedger();
             CrimesLast = CrimesWeek; CaughtLast = CaughtWeek; CrimesWeek = 0; CaughtWeek = 0;
         }

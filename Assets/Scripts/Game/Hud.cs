@@ -226,7 +226,7 @@ namespace FrontierLedger.Game
             Ui.Text(r.x + 21, r.y + 9, "Treasury", Ui.InkSoft);
             Ui.Text(r.xMax - 8, r.y + 9, Town.Money(T.Treasury), T.Treasury < 0 ? Ui.Bad : Ui.Title, Ui.Align.Right);
             Icon[] icons = { Icon.Book, Icon.People, Icon.Scales, Icon.Ballot, Icon.News, Icon.Wagon };
-            string[] names = { "Ledger: taxes, wages, the town books", "Citizens", "Trade: food, firewood and businesses", "Election and mayor", "Gazette: what's been happening",
+            string[] names = { "Ledger: the town's money, who has what, taxes and wages", "Citizens", "Trade: food, firewood and businesses", "Election and mayor", "Gazette: what's been happening",
                                "Freight: order goods and settlers from back east" };
             for (int i = 0; i < 6; i++)
             {
@@ -418,7 +418,9 @@ namespace FrontierLedger.Game
             string[] titles = { "", "Town Ledger", "Citizens", "Trade & Stores", "Election", "The Gazette", "Freight from Back East" };
             Ui.Text(r.x + 10, r.y + 9, titles[(int)tab], Ui.Title);
             if (Ui.Button(new Rect(r.xMax - 22, r.y + 6, 15, 14), "", false, true, Icon.Close)) Later(() => tab = Tab.None);
-            var view = new Rect(r.x + 8, r.y + 22, r.width - 16, r.height - 30);
+            float top = r.y + 22;
+            if (tab == Tab.Ledger) { LedgerPages(new Rect(r.x + 8, r.y + 24, r.width - 16, 14)); top += 18; }
+            var view = new Rect(r.x + 8, top, r.width - 16, r.yMax - 8 - top);
             Ui.Fill(new Rect(view.x, view.y - 1, view.width, 1), Ui.Hex("#c8a070"));
             panelScroll = GUI.BeginScrollView(view, panelScroll, new Rect(0, 0, view.width - 6, Mathf.Max(view.height, panelContentH)), false, false, GUIStyle.none, GUIStyle.none);
             bx = 2; by = 4; bw = view.width - 12;
@@ -456,29 +458,364 @@ namespace FrontierLedger.Game
             return nv;
         }
 
+        // ================================================================== the ledger: who has what
+        enum Page { Town, People, Business, Bank, Rules }
+        enum Sort { Money, Earned, Name, Job }
+        Page page = Page.Town;
+        Sort sortBy = Sort.Money;
+        static readonly string[] PageNames = { "Town", "People", "Business", "Bank", "Rules" };
+        static readonly string[] PageTips =
+        {
+            "The town's money: what came in, what went out, and who holds the money in town",
+            "Every settler: what they have and what they earned",
+            "Every business: profit, cash, what the owner took home, and loans",
+            "The bank: the vault, savers and loans",
+            "Taxes, wages, rent, the stores and elections"
+        };
+
+        static string M(float v) { return Town.Money(v); }
+        bool IsSel(SelectionKind k, int id) { return gc.Selected.Kind == k && gc.Selected.Id == id; }
+
+        /// <summary>The page buttons along the top of the ledger, outside the scrolling part.</summary>
+        void LedgerPages(Rect r)
+        {
+            float w = Mathf.Floor((r.width - 8) / 5f);
+            for (int i = 0; i < 5; i++)
+            {
+                var b = new Rect(r.x + i * (w + 2), r.y, w, 14);
+                var pg = (Page)i;
+                if (Ui.Button(b, PageNames[i], page == pg)) Later(() => { page = pg; panelScroll = Vector2.zero; });
+                if (Ui.Hover(b)) hoverTip = PageTips[i];
+            }
+        }
+
         void LedgerTab()
         {
-            Row("Treasury", Town.Money(T.Treasury), T.Treasury < 0 ? Ui.Bad : Ui.Title);
+            switch (page)
+            {
+                case Page.Town: TownPage(); break;
+                case Page.People: PeoplePage(); break;
+                case Page.Business: BusinessPage(); break;
+                case Page.Bank: BankPage(); break;
+                default: RulesPage(); break;
+            }
+        }
+
+        /// <summary>A row that selects a settler or building when clicked. Returns true while the mouse is over it.</summary>
+        bool PickRow(string left, string right, Color lc, Color rc, Selection pick)
+        {
+            var rr = new Rect(bx - 2, by - 2, bw + 4, 11);
+            bool sel = IsSel(pick.Kind, pick.Id), hov = Ui.Hover(rr);
+            if (sel || hov) Ui.Fill(rr, sel ? Ui.Gold : Ui.ParchDark);
+            float rw = Ui.Text(bx + bw, by, right, rc, Ui.Align.Right);
+            Ui.Text(bx, by, Trim(left, bw - rw - 6), lc);
+            if (Ui.Clickable(rr)) Later(() => { gc.Select(pick); ResetConfirm(); });
+            by += 11;
+            return hov;
+        }
+
+        // ---------------------------------------------------------------- town page
+        void TownPage()
+        {
+            Row("Treasury", M(T.Treasury), T.Treasury < 0 ? Ui.Bad : Ui.Title);
             Sparkline(new Rect(bx, by, bw, 26)); by += 30;
+
+            var C = T.LedgerThisWeek; var L = T.HasLastWeek ? T.LedgerLastWeek : null;
+            Heading("The town's money");
+            Ui.Text(bx + bw - 54, by, "THIS WK", Ui.InkSoft, Ui.Align.Right); Ui.Text(bx + bw, by, "LAST WK", Ui.InkSoft, Ui.Align.Right); by += 11;
+            Ui.Text(bx, by, "Came in", Ui.InkSoft); by += 10;
+            Book("Taxes", C, L, x => x.IncomeTax + x.HeadTax + x.BusinessTax, 1, x => "income tax " + M(x.IncomeTax) + ", head tax " + M(x.HeadTax) + ", business tax " + M(x.BusinessTax) + ".");
+            Book("Rent", C, L, x => x.Rent, 1, x => "cottage and boarding-house rent " + M(x.Rent) + ".");
+            Book("Sales", C, L, x => x.StoreSales + x.Exports + x.TownTakings, 1, x => "storehouse sales " + M(x.StoreSales) + ", takings from town-run businesses " + M(x.TownTakings) + (x.Exports > 0 ? ", the wagon sold " + M(x.Exports) : "") + ".");
+            Book("Deeds & claims", C, L, x => x.Deeds + x.Claims, 1, x => "businesses sold to families " + M(x.Deeds) + ", land claims from newcomers " + M(x.Claims) + ".");
+            Ui.Text(bx, by, "Went out", Ui.InkSoft); by += 10;
+            Book("Wages & relief", C, L, x => x.Salaries + x.Builders + x.Relief, -1, x => "salaries for the sheriff, teacher, doctor and the rest " + M(x.Salaries) + (x.Builders > 0 ? ", day labor " + M(x.Builders) : "") + ", relief for laborers with no work " + M(x.Relief) + ".");
+            Book("Building", C, L, x => x.Contracts + x.Construction, -1, x => "builder's yard contracts " + M(x.Contracts) + ", clearing land and roads " + M(x.Construction) + ".");
+            Book("Supplies", C, L, x => x.Materials + x.Imports - x.Refunds + x.TownTills, -1, x => "food, firewood and materials for the stores " + M(x.Materials) + (x.Imports > 0 ? ", freight from back east " + M(x.Imports - x.Refunds) : "") + ", cash put in town-run tills " + M(x.TownTills) + ".");
+            Book("Upkeep & grants", C, L, x => x.Upkeep + x.Grants, -1, x => "upkeep " + M(x.Upkeep) + ", grants to new owners " + M(x.Grants) + ".");
+            Ui.Line(bx, by, bw, Ui.Hex("#c8a070")); by += 2;
+            Book("Net", C, L, x => x.Net, 0, null);
+            if (C.CharityGoods > 0.5f) Para("Handed out free this week: goods worth " + M(C.CharityGoods) + ".");
+
+            // who holds the money
+            float home = 0, banked = 0;
+            foreach (var p in T.People) { home += p.Money; banked += p.Deposit; }
+            float till = 0, acct = 0, vault = 0, deposits = 0, lent = 0, owedTown = 0;
+            foreach (var b in T.Businesses)
+            {
+                if (b.Type == BuildingType.Bank) { vault += b.Cash; deposits += T.DepositsAt(b); }
+                else { till += b.Cash; acct += b.Deposit; }
+            }
+            foreach (var b in T.Buildings)
+                if (b.Debt > 0.01f) { if (T.GetBuilding(b.LenderId) != null) lent += b.Debt; else owedTown += b.Debt; }
+            float bankOwn = vault + lent - deposits;
+            bool hasBank = vault > 0.01f || lent > 0.01f || deposits > 0.01f;
+
+            Heading("Who has the money");
+            var cols = new[] { Ui.Hex("#d8a040"), Ui.Hex("#6a9a3a"), Ui.Hex("#5a86a8"), Ui.Hex("#9a5a8a") };
+            float[] part = { Mathf.Max(0, T.Treasury), home + banked, till + acct, hasBank ? Mathf.Max(0, bankOwn) : 0 };
+            float sum = part.Sum();
+            var bar = new Rect(bx, by, bw, 9);
+            Ui.Fill(bar, Ui.Ink);
+            if (sum > 0)
+            {
+                float x = bar.x + 1;
+                for (int i = 0; i < part.Length; i++) { float w = (bar.width - 2) * part[i] / sum; Ui.Fill(new Rect(x, bar.y + 1, w, bar.height - 2), cols[i]); x += w; }
+            }
+            by += 13;
+            Legend(cols[0], "Town treasury", T.Treasury, null);
+            Legend(cols[1], "Settlers", home + banked, "at home " + M(home) + (banked > 0.01f ? ", in the bank " + M(banked) : ""));
+            Legend(cols[2], "Businesses", till + acct, "in the tills " + M(till) + (acct > 0.01f ? ", in the bank " + M(acct) : ""));
+            if (hasBank) Legend(cols[3], "The bank's own", bankOwn, "vault " + M(vault) + " + lent out " + M(lent) + " - savers' money " + M(deposits));
+            if (lent > 0.5f) Row("Businesses owe the bank", M(lent), Ui.Warn);
+            if (owedTown > 0.5f) Row("Businesses owe the town", M(owedTown), Ui.Warn);
+
+            // settlers at a glance
+            var grown = T.Adults.OrderBy(p => T.Savings(p)).ToList();
+            if (grown.Count > 0)
+            {
+                Heading("Settlers");
+                var rich = grown[grown.Count - 1];
+                PickRow("Richest: " + rich.Name, M(T.Savings(rich)), Ui.Ink, Ui.Title, Selection.Person(rich.Id));
+                var poorest = grown[0];
+                PickRow("Poorest: " + poorest.Name, M(T.Savings(poorest)), Ui.Ink, T.Savings(poorest) < 5f ? Ui.Bad : Ui.Title, Selection.Person(poorest.Id));
+                Row("Typical grown-up has", M(T.Savings(grown[grown.Count / 2])));
+                int poor = grown.Count(p => T.Savings(p) < 5f);
+                Row("Down to their last $5", poor + " of " + grown.Count, poor > 0 ? Ui.Warn : Ui.Ink);
+                int charity = T.People.Count(p => p.CharityDays > 0);
+                if (charity > 0) Row("Living on town charity", charity.ToString(), Ui.Warn);
+                Row(T.PeopleWeekValid ? "All earned last week" : "All earned this week", M(grown.Sum(p => T.PeopleWeekValid ? p.EarnedLast : p.Earned)));
+                Para("The People page lists everyone and what they have.");
+            }
+        }
+
+        void Book(string name, TownLedger C, TownLedger L, System.Func<TownLedger, float> f, int sign, System.Func<TownLedger, string> tip)
+        {
+            var rr = new Rect(bx - 2, by - 2, bw + 4, 11);
+            if (tip != null && Ui.Hover(rr))
+            {
+                Ui.Fill(rr, Ui.ParchDark);
+                hoverTip = name + "\nThis week: " + tip(C) + (L != null ? "\nLast week: " + tip(L) : "");
+            }
+            Book(name, f(C), L != null ? f(L) : (float?)null, sign);
+        }
+
+        void Legend(Color c, string name, float v, string sub)
+        {
+            Ui.Fill(new Rect(bx, by, 7, 7), Ui.Ink); Ui.Fill(new Rect(bx + 1, by + 1, 5, 5), c);
+            Ui.Text(bx + 11, by, name, Ui.Ink);
+            Ui.Text(bx + bw, by, M(v), v < 0 ? Ui.Bad : Ui.Title, Ui.Align.Right);
+            by += 10;
+            if (sub != null) by += Ui.Wrapped(new Rect(bx + 11, by, bw - 11, 60), sub, Ui.InkSoft);
+            by += 2;
+        }
+
+        // ---------------------------------------------------------------- people page
+        string JobOf(Citizen p)
+        {
+            var own = p.Role == Role.Owner ? T.OwnedBusiness(p) : null;
+            if (own != null) return "owns " + own.Def.Name;
+            var w = T.GetBuilding(p.WorkId);
+            if (p.Role == Role.Worker && w != null) return w.Def.Name + (p.FamilyHand ? " (family)" : "");
+            return Defs.RoleName(p.Role);
+        }
+
+        string MoneyTip(Citizen p)
+        {
+            string s = p.Name + "\nAt home " + M(p.Money) + (p.Deposit > 0.01f ? ", in the bank " + M(p.Deposit) : "") + ".";
+            if (T.PeopleWeekValid) s += "\nLast week: earned " + M(p.EarnedLast) + ", spent " + M(p.SpentLast) + ".";
+            s += "\nThis week so far: earned " + M(p.Earned) + ".";
+            var sp = T.GetCitizen(p.PartnerId);
+            if (sp != null) s += "\nWith " + sp.First + ", the family has " + M(T.Savings(p) + T.Savings(sp)) + ".";
+            var own = T.OwnedBusiness(p);
+            if (own != null) s += "\nThe " + own.Def.Name + " has " + M(own.Cash + own.Deposit) + (own.Debt > 0.5f ? " and owes " + M(own.Debt) : "") + ".";
+            if (p.CharityDays > 0) s += "\nLiving on town charity.";
+            return s;
+        }
+
+        void PeoplePage()
+        {
+            bool full = T.PeopleWeekValid;
+            var folk = T.People.Where(p => !p.IsChild || T.Savings(p) > 0.5f).ToList();
+            float total = folk.Sum(p => T.Savings(p));
+            Row("Settlers' money, all told", M(total));
+            Row("On average", M(total / Mathf.Max(1, folk.Count)) + " each");
+            int poor = folk.Count(p => T.Savings(p) < 5f);
+            Row("Down to their last $5", poor.ToString(), poor > 0 ? Ui.Warn : Ui.Ink);
+            Para("HAS is money at home and in the bank. EARNED is what came in " + (full ? "last week" : "this week so far") +
+                 ", after tax: wages, shares, an owner's take, interest. Point at a name for more; click to find them.");
+            string[] sorts = { "Most money", "Earned", "Name", "Job" };
+            float sw = Mathf.Floor((bw - 6) / 4f);
+            for (int i = 0; i < 4; i++)
+            {
+                var s = (Sort)i;
+                if (Ui.Button(new Rect(bx + i * (sw + 2), by, sw, 13), sorts[i], sortBy == s)) Later(() => sortBy = s);
+            }
+            by += 18;
+            Ui.Text(bx, by, "NAME", Ui.InkSoft); Ui.Text(bx + 86, by, "WORK", Ui.InkSoft);
+            Ui.Text(bx + bw - 44, by, full ? "EARNED" : "SO FAR", Ui.InkSoft, Ui.Align.Right); Ui.Text(bx + bw, by, "HAS", Ui.InkSoft, Ui.Align.Right);
+            by += 11;
+            System.Func<Citizen, float> earned = p => full ? p.EarnedLast : p.Earned;
+            IEnumerable<Citizen> list;
+            switch (sortBy)
+            {
+                case Sort.Earned: list = folk.OrderByDescending(earned).ThenByDescending(p => T.Savings(p)); break;
+                case Sort.Name: list = folk.OrderBy(p => p.Family).ThenBy(p => p.First); break;
+                case Sort.Job: list = folk.OrderBy(p => System.Array.IndexOf(RoleOrder, p.Role)).ThenBy(JobOf).ThenByDescending(p => T.Savings(p)); break;
+                default: list = folk.OrderByDescending(p => T.Savings(p)); break;
+            }
+            foreach (var p in list)
+            {
+                var rr = new Rect(bx - 2, by - 2, bw + 4, 11);
+                bool sel = IsSel(SelectionKind.Person, p.Id), hov = Ui.Hover(rr);
+                if (sel || hov) Ui.Fill(rr, sel ? Ui.Gold : Ui.ParchDark);
+                float has = T.Savings(p), e = earned(p);
+                Ui.Text(bx, by, Trim(p.Name, 82), p.Jail > 0 ? Ui.Bad : Ui.Ink);
+                Ui.Text(bx + 86, by, Trim(JobOf(p), bw - 86 - 82), Ui.InkSoft);
+                Ui.Text(bx + bw - 44, by, e > 0.005f ? M(e) : "-", e > 0.005f ? Ui.Ink : Ui.InkSoft, Ui.Align.Right);
+                Ui.Text(bx + bw, by, M(has), has < 5f ? Ui.Bad : Ui.Title, Ui.Align.Right);
+                if (hov) hoverTip = MoneyTip(p);
+                if (Ui.Clickable(rr)) { var id = p.Id; Later(() => { gc.Select(Selection.Person(id)); ResetConfirm(); }); }
+                by += 11;
+            }
+            if (folk.Count == 0) Para("Nobody here yet.");
+        }
+
+        // ---------------------------------------------------------------- business page
+        string BizTip(Building b, Citizen o)
+        {
+            string s = b.Def.Name;
+            if (b.Last.Valid)
+            {
+                s += "\nLast week: took in " + M(b.Last.Revenue) + ", costs " + M(b.Last.Costs) + ", profit " + M(b.Last.Profit) + (b.Last.Tax > 0.005f ? ", tax " + M(b.Last.Tax) : "") + ".";
+                if (o != null) s += "\n" + o.First + " took home " + M(b.Last.OwnerDraw) + ".";
+            }
+            else s += "\nNot open a full week yet.";
+            s += "\nThis week so far: took in " + M(b.Week.Revenue) + ", costs " + M(b.Week.Costs) + ".";
+            if (b.Type != BuildingType.Bank) s += "\nTill " + M(b.Cash) + (b.Deposit > 0.01f ? ", in the bank " + M(b.Deposit) : "") + ".";
+            s += "\n" + b.Employees.Count + (b.Employees.Count == 1 ? " hand" : " hands") + (Town.PaysByShare(b.Type) ? ", paid a share of each visit." : ", wage " + M(b.Wage) + " a day.");
+            return s;
+        }
+
+        void BusinessPage()
+        {
+            var all = T.Businesses.ToList();
+            if (all.Count == 0) { Para("No businesses yet. Build one from the Food or Industry tabs."); return; }
+            var week = all.Where(b => b.Last.Valid).ToList();
+            int owned = all.Count(b => b.OwnerId >= 0);
+            Row("Businesses", owned + " owned · " + (all.Count - owned) + " town-run");
+            float profit = week.Sum(b => b.Last.Profit);
+            Row("Profit last week, all told", M(profit), profit < 0 ? Ui.Bad : Ui.Good);
+            Row("Owners took home", M(week.Where(b => b.OwnerId >= 0).Sum(b => b.Last.OwnerDraw)));
+            Row("Cash in tills and accounts", M(all.Where(b => b.Type != BuildingType.Bank).Sum(b => b.Cash + b.Deposit)));
+            float debt = all.Sum(b => b.Debt);
+            if (debt > 0.5f) Row("Owed on loans", M(debt), Ui.Warn);
+            int losing = week.Count(b => b.Last.Profit < 0);
+            if (losing > 0) Row("Lost money last week", losing.ToString(), Ui.Warn);
+            int behind = all.Count(b => b.MissedPayments > 0);
+            if (behind > 0) Row("Behind on loan payments", behind.ToString(), Ui.Bad);
+            Para("Best week first. Point at one for its books; click to find it.");
+            by += 2;
+            foreach (var b in all.OrderByDescending(b => b.Last.Valid ? b.Last.Profit : -99999f))
+            {
+                var o = T.GetCitizen(b.OwnerId);
+                bool owes = b.Debt > 0.5f;
+                var rr = new Rect(bx - 2, by - 2, bw + 4, owes ? 32 : 22);
+                bool sel = IsSel(SelectionKind.Building, b.Id), hov = Ui.Hover(rr);
+                if (sel || hov) Ui.Fill(rr, sel ? Ui.Gold : Ui.ParchDark);
+                Ui.Text(bx, by, b.Def.Name, Ui.Ink);
+                Ui.Text(bx + bw, by, b.Last.Valid ? (b.Last.Profit >= 0 ? "+" : "") + M(b.Last.Profit) + "/wk" : "new", b.Last.Valid ? (b.Last.Profit < 0 ? Ui.Bad : Ui.Good) : Ui.InkSoft, Ui.Align.Right);
+                by += 10;
+                float cash = b.Type == BuildingType.Bank ? b.Cash : b.Cash + b.Deposit;
+                float rw = Ui.Text(bx + bw, by, (b.Type == BuildingType.Bank ? "vault " : "has ") + M(cash), cash < b.Wage * 2 ? Ui.Warn : Ui.InkSoft, Ui.Align.Right);
+                string who = o != null ? o.Name + (b.Last.Valid ? " · took " + M(b.Last.OwnerDraw) : "") : b.Type == BuildingType.Bank ? "no banker" : "town-run, for sale";
+                Ui.Text(bx + 6, by, Trim(who, bw - 6 - rw - 6), o != null ? Ui.InkSoft : Ui.Warn);
+                by += 10;
+                if (owes)
+                {
+                    var lender = T.GetBuilding(b.LenderId);
+                    string l3 = (o == null && lender != null ? "pledged to the bank " : "owes " + (lender != null ? "the bank " : "the town ")) + M(b.Debt) +
+                                (b.MissedPayments > 0 ? " · " + b.MissedPayments + " missed" : "");
+                    Ui.Text(bx + 6, by, l3, b.MissedPayments > 0 ? Ui.Bad : Ui.Warn);
+                    by += 10;
+                }
+                if (hov) hoverTip = BizTip(b, o);
+                if (Ui.Clickable(rr)) { var id = b.Id; Later(() => { gc.Select(Selection.Building(id)); ResetConfirm(); }); }
+                by += 3;
+            }
+        }
+
+        // ---------------------------------------------------------------- bank page
+        void BankPage()
+        {
+            var banks = T.OfType(BuildingType.Bank).ToList();
+            if (banks.Count == 0)
+            {
+                Para("No bank yet.", Ui.Ink);
+                Para("Build one from the Trade tab. Without a bank, settlers keep their money at home, and a family has to pay for a business in full.");
+                return;
+            }
+            foreach (var bank in banks)
+            {
+                var o = T.GetCitizen(bank.OwnerId);
+                Heading(banks.Count > 1 ? "Bank #" + bank.Id : "The bank");
+                if (o != null) PickRow("Banker", o.Name, Ui.InkSoft, Ui.Ink, Selection.Person(o.Id));
+                else Para("No banker: no deposits or loans until a family buys it.", Ui.Warn);
+                var loans = T.Buildings.Where(x => x.LenderId == bank.Id && x.Debt > 0.01f).OrderByDescending(x => x.Debt).ToList();
+                var savers = T.People.Where(x => x.BankId == bank.Id && x.Deposit > 0.01f).OrderByDescending(x => x.Deposit).ToList();
+                var firms = T.Buildings.Where(x => x.BankId == bank.Id && x.Deposit > 0.01f).OrderByDescending(x => x.Deposit).ToList();
+                float dep = T.DepositsAt(bank), lent = loans.Sum(x => x.Debt), own = bank.Cash + lent - dep;
+                Row("In the vault", M(bank.Cash));
+                Row("Savers' money", M(dep) + " (" + (savers.Count + firms.Count) + (savers.Count + firms.Count == 1 ? " account)" : " accounts)"));
+                Row("Lent out", M(lent) + " (" + loans.Count + (loans.Count == 1 ? " loan)" : " loans)"));
+                Row("Free to lend", M(T.Lendable(bank)), T.Lendable(bank) < 20 ? Ui.Warn : Ui.Good);
+                Row("The bank's own money", M(own), own < 0 ? Ui.Bad : Ui.Title);
+                if (bank.Last.Valid)
+                {
+                    Row("Profit last week", M(bank.Last.Profit), bank.Last.Profit < 0 ? Ui.Bad : Ui.Good);
+                    if (o != null) Row("Banker took home", M(bank.Last.OwnerDraw));
+                }
+                Para("The vault plus what's lent out, less what it owes savers, is the bank's own. Loans pay " + Mathf.RoundToInt(Balance.LoanInterest * 1000) / 10f +
+                     "% a week; savers get up to " + Mathf.RoundToInt(Balance.DepositInterest * 1000) / 10f + "%. It keeps " + Mathf.RoundToInt(Balance.ReserveRatio * 100) + "% of savers' money in the vault.");
+                Heading("Savers");
+                foreach (var p in savers) { if (PickRow(p.Name, M(p.Deposit), Ui.Ink, Ui.Title, Selection.Person(p.Id))) hoverTip = MoneyTip(p); }
+                foreach (var f in firms) PickRow(f.Def.Name + " (business)", M(f.Deposit), Ui.Ink, Ui.Title, Selection.Building(f.Id));
+                if (savers.Count + firms.Count == 0) Para("Nobody banks here yet.");
+                Heading("Loans");
+                foreach (var l in loans)
+                {
+                    var lo = T.GetCitizen(l.OwnerId);
+                    bool hov = PickRow(l.Def.Name + (lo != null ? " · " + lo.Name : " · taken back"), M(l.Debt), Ui.Ink, l.MissedPayments > 0 ? Ui.Bad : Ui.Title, Selection.Building(l.Id));
+                    if (l.MissedPayments > 0) { Ui.Text(bx + 6, by - 1, l.MissedPayments + (l.MissedPayments == 1 ? " missed payment" : " missed payments") + ". Four and the bank takes it.", Ui.Bad); by += 10; }
+                    else if (lo == null) { Ui.Text(bx + 6, by - 1, "Repossessed: paid first when it sells.", Ui.InkSoft); by += 10; }
+                    if (hov) hoverTip = BizTip(l, lo);
+                }
+                if (loans.Count == 0) Para("No loans out.");
+            }
+        }
+
+        // ---------------------------------------------------------------- rules page
+        void RulesPage()
+        {
             var P = T.Policy;
             Heading("Taxes");
             P.IncomeTax = SliderRow("Income tax", Mathf.RoundToInt(P.IncomeTax * 100) + "%", P.IncomeTax * 100, 0, 40, 1, "Taken from every wage. Over 12% people grumble.") / 100f;
-            P.HeadTax = SliderRow("Head tax (weekly)", Town.Money(P.HeadTax), P.HeadTax, 0, 3, 0.25f, "Every adult pays on Sunday. Over $1 hurts morale.");
+            P.HeadTax = SliderRow("Head tax (weekly)", M(P.HeadTax), P.HeadTax, 0, 3, 0.25f, "Every adult pays on Sunday. Over $1 hurts morale.");
             P.BusinessTax = SliderRow("Business tax", Mathf.RoundToInt(P.BusinessTax * 100) + "%", P.BusinessTax * 100, 0, 50, 1, "Share of each business's weekly profit.") / 100f;
             Heading("Wages & town payroll");
-            float mw = SliderRow("Minimum wage", Town.Money(P.MinWage), P.MinWage, 1, 5, 0.25f, null);
+            float mw = SliderRow("Minimum wage", M(P.MinWage), P.MinWage, 1, 5, 0.25f, null);
             if (!Mathf.Approximately(mw, P.MinWage)) T.SetMinWage(mw);
-            P.ContractRate = SliderRow("Contract rate", Town.Money(P.ContractRate) + "/day", P.ContractRate, 2, 6, 0.25f, "What the town pays a builder's yard for each day of work a job takes. Half when work starts, half when it's done. Too low and yards lay off their crews.");
+            P.ContractRate = SliderRow("Contract rate", M(P.ContractRate) + "/day", P.ContractRate, 2, 6, 0.25f, "What the town pays a builder's yard for each day of work a job takes. Half when work starts, half when it's done. Too low and yards lay off their crews.");
             if (!T.Yards.Any())
             {
                 P.Builders = Mathf.RoundToInt(SliderRow("Day laborers for building", P.Builders.ToString(), P.Builders, 0, 12, 1, "With no builder's yard, the town hires settlers without a job by the day to build."));
-                P.BuilderWage = SliderRow("Day wage", Town.Money(P.BuilderWage), P.BuilderWage, 1, 5, 0.25f, null);
+                P.BuilderWage = SliderRow("Day wage", M(P.BuilderWage), P.BuilderWage, 1, 5, 0.25f, null);
             }
-            P.ReliefWage = SliderRow("Laborer relief", Town.Money(P.ReliefWage), P.ReliefWage, 0, 2, 0.1f, "Daily pay for adults without a job on days there's no work for them.");
+            P.ReliefWage = SliderRow("Laborer relief", M(P.ReliefWage), P.ReliefWage, 0, 2, 0.1f, "Daily pay for adults without a job on days there's no work for them.");
             P.Deputies = Mathf.RoundToInt(SliderRow("Deputies", P.Deputies.ToString(), P.Deputies, 0, 3, 1, "Sheriff $4/day, deputies $3, from the treasury."));
             Heading("Housing");
-            P.Rent = SliderRow("Cottage rent (weekly)", Town.Money(P.Rent), P.Rent, 0, 6, 0.25f, "Every family in a cottage pays on Sunday. Four weeks behind and they're put out. Over $3 hurts morale. Families living on charity pay nothing.");
-            P.BoardRent = SliderRow("Boarding rent (weekly)", Town.Money(P.BoardRent), P.BoardRent, 0, 3, 0.25f, "Each adult in a boarding house pays this. Over $1.50 hurts morale.");
+            P.Rent = SliderRow("Cottage rent (weekly)", M(P.Rent), P.Rent, 0, 6, 0.25f, "Every family in a cottage pays on Sunday. Four weeks behind and they're put out. Over $3 hurts morale. Families living on charity pay nothing.");
+            P.BoardRent = SliderRow("Boarding rent (weekly)", M(P.BoardRent), P.BoardRent, 0, 3, 0.25f, "Each adult in a boarding house pays this. Over $1.50 hurts morale.");
             Heading("Stores");
             P.Charity = Ui.Toggle(new Rect(bx, by, bw, 11), P.Charity, "Storehouse feeds those who can't pay"); by += 13;
             P.StorehouseSells = Ui.Toggle(new Rect(bx, by, bw, 11), P.StorehouseSells, "Storehouse sells when shops run out"); by += 13;
@@ -489,28 +826,6 @@ namespace FrontierLedger.Game
             Heading("Mayor");
             bool on = Ui.Toggle(new Rect(bx, by, bw, 11), P.ElectionsOn, "Elect a mayor every 4 weeks"); by += 13;
             if (on != P.ElectionsOn) T.SetElections(on);
-
-            Heading("Town books");
-            var C = T.LedgerThisWeek; var L = T.HasLastWeek ? T.LedgerLastWeek : null;
-            Ui.Text(bx + bw - 54, by, "THIS WK", Ui.InkSoft, Ui.Align.Right); Ui.Text(bx + bw, by, "LAST WK", Ui.InkSoft, Ui.Align.Right); by += 11;
-            Book("Income tax", C.IncomeTax, L != null ? L.IncomeTax : (float?)null, 1);
-            Book("Head tax", C.HeadTax, L != null ? L.HeadTax : (float?)null, 1);
-            Book("Business tax", C.BusinessTax, L != null ? L.BusinessTax : (float?)null, 1);
-            Book("Storehouse sales", C.StoreSales, L != null ? L.StoreSales : (float?)null, 1);
-            Book("Rent", C.Rent, L != null ? L.Rent : (float?)null, 1);
-            Book("Deeds & payments", C.Deeds + C.Claims, L != null ? L.Deeds + L.Claims : (float?)null, 1);
-            Book("Building contracts", C.Contracts, L != null ? L.Contracts : (float?)null, -1);
-            Book("Town-run businesses", C.TownTakings - C.TownTills, L != null ? L.TownTakings - L.TownTills : (float?)null, 0);
-            if (C.Builders > 0 || (L != null && L.Builders > 0)) Book("Day labor", C.Builders, L != null ? L.Builders : (float?)null, -1);
-            Book("Relief", C.Relief, L != null ? L.Relief : (float?)null, -1);
-            Book("Salaries", C.Salaries, L != null ? L.Salaries : (float?)null, -1);
-            Book("Materials & food", C.Materials, L != null ? L.Materials : (float?)null, -1);
-            Book("Clearing, roads", C.Construction, L != null ? L.Construction : (float?)null, -1);
-            if (C.Imports > 0 || (L != null && L.Imports > 0)) Book("Freight orders", C.Imports - C.Refunds, L != null ? L.Imports - L.Refunds : (float?)null, -1);
-            Book("Grants & upkeep", C.Grants + C.Upkeep, L != null ? L.Grants + L.Upkeep : (float?)null, -1);
-            Ui.Line(bx, by, bw, Ui.Hex("#c8a070")); by += 2;
-            Book("Net", C.Net, L != null ? L.Net : (float?)null, 0);
-            if (C.CharityGoods > 0.5f) Para("Handed out free this week: goods worth " + Town.Money(C.CharityGoods) + ".");
             by += 8;
             bool armed = Time.unscaledTime < confirmNewUntil;
             if (Ui.Button(new Rect(bx, by, 120, 15), armed ? "Click to confirm" : "Start a new town")) { if (armed) { Later(gc.NewTown); confirmNewUntil = 0; } else confirmNewUntil = Time.unscaledTime + 3; }
@@ -829,8 +1144,6 @@ namespace FrontierLedger.Game
                 var task = T.GetBuilding(p.TaskId);
                 if (task != null && task != work) Row("At", task.Def.Name);
             }
-            if (p.Deposit > 0.01f) { Row("Savings at home", Town.Money(p.Money)); Row("In the bank", Town.Money(p.Deposit)); }
-            else Row("Savings", Town.Money(p.Money));
             foreach (var e in T.Errands.Where(x => x.PersonId == p.Id))
             {
                 var to = T.GetBuilding(e.ToId); if (to == null) continue;
@@ -839,6 +1152,16 @@ namespace FrontierLedger.Game
                                 : "Today: buying " + Defs.GoodNames[(int)e.Good].ToLower() + " at the " + to.Def.Name + ".", Ui.Ink);
             }
             if (p.CharityDays > 0) Row("Living on", "town charity", Ui.Warn);
+            if (!p.IsChild || T.Savings(p) > 0.01f)
+            {
+                Heading("Money");
+                Row("At home", M(p.Money), p.Money + p.Deposit < 5f ? Ui.Bad : Ui.Ink);
+                if (p.Deposit > 0.01f) Row("In the bank", M(p.Deposit));
+                if (T.PeopleWeekValid) { Row("Earned last week", M(p.EarnedLast)); Row("Spent last week", M(p.SpentLast)); }
+                Row("Earned this week", M(p.Earned));
+                var own = T.OwnedBusiness(p);
+                if (own != null) Row("The " + own.Def.Name.ToLower() + " has", M(own.Cash + own.Deposit) + (own.Debt > 0.5f ? ", owes " + M(own.Debt) : ""), own.MissedPayments > 0 ? Ui.Bad : Ui.Ink);
+            }
             var partner = T.GetCitizen(p.PartnerId);
             var kids = T.ChildrenOf(p).ToList();
             var parent = T.GetCitizen(p.ParentId);
