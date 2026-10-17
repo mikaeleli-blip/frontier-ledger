@@ -29,7 +29,7 @@ namespace FrontierLedger.Game.Art
     /// Cutaway interiors drawn to sit exactly where the building sprite does, so lifting the roof shows the room
     /// in place: back wall, floorboards, side walls, a stub of front wall with the doorway, and furniture.
     /// </summary>
-    public static class InteriorArt
+    public static partial class InteriorArt
     {
         const string OL = "#3b2618";
         static readonly Dictionary<int, Interior> cache = new Dictionary<int, Interior>();
@@ -41,6 +41,8 @@ namespace FrontierLedger.Game.Art
                 case BuildingType.House: case BuildingType.BoardingHouse: case BuildingType.Estate: case BuildingType.Storehouse:
                 case BuildingType.Store: case BuildingType.Saloon: case BuildingType.Bank: case BuildingType.Sheriff:
                 case BuildingType.Smithy: case BuildingType.School: case BuildingType.DoctorOffice:
+                case BuildingType.Butcher: case BuildingType.Bakery: case BuildingType.Tailor: case BuildingType.Hotel:
+                case BuildingType.Barber: case BuildingType.Church: case BuildingType.Brewery:
                     return true;
                 default: return false;
             }
@@ -74,6 +76,13 @@ namespace FrontierLedger.Game.Art
                 case BuildingType.Smithy: Smithy(g, it, L); break;
                 case BuildingType.School: School(g, it, L); break;
                 case BuildingType.DoctorOffice: Doctor(g, it, L); break;
+                case BuildingType.Butcher: Butcher(g, it, L); break;
+                case BuildingType.Bakery: Bakery(g, it, L); break;
+                case BuildingType.Tailor: Tailor(g, it, L); break;
+                case BuildingType.Hotel: Hotel(g, it, L); break;
+                case BuildingType.Barber: Barber(g, it, L); break;
+                case BuildingType.Church: Church(g, it, L); break;
+                case BuildingType.Brewery: Brewery(g, it, L); break;
             }
             g.Outline(OL);
             it.Sprite = g.ToSprite("interior_" + t + "_" + v);

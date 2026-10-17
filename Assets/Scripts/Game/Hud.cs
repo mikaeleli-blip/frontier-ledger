@@ -198,9 +198,9 @@ namespace FrontierLedger.Game
                 float woodDays = T.TotalFirewood() / burn;
                 if (woodDays < 10) lines.Add(new KeyValuePair<string, bool>("Firewood for about " + Mathf.FloorToInt(woodDays) + " days.", woodDays < 5 || si == 3));
             }
-            int idleFood = T.Businesses.Count(b => Town.Produces(b.Type, Good.Food) && T.WorkersAt(b) == 0);
+            int idleFood = T.Businesses.Count(b => Town.FoodJob(b.Type) && b.Type != BuildingType.Butcher && T.WorkersAt(b) == 0);
             if (idleFood > 0) lines.Add(new KeyValuePair<string, bool>(idleFood == 1 ? "A food business has nobody working it." : idleFood + " food businesses have nobody working them.", false));
-            int noTools = T.Businesses.Count(b => Town.Produces(b.Type, Good.Food) && T.WorkersAt(b) > 0 && b.Stock[(int)Good.Tools] < 0.01f);
+            int noTools = T.Businesses.Count(b => Town.FoodJob(b.Type) && b.Type != BuildingType.Butcher && T.WorkersAt(b) > 0 && b.Stock[(int)Good.Tools] < 0.01f);
             if (noTools > 0 && (si <= 2)) lines.Add(new KeyValuePair<string, bool>((noTools == 1 ? "A food business has" : noTools + " food businesses have") + " no tools: 40% less food. Build a blacksmith or order tools.", false));
             if (lines.Count == 0) return;
             float w = 0; foreach (var l in lines) w = Mathf.Max(w, PixelFont.Width(l.Key));
@@ -540,19 +540,20 @@ namespace FrontierLedger.Game
                  " days" + (T.Season == 3 ? " (the roads are slow in winter)" : "") + ". Goods go into the storehouse; settlers step off the wagons and look for work.");
             float room = Mathf.Max(0, T.TownSpace - T.GoodsOnTheRoad);
             Heading("Goods");
-            Good[] goods = { Good.Food, Good.Firewood, Good.Logs, Good.Stone, Good.Tools };
+            Good[] goods = { Good.Food, Good.Firewood, Good.Logs, Good.Stone, Good.Tools, Good.Iron, Good.Wool, Good.Clothes };
             float bulk = 0; foreach (var g in goods) bulk += cart[(int)g];
             foreach (var g in goods)
             {
-                int step = g == Good.Tools ? 5 : 10;
+                int step = g == Good.Tools || g == Good.Clothes ? 5 : 10;
                 int max = Mathf.FloorToInt(cart[(int)g] + Mathf.Max(0, room - bulk));
                 cart[(int)g] = OrderLine(GoodIcon(g), Defs.GoodNames[(int)g], Town.Money(Balance.ImportPrice[(int)g]) + " each", Mathf.RoundToInt(cart[(int)g]), step, max);
             }
             Row("Room in the stores", Mathf.FloorToInt(room) + (T.GoodsOnTheRoad > 0.5f ? " (after what's on the road)" : ""), room < 10 ? Ui.Warn : Ui.Ink);
             if (!T.Storages.Any()) Para("Build a storehouse to take goods.", Ui.Warn);
-            Heading("Settlers");
             cartLaborers = OrderLine(Icon.People, "Laborer", Town.Money(Balance.PassageLaborer), cartLaborers, 1, 10);
             cartFamilies = OrderLine(Icon.Child, "Family", Town.Money(Balance.PassageFamily), cartFamilies, 1, 5);
+            Para("Iron goes to the blacksmith, wool to the tailor; clothes sell from the storehouse when no tailor has any.");
+            Heading("Settlers");
             Para("The town pays their passage. They come with a little money of their own but no home: make sure there are beds (" + T.FreeBeds + " free now).", T.FreeBeds < cartLaborers + cartFamilies * 4 ? Ui.Warn : Ui.InkSoft);
             Heading("Order");
             float cost = T.OrderCost(cart, cartLaborers, cartFamilies);
@@ -610,7 +611,7 @@ namespace FrontierLedger.Game
             }
         }
 
-        static readonly Role[] RoleOrder = { Role.Mayor, Role.Owner, Role.Worker, Role.Sheriff, Role.Deputy, Role.Teacher, Role.Doctor, Role.Laborer, Role.Child };
+        static readonly Role[] RoleOrder = { Role.Mayor, Role.Owner, Role.Worker, Role.Sheriff, Role.Deputy, Role.Teacher, Role.Doctor, Role.Preacher, Role.Laborer, Role.Child };
 
         void CitizensTab()
         {
@@ -674,11 +675,22 @@ namespace FrontierLedger.Game
             Row("Firewood in town", Mathf.FloorToInt(T.TotalFirewood()).ToString());
             Heading("Town stores");
             Row("Capacity", Mathf.FloorToInt(T.TownStored) + " / " + Mathf.FloorToInt(T.TownCapacity));
-            for (int g = 0; g < 5; g++) Row(Defs.GoodNames[g], Mathf.FloorToInt(T.TownStock((Good)g)).ToString());
+            for (int g = 0; g < Balance.GoodCount; g++) if (g < 5 || T.TownStock((Good)g) >= 0.5f) Row(Defs.GoodNames[g], Mathf.FloorToInt(T.TownStock((Good)g)).ToString());
             Heading("Prices");
             Row("Producers get (food, wood)", Town.Money(Balance.Wholesale[0]) + ", " + Town.Money(Balance.Wholesale[1]));
             Row("Shops charge (food)", T.AverageFoodPrice > 0 ? Town.Money(T.AverageFoodPrice) : "-");
             Row("Storehouse charges", Town.Money(T.Policy.StorehousePrice[0]) + ", " + Town.Money(T.Policy.StorehousePrice[1]));
+            foreach (var g in new[] { Good.Bread, Good.Meat, Good.Clothes })
+            {
+                var shops = T.Businesses.Where(b => Town.Produces(b.Type, g) && b.Def.IsRetail).ToList();
+                if (shops.Count > 0) Row(Defs.GoodNames[(int)g] + " sells for", Town.Money(shops.Average(b => b.Price[(int)g])));
+            }
+            Heading("How folk live");
+            int n = Mathf.Max(1, T.People.Count);
+            Row("Bread on the table", Mathf.RoundToInt(100f * T.People.Count(p => p.AteBread) / n) + "%");
+            Row("Meat on the table", Mathf.RoundToInt(100f * T.People.Count(p => p.AteMeat) / n) + "%");
+            Row("In decent clothes", Mathf.RoundToInt(100f * T.People.Count(p => p.Clothes >= Balance.ClothesGood) / n) + "%");
+            Row("Bathed this week", Mathf.RoundToInt(100f * T.Adults.Count(p => T.Day - p.BathedDay <= 7) / Mathf.Max(1, T.Adults.Count())) + "% of grown-ups");
             Heading("Businesses");
             foreach (var b in T.Businesses)
             {
@@ -776,6 +788,7 @@ namespace FrontierLedger.Game
                 case Chore.School: return p.IsChild ? "at school" : "teaching";
                 case Chore.Tend: return "seeing patients";
                 case Chore.Unload: return "unloading the wagon";
+                case Chore.Preach: return "preaching and visiting";
                 default: return "idle";
             }
         }
@@ -790,6 +803,10 @@ namespace FrontierLedger.Game
             Ui.Text(bx, by, "Mood", Ui.InkSoft); Ui.Bar(new Rect(bx + 46, by + 1, bw - 46, 6), p.Happy / 100f, Ui.Mood(p.Happy)); by += 12;
             Row("Eating", p.Fed >= 0.95f ? "well" : p.Fed >= 0.7f ? "short" : "hungry", p.Fed >= 0.95f ? Ui.Good : p.Fed >= 0.7f ? Ui.Warn : Ui.Bad);
             Row("Warmth", p.Warm ? "warm" : "cold", p.Warm ? Ui.Good : Ui.Bad);
+            if (p.AteMeat || p.AteBread) Row("On the table", p.AteMeat && p.AteBread ? "bread and meat" : p.AteMeat ? "meat" : "bread", Ui.Good);
+            Row("Clothes", p.Clothes > 0.8f ? "new" : p.Clothes >= Balance.ClothesGood ? "decent" : "patched and mended", p.Clothes >= Balance.ClothesGood ? Ui.Ink : Ui.Warn);
+            if (!p.IsChild && T.Day - p.BathedDay <= 7) Row("Last bath", T.Day - p.BathedDay <= 0 ? "today" : (T.Day - p.BathedDay) + (T.Day - p.BathedDay == 1 ? " day ago" : " days ago"));
+            if (p.ChurchDay > T.Day - 7 && p.ChurchDay >= 0) Row("Church", p.ChurchDay == T.Day ? "this morning" : "last Sunday");
             if (p.Sick > 0)
             {
                 Row(Town.LaidUp(p) ? "Laid up with" : "Ill with", Defs.Illnesses[p.IllnessKind], p.Illness >= 10f ? Ui.Bad : p.Illness >= 3f ? Ui.Warn : Ui.InkSoft);
@@ -817,7 +834,8 @@ namespace FrontierLedger.Game
             foreach (var e in T.Errands.Where(x => x.PersonId == p.Id))
             {
                 var to = T.GetBuilding(e.ToId); if (to == null) continue;
-                Para(e.Delivery ? "Today: taking " + Defs.GoodNames[(int)e.Good].ToLower() + " to sell at the " + to.Def.Name + "."
+                Para(e.Service ? "Today: a shave and a hot bath at the " + to.Def.Name + "."
+                     : e.Delivery ? "Today: taking " + Defs.GoodNames[(int)e.Good].ToLower() + " to sell at the " + to.Def.Name + "."
                                 : "Today: buying " + Defs.GoodNames[(int)e.Good].ToLower() + " at the " + to.Def.Name + ".", Ui.Ink);
             }
             if (p.CharityDays > 0) Row("Living on", "town charity", Ui.Warn);
@@ -845,7 +863,23 @@ namespace FrontierLedger.Game
             if (drops > 0) Row("Deliveries today", drops.ToString());
         }
 
-        static Icon GoodIcon(Good g) { return g == Good.Furniture ? Icon.Chair : (Icon)(int)g; }
+        static Icon GoodIcon(Good g)
+        {
+            switch (g)
+            {
+                case Good.Furniture: return Icon.Chair;
+                case Good.Meat: return Icon.Meat;
+                case Good.Bread: return Icon.Bread;
+                case Good.Iron: return Icon.Iron;
+                case Good.Wool: return Icon.Wool;
+                case Good.Hides: return Icon.Hide;
+                case Good.Leather: return Icon.Leather;
+                case Good.Clothes: return Icon.Clothes;
+                case Good.Beer: return Icon.Beer;
+                case Good.Cattle: return Icon.Steer;
+                default: return (Icon)(int)g;
+            }
+        }
 
         /// <summary>Wear and repair state for buildings that wear.</summary>
         void ConditionRows(Building b)
@@ -947,7 +981,67 @@ namespace FrontierLedger.Game
                     case BuildingType.LumberCamp: Row("Trees nearby", T.TreesNear(b).ToString(), T.TreesNear(b) < 6 ? Ui.Warn : Ui.Ink); Stocks(b, Good.Logs, Good.Tools); break;
                     case BuildingType.Woodcutter: Stocks(b, Good.Logs, Good.Firewood, Good.Tools); break;
                     case BuildingType.Quarry: case BuildingType.Fishery: Stocks(b, b.Type == BuildingType.Quarry ? Good.Stone : Good.Food, Good.Tools); break;
-                    case BuildingType.Smithy: Stocks(b, Good.Logs, Good.Stone, Good.Tools); break;
+                    case BuildingType.Smithy:
+                        Stocks(b, Good.Logs, Good.Iron, Good.Stone, Good.Tools);
+                        Para(b.Stock[(int)Good.Iron] >= 1f ? "Working iron: half again as many tools." : "No iron, so it's bog iron and stone. An iron mine, or iron from back east, gets half again as many tools.", b.Stock[(int)Good.Iron] >= 1f ? Ui.Good : Ui.InkSoft);
+                        break;
+                    case BuildingType.Ranch:
+                    {
+                        int past = T.PastureNear(b);
+                        Row("Open grazing", past + " lots" + (past < Balance.PastureFull ? " (thin)" : ""), past < Balance.PastureFull ? Ui.Warn : Ui.Ink);
+                        Stocks(b, Good.Cattle, Good.Wool, Good.Tools);
+                        Para("Steers sell to the butcher for " + Town.Money(Balance.Wholesale[(int)Good.Cattle]) + "; past " + Balance.HerdCap + " head they're driven east for " + Town.Money(Balance.Export[(int)Good.Cattle]) + ". Wool is shorn in spring for the tailor." +
+                             (past < Balance.PastureFull ? " Buildings and woods round it eat into the grazing." : ""), Ui.InkSoft);
+                        break;
+                    }
+                    case BuildingType.Butcher:
+                        Stocks(b, Good.Cattle, Good.Meat, Good.Hides);
+                        Row("Meat price", Town.Money(b.Price[(int)Good.Meat]));
+                        if (b.Stock[(int)Good.Cattle] < 0.5f && b.Stock[(int)Good.Meat] < 4) Para(T.OfType(BuildingType.Ranch).Any() ? "Waiting on steers from the ranch." : "No steers to dress. It needs a cattle ranch.", Ui.Warn);
+                        break;
+                    case BuildingType.Bakery:
+                        Stocks(b, Good.Food, Good.Bread);
+                        Row("Bread price", Town.Money(b.Price[(int)Good.Bread]));
+                        if (b.Stock[(int)Good.Food] < 1f) Para("No grain. It buys from the crop fields, or from the granary when it holds more than the town needs.", Ui.Warn);
+                        break;
+                    case BuildingType.Brewery:
+                        Stocks(b, Good.Food, Good.Firewood, Good.Beer);
+                        Row("Sells beer for", Town.Money(Balance.Wholesale[(int)Good.Beer]) + " a measure");
+                        if (T.People.Count > 0 && T.TotalFood() / T.People.Count < Balance.BrewingNeedsFood) Para("Food is short: no grain goes to beer.", Ui.Warn);
+                        else if (!T.OfType(BuildingType.Saloon).Any() && !T.OfType(BuildingType.Hotel).Any()) Para("No saloon or hotel to sell to.", Ui.Warn);
+                        break;
+                    case BuildingType.IronMine:
+                        Stocks(b, Good.Firewood, Good.Iron, Good.Tools);
+                        Para("Burns a load of firewood for every two of iron. The blacksmith buys what he needs; the rest goes east at " + Town.Money(Balance.Export[(int)Good.Iron]) + ".", b.Stock[(int)Good.Firewood] < 1f ? Ui.Warn : Ui.InkSoft);
+                        break;
+                    case BuildingType.Tannery:
+                        Stocks(b, Good.Hides, Good.Leather, Good.Tools);
+                        if (b.Stock[(int)Good.Hides] < 1f) Para(T.OfType(BuildingType.Butcher).Any() ? "Waiting on hides from the butcher." : "No hides. They come from a butcher shop.", Ui.Warn);
+                        if (T.IsOpen(b)) Para("Families living within " + Balance.TanneryReach + " lots grumble about the stink.", Ui.InkSoft);
+                        break;
+                    case BuildingType.Tailor:
+                        Stocks(b, Good.Wool, Good.Leather, Good.Clothes);
+                        Row("Clothes price", Town.Money(b.Price[(int)Good.Clothes]));
+                        Row("Settlers needing clothes", T.People.Count(x => x.Clothes < Balance.ClothesBuyBelow).ToString());
+                        if (b.Stock[(int)Good.Wool] < Balance.WoolPerClothes && b.Stock[(int)Good.Leather] < 1f) Para("No wool or leather. Wool comes from a ranch (or back east), leather from a tannery.", Ui.Warn);
+                        break;
+                    case BuildingType.Hotel:
+                        Row("Rooms", d.Capacity.ToString());
+                        Row("Guests last night", ((int)b.Today.Sold).ToString());
+                        if (b.Last.Valid) { Row("Guests last week", ((int)b.Last.Sold).ToString()); if (b.Last.Made > b.Last.Sold + 0.5f) Row("Turned away", ((int)(b.Last.Made - b.Last.Sold)).ToString(), Ui.Warn); }
+                        Stocks(b, Good.Food, Good.Meat, Good.Bread, Good.Beer, Good.Firewood);
+                        Para("Travellers on the main road pay " + Town.Money(Balance.RoomRate) + " a room, " + Town.Money(Balance.MealPrice) + " for supper and " + Town.Money(Balance.GuestDrink) + " a drink: money from outside. A hand looks after " + Balance.GuestsPerHand + " guests.", Ui.InkSoft);
+                        break;
+                    case BuildingType.Barber:
+                        Row("Customers today", ((int)b.Today.Sold).ToString());
+                        Row("Bathed this week", T.Adults.Count(x => T.Day - x.BathedDay <= 7) + " of " + T.Adults.Count());
+                        Stocks(b, Good.Firewood);
+                        Para(Town.Money(Balance.BathPrice) + " for a shave and a hot bath, " + Town.Money(Balance.ShavePrice) + " for a shave when there's no firewood to heat the water. Clean folk fall sick less for a week.", b.Stock[(int)Good.Firewood] < Balance.BathFuel ? Ui.Warn : Ui.InkSoft);
+                        break;
+                    case BuildingType.Saloon:
+                        Stocks(b, Good.Beer);
+                        Row("On tap", b.Stock[(int)Good.Beer] >= 1f ? "beer from the brewery" : "whiskey only", b.Stock[(int)Good.Beer] >= 1f ? Ui.Good : Ui.InkSoft);
+                        break;
                     case BuildingType.Bank:
                     {
                         var loans = T.Buildings.Where(x => x.LenderId == b.Id && x.Debt > 0.01f).ToList();
@@ -979,7 +1073,7 @@ namespace FrontierLedger.Game
                         if (b.Type == BuildingType.Store) Row("Firewood price", Town.Money(b.Price[1]));
                         break;
                 }
-                Row("Made today", b.Today.Made.ToString("0.0"));
+                if (b.Type != BuildingType.Hotel && b.Type != BuildingType.Barber && b.Type != BuildingType.Saloon && b.Type != BuildingType.Bank) Row("Made today", b.Today.Made.ToString("0.0"));
                 TripRows(b);
                 if (b.Last.Valid)
                 {
@@ -997,6 +1091,7 @@ namespace FrontierLedger.Game
                 Row("Beds", rs.Count + " / " + Mathf.Max(1, d.Beds));
                 if (b.Type == BuildingType.House) Row("Garden today", b.GardenToday.ToString("0.0") + " food");
                 Stocks(b, Good.Food, Good.Firewood, Good.Furniture);
+                if (b.Stock[(int)Good.Bread] + b.Stock[(int)Good.Meat] > 0.1f) Stocks(b, Good.Bread, Good.Meat);
                 if (b.Type == BuildingType.BoardingHouse && rs.Count > 0)
                 {
                     Row("Rent", T.Policy.BoardRent <= 0 ? "free" : Town.Money(T.Policy.BoardRent) + "/week a boarder");
@@ -1028,6 +1123,8 @@ namespace FrontierLedger.Game
                 Row("Holds", Mathf.FloorToInt(b.Stock.Sum()) + " / " + d.Capacity);
                 ConditionRows(b);
                 Stocks(b, Good.Food, Good.Firewood, Good.Logs, Good.Stone, Good.Tools);
+                var more = Enumerable.Range(5, Balance.GoodCount - 5).Where(g => b.Stock[g] >= 0.5f).Select(g => (Good)g).ToArray();
+                if (more.Length > 0) Stocks(b, more);
                 TripRows(b);
                 if (b.Type == BuildingType.Wagon)
                 {
@@ -1079,6 +1176,18 @@ namespace FrontierLedger.Game
                     Heading("Sick and hurt");
                     foreach (var x in sick) Para(x.First + " " + x.Family + ": " + Defs.Illnesses[x.IllnessKind] + (x.SeenToday ? " (seen)" : ""), x.Illness >= 10f ? Ui.Bad : Ui.Ink);
                 }
+            }
+            else if (b.Type == BuildingType.Church)
+            {
+                ConditionRows(b);
+                var rev = T.StaffOf(b, Role.Preacher);
+                Row("Preacher", rev != null ? "Rev. " + rev.First + " " + rev.Family : "none yet", rev != null ? Ui.Ink : Ui.Warn);
+                if (rev == null) Para("Takes a settler who can read and write. If nobody can, the town sends back east: someone comes once there's a free bed and " + Town.Money(40) + " in the treasury.", Ui.Warn);
+                Row("Last Sunday", b.Attendance + " in the pews");
+                Row("Collection", Town.Money(b.Collection));
+                Row("Town makes it up to", Town.Money(Balance.PlateTopUp) + " a week");
+                Row("Pews", d.Capacity.ToString());
+                Para("Sunday service cheers the congregation and eases grief. A church wedding cheers the whole town, a funeral is a comfort, and grief passes sooner with a preacher to talk to. Families moving west like a town with a church.", Ui.InkSoft);
             }
             else if (b.Type == BuildingType.Cemetery)
             {

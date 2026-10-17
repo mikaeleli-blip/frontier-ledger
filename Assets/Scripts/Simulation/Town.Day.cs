@@ -6,7 +6,7 @@ namespace FrontierLedger.Simulation
 {
     public partial class Town
     {
-        static readonly Good[] AllGoods = { Good.Food, Good.Firewood, Good.Logs, Good.Stone, Good.Tools, Good.Furniture };
+        static readonly Good[] AllGoods = (Good[])Enum.GetValues(typeof(Good));
 
         /// <summary>One full day: the land, construction, production, trade, households, wages,
         /// crime, health, families, hiring, migration and elections.</summary>
@@ -23,15 +23,18 @@ namespace FrontierLedger.Simulation
             Construct();
             UnloadWagon();
             Lessons(si);
+            ChurchService();
             OddJobs(si);
             Produce(si);
             BankWithdrawals();
             Trade(si);
+            Travellers(si);
             Households(si);
             if (DayOfSeason == 1 && si >= 2 && Homeless > 0)
                 AddLog(si == 2 ? "Autumn, and " + Homeless + " settlers still sleep in tents. Without a roof they'll be freezing by winter."
                                : "Winter. " + Homeless + " settlers have no roof. By the fire with firewood in store they might last; without it they won't.", LogKind.Bad);
             Saloons();
+            Barbers();
             Payroll();
             int crimes = Crime();
             HealthAndMood(si, crimes);
@@ -46,7 +49,9 @@ namespace FrontierLedger.Simulation
             if (History.Count > 112) History.RemoveAt(0);
         }
 
-        public float TotalFood() { return Buildings.Sum(b => b.Stock[(int)Good.Food]); }
+        /// <summary>Everything people eat: food, bread and meat, wherever it is.</summary>
+        public float TotalFood() { float s = 0; foreach (var b in Buildings) s += b.Stock[(int)Good.Food] + b.Stock[(int)Good.Bread] + b.Stock[(int)Good.Meat]; return s; }
+        static float Pantry(Building h) { return h.Stock[(int)Good.Food] + h.Stock[(int)Good.Bread] + h.Stock[(int)Good.Meat]; }
         public float TotalFirewood() { return Buildings.Sum(b => b.Stock[(int)Good.Firewood]); }
 
         // =====================================================================
@@ -425,10 +430,78 @@ namespace FrontierLedger.Simulation
                     case BuildingType.Smithy:
                         if (w > 0)
                         {
+                            float tf = ToolFactor(b, w), cap = e * Balance.ToolsPerWorker * tf;
+                            if (b.Stock[(int)Good.Tools] >= 30) break;
+                            float n = Math.Min(Math.Min(b.Stock[(int)Good.Logs], b.Stock[(int)Good.Iron]), cap * Balance.IronToolsFactor);
+                            if (n > 0.01f) { b.Stock[(int)Good.Logs] -= n; b.Stock[(int)Good.Iron] -= n; Make(b, Good.Tools, n); break; }
+                            // no iron: bog iron dug locally, worked with logs and stone
+                            n = Math.Min(Math.Min(b.Stock[(int)Good.Logs], b.Stock[(int)Good.Stone]), cap);
+                            if (n > 0.01f) { b.Stock[(int)Good.Logs] -= n; b.Stock[(int)Good.Stone] -= n; Make(b, Good.Tools, n); }
+                        }
+                        break;
+                    case BuildingType.Ranch:
+                        if (w > 0)
+                        {
+                            float tf = ToolFactor(b, w), pasture = Math.Min(1f, PastureNear(b) / (float)Balance.PastureFull);
+                            Make(b, Good.Cattle, e * Balance.CattleBySeason[si] * tf * pasture * FoodBonus);
+                            Make(b, Good.Wool, e * Balance.WoolBySeason[si] * tf * pasture);
+                        }
+                        break;
+                    case BuildingType.Butcher:
+                        if (w > 0 && b.Stock[(int)Good.Meat] < b.Def.Capacity - Balance.MeatPerSteer)
+                        {
+                            float head = Math.Min(b.Stock[(int)Good.Cattle], e * Balance.SteersPerWorker * ConditionFactor(b));
+                            if (head > 0.01f) { b.Stock[(int)Good.Cattle] -= head; Make(b, Good.Meat, head * Balance.MeatPerSteer); b.Stock[(int)Good.Hides] += head; }
+                        }
+                        break;
+                    case BuildingType.Bakery:
+                        if (w > 0 && b.Stock[(int)Good.Bread] < b.Def.Capacity - 4)
+                        {
+                            float flour = Math.Min(b.Stock[(int)Good.Food], Math.Min(e * Balance.BreadPerWorker * ConditionFactor(b), b.Def.Capacity - b.Stock[(int)Good.Bread]));
+                            if (flour > 0.01f) { b.Stock[(int)Good.Food] -= flour; Make(b, Good.Bread, flour); }
+                        }
+                        break;
+                    case BuildingType.Brewery:
+                        if (w > 0)
+                        {
                             float tf = ToolFactor(b, w);
-                            float n = Math.Min(Math.Min(b.Stock[(int)Good.Logs], b.Stock[(int)Good.Stone]), e * Balance.ToolsPerWorker * tf);
-                            if (b.Stock[(int)Good.Tools] < 30)
-                            { b.Stock[(int)Good.Logs] -= n; b.Stock[(int)Good.Stone] -= n; Make(b, Good.Tools, n); }
+                            if (b.Stock[(int)Good.Beer] >= StockCap(b, Good.Beer)) break;   // beer doesn't pay to send east
+                            float grain = Math.Min(b.Stock[(int)Good.Food], e * Balance.GrainPerWorkerBrew * tf);
+                            grain = Math.Min(grain, b.Stock[(int)Good.Firewood] / (Balance.FuelPerBeer * Balance.BeerPerGrain));
+                            if (grain > 0.01f)
+                            {
+                                b.Stock[(int)Good.Food] -= grain; b.Stock[(int)Good.Firewood] -= grain * Balance.BeerPerGrain * Balance.FuelPerBeer;
+                                Make(b, Good.Beer, grain * Balance.BeerPerGrain);
+                            }
+                        }
+                        break;
+                    case BuildingType.IronMine:
+                        if (w > 0)
+                        {
+                            float tf = ToolFactor(b, w);
+                            float n = Math.Min(e * Balance.IronPerWorker * tf, b.Stock[(int)Good.Firewood] / Balance.FuelPerIron);
+                            if (n > 0.01f) { b.Stock[(int)Good.Firewood] -= n * Balance.FuelPerIron; Make(b, Good.Iron, n); }
+                        }
+                        break;
+                    case BuildingType.Tannery:
+                        if (w > 0)
+                        {
+                            float tf = ToolFactor(b, w);
+                            float n = Math.Min(b.Stock[(int)Good.Hides], e * Balance.LeatherPerWorker * tf);
+                            if (n > 0.01f) { b.Stock[(int)Good.Hides] -= n; Make(b, Good.Leather, n); }
+                        }
+                        break;
+                    case BuildingType.Tailor:
+                        if (w > 0 && b.Stock[(int)Good.Clothes] < Balance.ClothesCap)
+                        {
+                            // coats and dresses from wool, boots and jackets from leather: half and half when there's both
+                            float cap = e * Balance.ClothesPerWorker * ConditionFactor(b);
+                            float fromLeather = Math.Min(cap * 0.5f, b.Stock[(int)Good.Leather] / Balance.LeatherPerClothes);
+                            float fromWool = Math.Min(cap - fromLeather, b.Stock[(int)Good.Wool] / Balance.WoolPerClothes);
+                            fromLeather = Math.Min(cap - fromWool, b.Stock[(int)Good.Leather] / Balance.LeatherPerClothes);
+                            b.Stock[(int)Good.Wool] -= fromWool * Balance.WoolPerClothes;
+                            b.Stock[(int)Good.Leather] -= fromLeather * Balance.LeatherPerClothes;
+                            Make(b, Good.Clothes, fromWool + fromLeather);
                         }
                         break;
                 }
@@ -535,17 +608,19 @@ namespace FrontierLedger.Simulation
         // =====================================================================
         float Spend(Building b) { return Math.Max(0, b.Cash - b.Wage * Math.Max(1, b.Employees.Count)); }
 
-        void BuyFor(Building b, Good g, float want)
+        void BuyFor(Building b, Good g, float want, BuildingType? only = null)
         {
             if (want <= 0.01f) return;
             float budget = Spend(b), before = budget;
-            float got = BuyFromProducers(g, want, ref budget, b);
+            float got = BuyFromProducers(g, want, ref budget, b, only);
             float spent = before - budget;
             b.Cash -= spent; b.Week.Costs += spent; b.Stock[(int)g] += got; b.Today.Bought += got;
-            // The town will sell from its stores what no business can
-            if (got < want - 0.01f && (g == Good.Tools || g == Good.Logs || g == Good.Stone))
+            // The town will sell from its stores what no business can: materials, tools, iron and wool ordered from
+            // back east, and grain from the granary above its winter reserve
+            bool fromStores = g == Good.Tools || g == Good.Logs || g == Good.Stone || g == Good.Iron || g == Good.Wool || g == Good.Leather || (g == Good.Food && only == BuildingType.Farm);
+            if (got < want - 0.01f && fromStores)
             {
-                float reserve = g == Good.Tools ? 4 : Policy.Reserve[(int)g];
+                float reserve = g == Good.Tools ? 4 : g == Good.Food ? Math.Max(Policy.Reserve[0], People.Count * 10f) : Policy.Reserve[(int)g];
                 float spare = Math.Max(0, TownStock(g) - reserve);
                 float price = Balance.Wholesale[(int)g];
                 float q = Math.Min(Math.Min(want - got, spare), Spend(b) / price);
@@ -578,7 +653,14 @@ namespace FrontierLedger.Simulation
         /// <summary>What a business keeps in its till for a couple of days' wages and supplies.</summary>
         float TillFor(Building b)
         {
-            return b.Wage * (b.Employees.Count + 1) * 2 + (b.Def.IsRetail ? 60 : b.Type == BuildingType.Woodcutter || b.Type == BuildingType.Smithy ? 25 : 8);   // shops need money to restock
+            return b.Wage * (b.Employees.Count + 1) * 2 + (b.Def.IsRetail ? 60 : BuysSupplies(b.Type) ? 25 : 8);   // shops need money to restock
+        }
+
+        /// <summary>Businesses that buy what they work: logs, iron, grain, hides, beer, firewood.</summary>
+        static bool BuysSupplies(BuildingType t)
+        {
+            return t == BuildingType.Woodcutter || t == BuildingType.Smithy || t == BuildingType.Brewery || t == BuildingType.IronMine || t == BuildingType.Tannery
+                || t == BuildingType.Saloon || t == BuildingType.Hotel || t == BuildingType.Barber;
         }
 
         /// <summary>Each morning businesses top up their tills from the bank and settlers their pockets; a town-run business
@@ -637,7 +719,7 @@ namespace FrontierLedger.Simulation
             foreach (var b in biz)
             {
                 if (b.OwnerId >= 0 || Treasury <= 0) continue;
-                float need = b.Wage * Math.Max(1, Math.Max(b.Employees.Count, b.Desired)) * 2 + (b.Type == BuildingType.Woodcutter || b.Type == BuildingType.Smithy || b.Def.IsRetail || b.Type == BuildingType.BuilderYard ? 25 : 8);
+                float need = b.Wage * Math.Max(1, Math.Max(b.Employees.Count, b.Desired)) * 2 + (BuysSupplies(b.Type) || b.Def.IsRetail || b.Type == BuildingType.BuilderYard ? 25 : 8);
                 if (b.Cash >= need) continue;
                 float put = Math.Min(need - b.Cash, Treasury);
                 Treasury -= put; LedgerThisWeek.TownTills += put; b.Cash += put;
@@ -655,15 +737,15 @@ namespace FrontierLedger.Simulation
             {
                 int w = WorkersAt(b);
                 if (b.Type == BuildingType.Woodcutter) BuyFor(b, Good.Logs, 15 - b.Stock[(int)Good.Logs]);
-                if (b.Type == BuildingType.Smithy) { BuyFor(b, Good.Logs, 8 - b.Stock[(int)Good.Logs]); BuyFor(b, Good.Stone, 8 - b.Stock[(int)Good.Stone]); }
+                Supplies(b, si);
                 // the yard only buys logs for furniture when the lumber camps have plenty to spare and homes are warm
                 if (b.Type == BuildingType.BuilderYard && b.Stock[(int)Good.Furniture] < Balance.FurnitureCap && SpareLogs() > 20 && TotalFirewood() > 80)
                     BuyFor(b, Good.Logs, 6 - b.Stock[(int)Good.Logs]);
-                bool usesTools = !b.Def.IsRetail && b.Type != BuildingType.Saloon && b.Type != BuildingType.Smithy;
+                bool usesTools = !b.Def.IsRetail && b.Type != BuildingType.Saloon && b.Type != BuildingType.Smithy && b.Type != BuildingType.Hotel && b.Type != BuildingType.Barber;
                 if (usesTools && w > 0 && b.Stock[(int)Good.Tools] < 0.5f * w) BuyFor(b, Good.Tools, w - b.Stock[(int)Good.Tools]);
             }
             // Shops restock
-            foreach (var r in biz.Where(b => b.Def.IsRetail && IsOpen(b)).OrderBy(x => Rng.Next()))
+            foreach (var r in biz.Where(b => b.Def.IsRetail && IsOpen(b) && !MakesWhatItSells(b.Type)).OrderBy(x => Rng.Next()))
             {
                 var d = r.Def; float per = d.Capacity / (float)d.Sells.Length;
                 foreach (var g in d.Sells) BuyFor(r, g, per - r.Stock[(int)g]);
@@ -684,8 +766,7 @@ namespace FrontierLedger.Simulation
                 foreach (var g in AllGoods)
                 {
                     if (!Produces(b.Type, g)) continue;
-                    float cap = g == Good.Food && b.Type == BuildingType.Farm ? Balance.BarnCapacity : Balance.BusinessStockCap;
-                    float extra = b.Stock[(int)g] - cap;
+                    float extra = b.Stock[(int)g] - StockCap(b, g);
                     if (extra <= 0) continue;
                     if (g == Good.Food && Treasury > 0)
                     {
@@ -704,6 +785,159 @@ namespace FrontierLedger.Simulation
                         float c = extra * Balance.Export[(int)g] * xF;
                         b.Stock[(int)g] -= extra; b.Cash += c; b.Week.Revenue += c; b.Today.Exported += extra;
                     }
+                }
+            }
+        }
+
+        /// <summary>What each trade buys to work with each morning.</summary>
+        void Supplies(Building b, int si)
+        {
+            switch (b.Type)
+            {
+                case BuildingType.Smithy:
+                    BuyFor(b, Good.Logs, 8 - b.Stock[(int)Good.Logs]);
+                    BuyFor(b, Good.Iron, 8 - b.Stock[(int)Good.Iron]);
+                    if (b.Stock[(int)Good.Iron] < 1f) BuyFor(b, Good.Stone, 8 - b.Stock[(int)Good.Stone]);   // bog iron needs stone for the hearth
+                    break;
+                case BuildingType.Butcher: if (IsOpen(b)) BuyFor(b, Good.Cattle, 4 - b.Stock[(int)Good.Cattle]); break;
+                case BuildingType.Bakery: if (IsOpen(b)) BuyFor(b, Good.Food, 24 - b.Stock[(int)Good.Food], BuildingType.Farm); break;
+                case BuildingType.Brewery:
+                    if (!IsOpen(b)) break;
+                    if (People.Count == 0 || TotalFood() / People.Count >= Balance.BrewingNeedsFood) BuyFor(b, Good.Food, 12 - b.Stock[(int)Good.Food], BuildingType.Farm);
+                    BuyFor(b, Good.Firewood, 6 - b.Stock[(int)Good.Firewood]);
+                    break;
+                case BuildingType.IronMine: if (IsOpen(b)) BuyFor(b, Good.Firewood, 12 - b.Stock[(int)Good.Firewood]); break;
+                case BuildingType.Tannery: if (IsOpen(b)) BuyFor(b, Good.Hides, 10 - b.Stock[(int)Good.Hides]); break;
+                case BuildingType.Tailor:
+                    if (!IsOpen(b)) break;
+                    BuyFor(b, Good.Wool, 8 - b.Stock[(int)Good.Wool]);
+                    BuyFor(b, Good.Leather, 4 - b.Stock[(int)Good.Leather]);
+                    break;
+                case BuildingType.Saloon: BuyFor(b, Good.Beer, 30 - b.Stock[(int)Good.Beer]); break;
+                case BuildingType.Hotel:
+                    if (!IsOpen(b)) break;
+                    BuyFor(b, Good.Meat, 6 - b.Stock[(int)Good.Meat]);
+                    BuyFor(b, Good.Bread, 6 - b.Stock[(int)Good.Bread]);
+                    BuyFor(b, Good.Food, 10 - b.Stock[(int)Good.Food]);
+                    BuyFor(b, Good.Beer, 8 - b.Stock[(int)Good.Beer]);
+                    BuyFor(b, Good.Firewood, (si == 1 ? 3 : 8) - b.Stock[(int)Good.Firewood]);
+                    break;
+                case BuildingType.Barber: if (IsOpen(b)) BuyFor(b, Good.Firewood, 8 - b.Stock[(int)Good.Firewood]); break;
+            }
+        }
+
+        /// <summary>Takes a meal's worth from a larder: meat and bread first, then plain food. Returns how much was eaten.</summary>
+        static float EatFrom(Building h, float amount)
+        {
+            float got = 0;
+            foreach (var g in new[] { Good.Meat, Good.Bread, Good.Food })
+            {
+                float t = Math.Min(h.Stock[(int)g], amount - got);
+                if (t <= 0) continue;
+                h.Stock[(int)g] -= t; got += t;
+                if (got >= amount - 0.001f) break;
+            }
+            return got;
+        }
+
+        /// <summary>Travellers come up the main road and put up at the hotels: a room, supper and a drink, paid with money
+        /// from outside. More in summer, and more as the town grows.</summary>
+        void Travellers(int si)
+        {
+            var hotels = Businesses.Where(b => b.Type == BuildingType.Hotel && IsOpen(b)).OrderBy(x => Rng.Next()).ToList();
+            if (hotels.Count == 0) return;
+            float draw = 1f + Math.Min(People.Count, 80) / 40f + (OfType(BuildingType.Saloon).Any(IsOpen) ? 0.2f : 0f);
+            int coming = (int)Math.Round(Balance.TravellersBySeason[si] * draw * Rnd(0.5f, 1.5f));
+            foreach (var h in hotels)
+            {
+                int asked = Math.Min(coming, h.Def.Capacity);
+                h.Week.Made += asked;   // travellers asking for a room, served or not: the owner hires for them
+                int n = Math.Min(asked, (int)(WorkersAt(h) * Balance.GuestsPerHand));
+                if (n <= 0) continue;
+                coming -= n;
+                float take = n * Balance.RoomRate;
+                for (int i = 0; i < n; i++) if (EatFrom(h, 1f) >= 0.99f) take += Balance.MealPrice;
+                int drinks = Math.Min(n, (int)(h.Stock[(int)Good.Beer] / 0.5f));
+                h.Stock[(int)Good.Beer] -= drinks * 0.5f; take += drinks * Balance.GuestDrink;
+                h.Stock[(int)Good.Firewood] = Math.Max(0, h.Stock[(int)Good.Firewood] - n * (si == 1 ? 0.1f : 0.25f));
+                h.Cash += take; h.Week.Revenue += take; h.Today.Sold += n; h.Week.Sold += n;
+            }
+        }
+
+        /// <summary>Settlers with a little money go for a shave and a hot bath about once a week.</summary>
+        void Barbers()
+        {
+            foreach (var b in OfType(BuildingType.Barber).Where(IsOpen).ToList())
+            {
+                int cap = WorkersAt(b) * Balance.CustomersPerHand;
+                foreach (var p in Shuffle(People.Where(x => !x.IsChild && x.Jail == 0 && !LaidUp(x) && x.Money > 6f && Day - x.BathedDay >= 6).ToList()))
+                {
+                    if (!Chance(0.35)) continue;
+                    b.Week.Made++;   // wanted a bath today, served or not: the owner hires for them
+                    if (cap <= 0) continue;
+                    bool bath = b.Stock[(int)Good.Firewood] >= Balance.BathFuel;   // no firewood, no hot water: just a shave
+                    float price = bath ? Balance.BathPrice : Balance.ShavePrice;
+                    p.Money -= price; b.Cash += price; b.Week.Revenue += price; b.Today.Sold++; b.Week.Sold++;
+                    if (bath) { b.Stock[(int)Good.Firewood] -= Balance.BathFuel; p.BathedDay = Day; } else p.BathedDay = Day - 4;
+                    p.Happy = Math.Min(100, p.Happy + (bath ? 2.5f : 1f));
+                    Visit(p, b); cap--;
+                }
+            }
+        }
+
+        /// <summary>Sunday morning service: most of the town goes, and the plate goes round. On weekdays the preacher
+        /// calls on the sick. (Worked out the day before, like everyone's plans, so the map shows it on the Sunday.)</summary>
+        void ChurchService()
+        {
+            int sunday = Day + 1;
+            foreach (var c in OfType(BuildingType.Church).ToList())
+            {
+                var rev = StaffOf(c, Role.Preacher);
+                if (rev == null || rev.Jail > 0 || LaidUp(rev)) continue;
+                rev.TaskId = c.Id; rev.Chore = Chore.Preach;
+                if (sunday % 7 != 0)
+                {
+                    var sick = People.Where(p => p != rev && LaidUp(p) && p.HomeId >= 0).OrderByDescending(p => p.Illness).FirstOrDefault();
+                    if (sick != null) { rev.TaskId = sick.HomeId; sick.Happy = Math.Min(100, sick.Happy + 2f); }
+                    continue;
+                }
+                int n = 0; float plate = 0;
+                foreach (var p in People.Where(x => x.Jail == 0 && !LaidUp(x) && x.ChurchDay != sunday && (x == rev || (x.Seed * 53f) % 1f < 0.75f)).OrderBy(x => x.HomeId).ToList())
+                {
+                    if (n >= c.Def.Capacity) break;
+                    p.ChurchDay = sunday; n++;
+                    p.Happy = Math.Min(100, p.Happy + 4f); p.Grief = Math.Max(0, p.Grief - 15f);
+                    if (!p.IsChild && p != rev) { float g = Math.Min(0.5f, Math.Max(0, p.Money) * 0.04f); p.Money -= g; plate += g; }
+                }
+                // the town makes up a thin plate so the preacher can live
+                float topUp = Math.Max(0, Math.Min(Balance.PlateTopUp - plate, Treasury));
+                Treasury -= topUp; LedgerThisWeek.Salaries += topUp;
+                rev.Money += plate + topUp;
+                c.Attendance = n; c.Collection = plate; c.Today.Sold = n;
+            }
+        }
+
+        /// <summary>Households buy a set of clothes for whoever's are worn through, when they can afford it.</summary>
+        void BuyClothes()
+        {
+            if (Sources(Good.Clothes).Count == 0) return;   // no tailor and none in the stores: they make do and mend
+            foreach (var h in Buildings.Where(b => b.Built && IsHome(b.Type)).ToList())
+            {
+                var rs = Household(h).ToList();
+                var payers = rs.Where(p => !p.IsChild).ToList();
+                if (payers.Count == 0) continue;
+                int bought = 0;
+                foreach (var p in rs.Where(x => x.Clothes < Balance.ClothesBuyBelow).OrderBy(x => x.Clothes).ToList())
+                {
+                    if (bought >= 2) break;
+                    float spare = payers.Sum(x => Savings(x)) / payers.Count;
+                    if (spare < Balance.ClothesSavings) break;
+                    float price = Sources(Good.Clothes).Select(x => x.Price).DefaultIfEmpty(0f).Min();
+                    if (price <= 0) break;
+                    foreach (var x in payers) if (x.Money < price && x.Deposit > 0) WithdrawFor(x, price - x.Money);
+                    float got = Purchase(Good.Clothes, 1f, payers);
+                    if (got <= 0.01f) break;
+                    p.Clothes = Math.Min(1.2f, p.Clothes + Balance.ClothesNewSet * got); bought++;
                 }
             }
         }
@@ -778,9 +1012,17 @@ namespace FrontierLedger.Simulation
                 }
                 float appetite = rs.Sum(p => p.IsChild ? Balance.ChildAppetite : 1f);
                 var payers = rs.Where(p => !p.IsChild).ToList();
-                float wantFood = Math.Max(0, appetite * 2f - h.Stock[(int)Good.Food]);
+                // with money to spare, part of the table is bread from the baker and meat from the butcher
+                float spare = payers.Count == 0 ? 0 : payers.Sum(p => Savings(p)) / payers.Count;
+                float treat = Clamp((spare - Balance.TreatsFrom) / (Balance.TreatsFull - Balance.TreatsFrom), 0, 1);
+                if (treat > 0.01f)
+                {
+                    h.Stock[(int)Good.Bread] += Purchase(Good.Bread, Math.Max(0, appetite * Balance.BreadShare * treat - h.Stock[(int)Good.Bread]), payers);
+                    h.Stock[(int)Good.Meat] += Purchase(Good.Meat, Math.Max(0, appetite * Balance.MeatShare * treat - h.Stock[(int)Good.Meat]), payers);
+                }
+                float wantFood = Math.Max(0, appetite * 2f - Pantry(h));
                 float wantWood = Math.Max(0, heatNeed * 2.5f - h.Stock[(int)Good.Firewood]);
-                float needNow = Math.Max(0, appetite - h.Stock[(int)Good.Food]);
+                float needNow = Math.Max(0, appetite - Pantry(h));
                 report.Demand += needNow;
                 float gotFood = Purchase(Good.Food, wantFood, payers);
                 report.Bought += Math.Min(gotFood, needNow);
@@ -789,18 +1031,19 @@ namespace FrontierLedger.Simulation
                 bool helped = false;
                 if (Policy.Charity)
                 {
-                    float shortFood = appetite - h.Stock[(int)Good.Food];
+                    float shortFood = appetite - Pantry(h);
                     if (shortFood > 0.01f) { float g = TakeFromTown(Good.Food, shortFood); h.Stock[(int)Good.Food] += g; report.Bought += g; LedgerThisWeek.CharityGoods += g * Balance.Wholesale[0]; helped |= g > 0.01f; }
                     float shortWood = heatNeed - h.Stock[(int)Good.Firewood];
                     if (shortWood > 0.01f) { float g = TakeFromTown(Good.Firewood, shortWood); h.Stock[(int)Good.Firewood] += g; LedgerThisWeek.CharityGoods += g * Balance.Wholesale[1]; helped |= g > 0.01f; }
                 }
                 foreach (var p in rs) p.CharityDays = helped ? p.CharityDays + 1 : 0;
 
-                // Eat
-                float eat = Math.Min(h.Stock[(int)Good.Food], appetite);
-                h.Stock[(int)Good.Food] -= eat;
+                // Eat: the bread and meat on the table first, then plain food
+                float meat = h.Stock[(int)Good.Meat], bread = h.Stock[(int)Good.Bread];
+                float eat = EatFrom(h, appetite);
+                meat -= h.Stock[(int)Good.Meat]; bread -= h.Stock[(int)Good.Bread];
                 float frac = appetite > 0 ? eat / appetite : 1f;
-                foreach (var p in rs) { p.FedToday = frac; }
+                foreach (var p in rs) { p.FedToday = frac; p.AteMeat = meat >= appetite * 0.12f; p.AteBread = bread >= appetite * 0.15f; }
                 // Keep warm
                 report.HeatDemand += heatNeed;
                 float burn = Math.Min(h.Stock[(int)Good.Firewood], heatNeed);
@@ -816,6 +1059,7 @@ namespace FrontierLedger.Simulation
                 report.Demand += appetite;
                 var payers = p.IsChild ? People.Where(x => x.Id == p.ParentId || x.PartnerId == p.ParentId && p.ParentId >= 0).ToList() : new List<Citizen> { p };
                 if (payers.Count == 0) payers = new List<Citizen> { p };
+                p.AteMeat = p.AteBread = false;
                 float got = Purchase(Good.Food, appetite, payers);
                 if (Policy.Charity && got < appetite - 0.01f)
                 {
@@ -840,20 +1084,33 @@ namespace FrontierLedger.Simulation
 
         void Saloons()
         {
+            int travellers = Businesses.Where(b => b.Type == BuildingType.Hotel).Sum(b => (int)b.Today.Sold);
             foreach (var s in OfType(BuildingType.Saloon))
             {
-                int cap = WorkersAt(s) * 6; if (cap == 0) continue;
+                int cap = WorkersAt(s) * (s.Stock[(int)Good.Beer] >= 1f ? Balance.DrinksPerHandBeer : Balance.DrinksPerHand); if (cap == 0) continue;
                 foreach (var p in Shuffle(People.Where(x => !x.IsChild && x.Money > 12 && x.Jail == 0).ToList()))
                 {
                     if (cap <= 0) break;
                     if (Chance(0.45))
                     {
-                        const float price = 1.5f;
-                        p.Money -= price; s.Cash += price; s.Week.Revenue += price;
+                        Pour(s);
+                        p.Money -= Balance.DrinkPrice; s.Cash += Balance.DrinkPrice; s.Week.Revenue += Balance.DrinkPrice;
                         s.Today.Sold++; s.Week.Sold++; p.Happy += 3; p.SaloonToday = s.Id; cap--;
                     }
                 }
+                // travellers from the hotel come in for a drink
+                for (; travellers > 0 && cap > 0; travellers--)
+                {
+                    if (!Chance(0.4)) continue;
+                    Pour(s); s.Cash += Balance.DrinkPrice; s.Week.Revenue += Balance.DrinkPrice; s.Today.Sold++; s.Week.Sold++; cap--;
+                }
             }
+        }
+
+        /// <summary>A drink: a measure of the brewery's beer while there is some, otherwise whiskey.</summary>
+        static void Pour(Building s)
+        {
+            if (s.Stock[(int)Good.Beer] >= 1f) s.Stock[(int)Good.Beer] -= 1f;
         }
 
         // =====================================================================
@@ -988,7 +1245,10 @@ namespace FrontierLedger.Simulation
                 var w = GetBuilding(p.WorkId);
                 if (w != null && p.Jail == 0 && !p.IsChild && (p.Role == Role.Worker || p.Role == Role.Owner) && Chance(Balance.InjuryPerDay))
                 {
-                    int kind = w.Type == BuildingType.LumberCamp || w.Type == BuildingType.Woodcutter ? 10 : w.Type == BuildingType.Quarry ? 11 : w.Type == BuildingType.Smithy ? 12 : w.Type == BuildingType.BuilderYard ? 13 : -1;
+                    int kind = w.Type == BuildingType.LumberCamp || w.Type == BuildingType.Woodcutter || w.Type == BuildingType.Butcher ? 10
+                             : w.Type == BuildingType.Quarry || w.Type == BuildingType.IronMine ? 11
+                             : w.Type == BuildingType.Smithy || w.Type == BuildingType.Bakery || w.Type == BuildingType.Brewery ? 12
+                             : w.Type == BuildingType.BuilderYard ? 13 : w.Type == BuildingType.Ranch ? 14 : -1;
                     if (kind >= 0) { Afflict(p, kind, 4.5f, Rng.Next(4, 9)); continue; }
                 }
                 double chance = Balance.IllnessPerDay * Balance.IllnessBySeason[si];
@@ -998,6 +1258,9 @@ namespace FrontierLedger.Simulation
                 var home = GetBuilding(p.HomeId);
                 if (home != null && home.Type == BuildingType.BoardingHouse) chance *= 1.3;
                 if (p.IsChild && p.Age < 2) chance *= 2; else if (p.IsChild || p.Age > 60) chance *= 1.3;
+                if (Day - p.BathedDay <= Balance.CleanDays) chance *= 0.8;          // clean folk fall sick less
+                if (si >= 2 && p.Clothes >= Balance.ClothesGood) chance *= 0.9;     // a good coat in the cold
+                if (p.AteMeat) chance *= 0.9;
                 if (!Chance(chance)) continue;
                 double r = Rng.NextDouble();
                 if (r < 0.75) Afflict(p, Rng.Next(0, 3), 1.5f, Rng.Next(2, 5));
@@ -1040,11 +1303,13 @@ namespace FrontierLedger.Simulation
             FallIll(si);
             Doctoring();
             bool schoolOpen = OfType(BuildingType.School).Any(s => StaffOf(s, Role.Teacher) != null);
+            var stink = Businesses.Where(b => b.Type == BuildingType.Tannery && IsOpen(b)).ToList();
             foreach (var p in People.ToList())
             {
                 bool sick = p.Sick > 0;
                 float dh = p.Fed >= 0.95f ? (sick ? 0f : 2f) : -(1 - p.Fed) * 14f;
-                if (!p.Warm) dh -= ColdDamage[si] * (p.HomeId < 0 ? (p.ByFire ? 0.9f : 1.2f) : 1f) * (p.IsChild || p.Age > 60 ? 1.3f : 1f) * Rnd(0.6f, 1.4f) * (p.SeenToday ? 0.75f : 1f);
+                if (!p.Warm) dh -= ColdDamage[si] * (p.HomeId < 0 ? (p.ByFire ? 0.9f : 1.2f) : 1f) * (p.IsChild || p.Age > 60 ? 1.3f : 1f) * Rnd(0.6f, 1.4f) * (p.SeenToday ? 0.75f : 1f)
+                                * (p.Clothes >= Balance.ClothesGood ? 0.85f : 1f);   // a good coat helps
                 else if (p.Fed >= 0.95f && !sick) dh += 1.5f;
                 if (p.Age > 60) dh -= (p.Age - 60) * 0.06f;
                 if (sick) dh -= p.Illness * (p.SeenToday ? 0.65f : 1f) * (p.Age < 2 ? 1.6f : p.Age > 60 ? 1.4f : 1f) * Rnd(0.7f, 1.3f);   // babies and the old are frailer
@@ -1079,6 +1344,9 @@ namespace FrontierLedger.Simulation
                 if (sick) d -= p.Illness >= 3f ? 1.5f : 0.5f;
                 if (schoolOpen && !p.IsChild && ChildrenOf(p).Any(c => c.Age >= Balance.SchoolAge)) d += 0.3f;   // their children are getting an education
                 if (p.CharityDays > 0) d -= 0.8f;
+                if (p.AteMeat) d += 0.3f;
+                if (p.AteBread) d += 0.2f;
+                if (p.Clothes > 0.8f) d += 0.15f; else if (p.Clothes >= Balance.ClothesGood) d += 0.05f;   // new clothes, or decent ones
                 var home = GetBuilding(p.HomeId);
                 if (home != null)
                 {
@@ -1086,6 +1354,8 @@ namespace FrontierLedger.Simulation
                     if (home.Type != BuildingType.Estate && home.Condition < 25) d -= 0.6f;
                     if (!p.IsChild && home.Type == BuildingType.House && Policy.Rent > 3f) d -= (Policy.Rent - 3f) * 0.2f;
                     if (home.Type == BuildingType.BoardingHouse) d -= 0.3f + (Policy.BoardRent > 1.5f ? (Policy.BoardRent - 1.5f) * 0.3f : 0f);   // cramped
+                    foreach (var t in stink)
+                        if (Math.Abs(t.X + 1 - home.X) <= Balance.TanneryReach && Math.Abs(t.Y + 1 - home.Y) <= Balance.TanneryReach) { d -= Balance.TanneryStink; break; }   // the tannery downwind
                 }
                 d -= p.Grief * 0.04f;
                 d -= Math.Min(3f, Unburied * 0.3f);
@@ -1117,7 +1387,8 @@ namespace FrontierLedger.Simulation
             // families ask whether there's a school and a doctor
             bool school = OfType(BuildingType.School).Any(s => StaffOf(s, Role.Teacher) != null);
             bool doctor = OfType(BuildingType.DoctorOffice).Any(o => StaffOf(o, Role.Doctor) != null);
-            if (!Chance((0.035 + (AverageHappiness - 40) / 1500.0) * (1 + (school ? 0.25 : 0) + (doctor ? 0.25 : 0)))) return;
+            bool church = ChurchWithPreacher != null;
+            if (!Chance((0.035 + (AverageHappiness - 40) / 1500.0) * (1 + (school ? 0.25 : 0) + (doctor ? 0.25 : 0) + (church ? 0.15 : 0)))) return;
             var names = new List<Citizen>();
             if (Chance(0.55 + (school ? 0.15 : 0)))
             {
@@ -1149,6 +1420,15 @@ namespace FrontierLedger.Simulation
             bool townRun = b.OwnerId < 0;   // the treasury covers the wages, so cash doesn't hold it back
             int afford = townRun ? d.MaxEmployees : (int)(b.Cash / Math.Max(0.5f, b.Wage * 2));
             if (b.Type == BuildingType.Bank) return LoansOut(b) > 150f ? 1 : 0;   // a clerk once there's lending business to keep
+            var owner = GetCitizen(b.OwnerId); int self = owner != null && owner.WorkId == b.Id ? 1 : 0;
+            if (b.Type == BuildingType.Hotel || b.Type == BuildingType.Barber)
+            {
+                // hands for the trade there's been: four guests a hand at a hotel, eight customers a day at the barber's
+                float per = b.Type == BuildingType.Hotel ? Balance.GuestsPerHand : Balance.CustomersPerHand;
+                int want = (int)Math.Ceiling(b.Week.Made / 7f / per - 0.15f) - self;
+                if (b.Type == BuildingType.Hotel && Season == 3) want = Math.Min(want, 1 - self);   // a quiet winter
+                return Math.Max(0, Math.Min(Math.Min(d.MaxEmployees, want), Math.Max(afford, townRun ? 1 : 0)));
+            }
             if (b.Type == BuildingType.BuilderYard)
             {
                 // keep the crew the jobs need, but no builder takes more than one in four of the town's adults;
@@ -1175,8 +1455,25 @@ namespace FrontierLedger.Simulation
             {
                 Good? made = null;
                 foreach (var g in AllGoods) if (Produces(b.Type, g)) made = g;
-                if (made.HasValue) fill = b.Stock[(int)made.Value] / (b.Type == BuildingType.Farm ? Balance.BarnCapacity : Balance.BusinessStockCap);
+                if (made.HasValue) fill = b.Stock[(int)made.Value] / StockCap(b, made.Value);
                 else fill = profit > 0 ? 0.3f : 0.7f;
+            }
+            if (MakesWhatItSells(b.Type))
+            {
+                // a baker, butcher or tailor: more hands when the counter sells out and there's something to work with
+                bool makings = b.Type == BuildingType.Butcher ? b.Stock[(int)Good.Cattle] > 0.5f : b.Type == BuildingType.Bakery ? b.Stock[(int)Good.Food] > 3f
+                             : b.Stock[(int)Good.Wool] >= Balance.WoolPerClothes || b.Stock[(int)Good.Leather] >= 1f;
+                if (profit < 0 || fill > 0.85f) return Math.Max(0, n - 1);
+                if (fill < 0.4f && makings && b.Week.Sold > 25 * (n + 1) && (townRun || b.Cash > b.Wage * (n + 1) * 4)) return Math.Min(d.MaxEmployees, n + 1);
+                return n;
+            }
+            if (ExportTrade(b.Type))
+            {
+                // what doesn't sell in town goes east: keep hands on while it pays
+                if (b.Type == BuildingType.Tannery && b.Stock[(int)Good.Hides] < 2f) return Math.Max(0, n - 1);
+                if (profit < 0) return Math.Max(0, n - 1);
+                if (profit > b.Wage * 3 && (townRun || b.Cash > b.Wage * (n + 1) * 4)) return Math.Min(d.MaxEmployees, n + 1);
+                return n;
             }
             if (d.IsRetail) return fill < 0.3f || profit < 0 ? Math.Max(0, n - 1) : (b.Week.Sold > 30 * (n + 1) ? Math.Min(d.MaxEmployees, n + 1) : n);
             if (fill < 0.5f && (townRun || b.Cash > b.Wage * (n + 1) * 4)) return Math.Min(d.MaxEmployees, n + 1);
@@ -1321,6 +1618,7 @@ namespace FrontierLedger.Simulation
         {
             CollectRent();
             BuyFurniture();
+            BuyClothes();
             foreach (var p in Adults)
             {
                 float a = Policy.HeadTax; if (a <= 0) continue;

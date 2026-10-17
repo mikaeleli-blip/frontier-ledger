@@ -136,6 +136,43 @@ namespace FrontierLedger.Game.Art
                         g.R(2, 10, 20, 6, "#8a5a34"); g.R(2, 10, 20, 1, "#b8844a");
                         for (int i = 0; i < level + 1; i++) { g.R(4 + i * 4, 4, 1, 7, "#a8734a"); g.R(3 + i * 4, 3, 3, 2, "#9a9aa2"); }
                         break;
+                    case Good.Iron:   // pig iron bars, stacked crosswise
+                        for (int r = 0; r < level + 1 && r < 5; r++)
+                            for (int i = 0; i < 4 - (r % 2); i++)
+                            {
+                                int x = 2 + i * 6 + (r % 2) * 3, y = 15 - r * 2;
+                                g.R(x, y, 5, 2, r % 2 == 0 ? "#5a5a62" : "#4a4a52"); g.R(x, y, 5, 1, "#7a7a84"); g.D(x + 4, y + 1, "#8a5a3a");
+                            }
+                        break;
+                    case Good.Leather: case Good.Hides:   // rolled leather, or hides folded in a stack
+                        for (int i = 0; i < level + 1 && i < 5; i++)
+                        {
+                            int x = 1 + i * 5, y = 11 - (i % 2) * 2;
+                            string c = good == Good.Leather ? "#7a4a2a" : "#b88a5a", d = good == Good.Leather ? "#5a341c" : "#9a6a42";
+                            g.R(x, y, 5, 6, c); g.R(x, y, 5, 1, d); g.R(x + 1, y + 2, 3, 1, d); g.Disc(x + 2.5f, y + 4.5f, 1.2f, d);
+                        }
+                        break;
+                    case Good.Beer:   // barrels on their sides, then stacked
+                        for (int i = 0; i < level + 1 && i < 6; i++)
+                        {
+                            int x = 1 + (i % 4) * 6 + (i >= 4 ? 3 : 0), y = i >= 4 ? 6 : 12;
+                            g.R(x, y, 5, 6, "#8a5a34"); g.R(x + 3, y, 2, 6, "#6e4428"); g.R(x, y + 1, 5, 1, "#5a5a5a"); g.R(x, y + 4, 5, 1, "#5a5a5a"); g.R(x + 1, y - 1, 3, 1, "#a8734a");
+                        }
+                        break;
+                    case Good.Wool:   // bales of fleece
+                        for (int i = 0; i < level + 1 && i < 5; i++)
+                        {
+                            int x = 1 + i * 5, y = 10 - (i % 2) * 2;
+                            g.R(x, y, 5, 7, "#ece6d8"); g.R(x, y + 2, 5, 1, "#c8bca4"); g.R(x, y + 5, 5, 1, "#c8bca4"); g.D(x + 1, y + 1, "#ffffff");
+                        }
+                        break;
+                    default:   // crates
+                        for (int i = 0; i < level + 1 && i < 5; i++)
+                        {
+                            int x = 1 + i * 5, y = 11 - (i % 2) * 3;
+                            g.R(x, y, 5, 5, "#c49a62"); g.R(x, y, 5, 1, "#d8b07a"); g.R(x + 4, y, 1, 5, "#a07a48"); g.D(x + 2, y + 2, "#a07a48");
+                        }
+                        break;
                 }
                 g.Outline(OL);
                 return g;
@@ -210,6 +247,25 @@ namespace FrontierLedger.Game.Art
             }, new Vector2(0.5f, 1f / 26f));
         }
 
+        /// <summary>What a courier carries for each good (pivot top-left); steers are led on a rope instead (see Steer).</summary>
+        public static Sprite Carried(Good good)
+        {
+            switch (good)
+            {
+                case Good.Logs: case Good.Firewood: return CarriedLog();
+                case Good.Stone: return CarriedStone();
+                case Good.Iron: return Cached("carry_iron", () => { var g = new PixelCanvas(9, 5); g.R(1, 1, 7, 3, "#5a5a62"); g.R(1, 1, 7, 1, "#7a7a84"); g.D(7, 3, "#8a5a3a"); g.Outline(OL); return g; }, new Vector2(0, 1));
+                case Good.Meat: return Cached("carry_meat", () => { var g = new PixelCanvas(8, 8); g.R(2, 1, 4, 5, "#a0503a"); g.R(1, 3, 6, 3, "#a0503a"); g.R(2, 1, 4, 1, "#c8704a"); g.R(3, 6, 2, 1, "#e8d8c0"); g.Outline(OL); return g; }, new Vector2(0, 1));
+                case Good.Bread: return Cached("carry_bread", () => { var g = new PixelCanvas(10, 7); g.R(1, 3, 8, 3, "#b8844a"); g.R(1, 3, 8, 1, "#d8a868"); g.R(2, 1, 3, 2, "#c8863a"); g.R(5, 1, 3, 2, "#e0a050"); g.R(4, 0, 2, 1, "#8a5a34"); g.Outline(OL); return g; }, new Vector2(0, 1));
+                case Good.Wool: case Good.Clothes:
+                    return Cached("carry_bundle" + (int)good, () => { var g = new PixelCanvas(9, 7); string c = good == Good.Wool ? "#ece6d8" : "#5a7aaa", d = good == Good.Wool ? "#c8bca4" : "#46628a"; g.R(1, 1, 7, 5, c); g.R(1, 3, 7, 1, d); g.R(4, 1, 1, 5, "#8a6a4a"); g.Outline(OL); return g; }, new Vector2(0, 1));
+                case Good.Hides: case Good.Leather:
+                    return Cached("carry_hide" + (int)good, () => { var g = new PixelCanvas(11, 5); string c = good == Good.Leather ? "#7a4a2a" : "#b88a5a"; g.R(1, 1, 9, 3, c); g.R(1, 1, 9, 1, good == Good.Leather ? "#9a6a42" : "#d0a878"); g.Disc(2, 2.5f, 1.2f, "#5a341c"); g.Outline(OL); return g; }, new Vector2(0, 1));
+                case Good.Beer: return Cached("carry_keg", () => { var g = new PixelCanvas(8, 8); g.R(1, 1, 6, 6, "#8a5a34"); g.R(5, 1, 2, 6, "#6e4428"); g.R(1, 2, 6, 1, "#5a5a5a"); g.R(1, 5, 6, 1, "#5a5a5a"); g.Outline(OL); return g; }, new Vector2(0, 1));
+                default: return CarriedSack();
+            }
+        }
+
         public static Sprite CarriedSack()
         {
             return Cached("carry_sack", () =>
@@ -244,6 +300,78 @@ namespace FrontierLedger.Game.Art
                 g.Outline(OL);
                 return g;
             }, new Vector2(0, 1));
+        }
+
+        // ------------------------------------------------------------------ livestock
+        /// <summary>A grazing cow, side on, facing left: frame 0 head down at the grass, 1 head up. Pivot at the feet, centred.</summary>
+        public static Sprite Cow(int variant, int frame)
+        {
+            return Cached("cow" + variant + frame, () =>
+            {
+                var g = new PixelCanvas(16, 11);
+                string[][] coats = { new[] { "#8a5a34", "#6e4428", "#f4ecd8" }, new[] { "#3a2e28", "#2a201c", "#f4ecd8" }, new[] { "#c8a070", "#a8804e", "#f4ecd8" }, new[] { "#a8442a", "#86341f", "#f4ecd8" } };
+                var c = coats[variant % coats.Length];
+                g.R(4, 2, 10, 5, c[0]); g.R(4, 6, 10, 1, c[1]); g.R(13, 2, 2, 3, c[0]); g.D(14, 1, c[1]);   // body and rump, tail
+                if (variant % 2 == 1) { g.R(7, 3, 3, 2, c[2]); g.D(11, 2, c[2]); }                                // patches
+                g.R(5, 7, 1, 3, c[1]); g.R(7, 7, 1, 3, c[1]); g.R(11, 7, 1, 3, c[1]); g.R(13, 7, 1, 3, c[1]);   // legs
+                if (frame == 0) { g.R(1, 5, 4, 3, c[0]); g.D(1, 7, "#2a1c12"); g.D(3, 5, c[1]); }               // head down, grazing
+                else { g.R(1, 1, 4, 3, c[0]); g.D(1, 3, "#2a1c12"); g.D(2, 2, "#1a1210"); g.D(4, 0, "#e8dcc4"); }  // head up, a horn
+                g.Outline(OL);
+                g.RBlend(4, 10, 10, 1, new Color32(0, 0, 0, 60));
+                return g;
+            }, new Vector2(0.5f, 1f / 11f));
+        }
+
+        /// <summary>A sheep: a white fleece on black legs. Pivot at the feet, centred.</summary>
+        public static Sprite Sheep(int frame)
+        {
+            return Cached("sheep" + frame, () =>
+            {
+                var g = new PixelCanvas(11, 9);
+                g.R(3, 2, 7, 4, "#f0ece0"); g.R(4, 1, 5, 1, "#f0ece0"); g.R(3, 5, 7, 1, "#d4ccbc"); g.D(5, 2, "#ffffff");
+                g.R(4, 6, 1, 2, "#2a201c"); g.R(8, 6, 1, 2, "#2a201c");
+                if (frame == 0) { g.R(1, 4, 2, 2, "#3a2e28"); } else { g.R(1, 2, 2, 2, "#3a2e28"); g.D(0, 3, "#3a2e28"); }
+                g.Outline(OL);
+                g.RBlend(3, 8, 7, 1, new Color32(0, 0, 0, 55));
+                return g;
+            }, new Vector2(0.5f, 1f / 9f));
+        }
+
+        /// <summary>A steer led on a rope behind a courier, walking left. Pivot at the feet, right edge (where the rope is held).</summary>
+        public static Sprite Steer(int frame)
+        {
+            return Cached("steer" + frame, () =>
+            {
+                var g = new PixelCanvas(18, 12);
+                g.R(6, 3, 10, 5, "#8a5a34"); g.R(6, 7, 10, 1, "#6e4428"); g.R(15, 3, 2, 3, "#8a5a34");
+                g.R(3, 2, 4, 3, "#8a5a34"); g.D(3, 4, "#2a1c12"); g.D(5, 1, "#e8dcc4");
+                int a = frame == 0 ? 0 : 1;
+                g.R(7 + a, 8, 1, 3, "#6e4428"); g.R(9 - a, 8, 1, 3, "#6e4428"); g.R(13 + a, 8, 1, 3, "#6e4428"); g.R(15 - a, 8, 1, 3, "#6e4428");
+                g.Line(3, 3, 0, 1, "#c8b88a");
+                g.Outline(OL);
+                return g;
+            }, new Vector2(0f, 1f / 12f));
+        }
+
+        /// <summary>Horses tied at a hotel's hitching rail: one to three. Pivot bottom-left.</summary>
+        public static Sprite Horses(int n)
+        {
+            n = Mathf.Clamp(n, 1, 3);
+            return Cached("horses" + n, () =>
+            {
+                var g = new PixelCanvas(30, 13);
+                string[][] coats = { new[] { "#6e4428", "#4e3020", "#2a1c12" }, new[] { "#c8a070", "#a8804e", "#f4ecd8" }, new[] { "#3a3434", "#2a2424", "#5a5050" } };
+                for (int i = 0; i < n; i++)
+                {
+                    var c = coats[i]; int x = 1 + i * 9;
+                    g.R(x + 2, 4, 5, 4, c[0]); g.R(x + 2, 7, 5, 1, c[1]);   // body, seen end-on-ish from behind the rail
+                    g.R(x + 3, 0, 3, 4, c[0]); g.D(x + 3, 0, c[2]); g.D(x + 5, 0, c[2]); g.R(x + 4, 1, 1, 3, c[2]);   // head and mane
+                    g.R(x + 2, 8, 1, 4, c[1]); g.R(x + 6, 8, 1, 4, c[1]);
+                    g.R(x + 1, 5, 7, 2, "#8a3a2a"); g.D(x + 4, 4, "#c8a050");   // saddle and blanket
+                }
+                g.Outline(OL);
+                return g;
+            }, new Vector2(0, 0));
         }
 
         // ------------------------------------------------------------------ graves

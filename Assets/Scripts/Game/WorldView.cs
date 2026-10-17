@@ -44,6 +44,9 @@ namespace FrontierLedger.Game
             public BuildingArt.SiteSprites Site;   // while under construction
             public float DoorUntil;                // the door stands open until this time
             public SpriteRenderer Inner; public Interior In; public float Open;   // the room under the roof, and how far the roof is lifted
+            public List<SpriteRenderer> Herd = new List<SpriteRenderer>();       // a ranch's cattle and sheep
+            public SpriteRenderer Horses;                                         // travellers' horses at a hotel's rail
+            public List<SpriteRenderer> Guests = new List<SpriteRenderer>();     // travellers in the hotel's dining room
         }
         sealed class PersonView
         {
@@ -92,6 +95,7 @@ namespace FrontierLedger.Game
         public void Bind(Town t, CameraRig cameraRig)
         {
             town = t; rig = cameraRig; nav = new Nav(t);
+            PeopleArt.WorkplaceOf = p => { var w = town.GetBuilding(p.WorkId); return w != null ? w.Type : (BuildingType?)null; };
             foreach (Transform c in transform) Destroy(c.gameObject);
             buildings.Clear(); trees.Clear(); treeKinds.Clear(); people.Clear(); particles.Clear(); particlePool.Clear(); smokeTimers.Clear();
             sparkles.Clear(); clouds.Clear(); birds.Clear(); tents.Clear(); tentSpot.Clear(); caravan.Clear();
@@ -231,6 +235,8 @@ namespace FrontierLedger.Game
                 case BuildingType.Sheriff: return b.Employees.Count > 0;
                 case BuildingType.DoctorOffice: return b.Employees.Count > 0 && town.TimeOfDay > 0.75f;
                 case BuildingType.School: return false;
+                case BuildingType.Church: return town.StaffOf(b, Role.Preacher) != null && town.Day % 7 == 0 && town.TimeOfDay > 0.75f;
+                case BuildingType.Hotel: return town.IsOpen(b) && b.Today.Sold > 0 && (town.TimeOfDay > 0.72f || town.TimeOfDay < 0.2f);
                 case BuildingType.Storehouse: case BuildingType.Wagon: case BuildingType.Cemetery: return false;
                 default: return b.Def.IsBusiness && town.IsOpen(b) && (b.Type == BuildingType.Saloon || town.TimeOfDay > 0.75f);
             }
@@ -241,10 +247,10 @@ namespace FrontierLedger.Game
             if (b.Def.IsStorage)
             {
                 int best = -1; float bv = 0.5f;
-                for (int g = 0; g < 5; g++) if (b.Stock[g] > bv) { bv = b.Stock[g]; best = g; }
+                for (int g = 0; g < Balance.GoodCount; g++) if (b.Stock[g] > bv) { bv = b.Stock[g]; best = g; }
                 return best < 0 ? (Good?)null : (Good)best;
             }
-            foreach (Good g in new[] { Good.Food, Good.Firewood, Good.Logs, Good.Stone, Good.Tools, Good.Furniture }) if (Town.Produces(b.Type, g)) return g;
+            for (int g = 0; g < Balance.GoodCount; g++) if (Town.Produces(b.Type, (Good)g)) return (Good)g;
             return null;
         }
 
@@ -331,9 +337,17 @@ namespace FrontierLedger.Game
                 {
                     var g = b.Built ? PileGood(b) : null;
                     int lvl = 0;
-                    if (g.HasValue) lvl = PropArt.PileLevel(b.Stock[(int)g.Value], b.Def.IsStorage ? b.Def.Capacity * 0.5f : (b.Type == BuildingType.Farm ? 160 : b.Type == BuildingType.BuilderYard ? 16 : 60));
+                    if (g.HasValue) lvl = PropArt.PileLevel(b.Stock[(int)g.Value], b.Def.IsStorage ? b.Def.Capacity * 0.5f : (b.Type == BuildingType.Farm ? 160 : b.Type == BuildingType.BuilderYard ? 16 : Mathf.Min(60, Town.StockCap(b, g.Value) * 0.75f)));
                     v.Pile.enabled = lvl > 0;
                     if (lvl > 0) v.Pile.sprite = PropArt.Pile(g.Value, lvl, si);
+                }
+                if (v.Herd.Count > 0) SyncHerd(v, b, si, n);
+                if (v.Horses != null)
+                {
+                    float ph = town.TimeOfDay;
+                    int guests = b.Built && town.IsOpen(b) ? (int)b.Today.Sold : 0;
+                    v.Horses.enabled = guests > 0 && (ph > 0.62f || ph < 0.3f) && roof > 0.5f;
+                    if (v.Horses.enabled) v.Horses.sprite = PropArt.Horses(Mathf.Clamp((guests + 1) / 2, 1, 3));
                 }
                 for (int i = 0; i < v.Chickens.Count; i++)
                 {
@@ -353,6 +367,30 @@ namespace FrontierLedger.Game
                 var gone = new List<int>();
                 foreach (var kv in buildings) if (!alive.Contains(kv.Key)) gone.Add(kv.Key);
                 foreach (int id in gone) { Destroy(buildings[id].Go); buildings.Remove(id); smokeTimers.Remove(id); }
+            }
+        }
+
+        /// <summary>A ranch's herd ambling about the paddock: more steers as the herd for market grows, and a few sheep.</summary>
+        void SyncHerd(BuildingView v, Building b, int si, float night)
+        {
+            var spots = v.Art.Herd;
+            int cows = b.Built ? Mathf.Clamp(2 + Mathf.FloorToInt(b.Stock[(int)Good.Cattle] / 3f), 2, 7) : 0, sheep = b.Built ? 3 : 0;
+            for (int i = 0; i < v.Herd.Count; i++)
+            {
+                var sr = v.Herd[i];
+                bool isSheep = i >= 7;
+                bool show = isSheep ? i - 7 < sheep : i < cows;
+                sr.enabled = show && night < 0.7f;
+                if (!sr.enabled) continue;
+                var spot = spots[i % spots.Count];
+                float t = time * 0.12f + i * 1.7f + b.Id;
+                float cx = b.X * 16 + spot.x + Mathf.Round(Mathf.Sin(t) * 5), cy = b.Y * 16 + spot.y + Mathf.Round(Mathf.Sin(t * 0.8f + 2) * 3);
+                cx = Mathf.Clamp(cx, b.X * 16 + 31, b.X * 16 + 58); cy = Mathf.Clamp(cy, b.Y * 16 + 8, b.Y * 16 + 42);
+                bool up = Noise.Hash(i, Mathf.FloorToInt(time * 0.4f) + b.Id, 23) < 0.25f;
+                sr.sprite = isSheep ? PropArt.Sheep(up ? 1 : 0) : PropArt.Cow((b.Id + i) % 4, up ? 1 : 0);
+                sr.flipX = Mathf.Cos(t) > 0;
+                sr.transform.position = Pixels.ToWorld(cx, cy);
+                sr.sortingOrder = SortOrder(cy, 1);
             }
         }
 
@@ -421,6 +459,13 @@ namespace FrontierLedger.Game
                 v.Forge.transform.localScale = new Vector3(v.Art.Forge.width, v.Art.Forge.height, 1);
             }
             foreach (var c in v.Art.Chickens) v.Chickens.Add(MakeSr("Chicken", v.Go.transform, NatureArt.Chicken(0), 0));
+            if (b.Type == BuildingType.Ranch) for (int i = 0; i < 10; i++) { var h = MakeSr("Herd", v.Go.transform, null, 0); h.enabled = false; v.Herd.Add(h); }
+            if (v.Art.HitchAt.x >= 0)
+            {
+                v.Horses = MakeSr("Horses", v.Go.transform, null, SortOrder(foot, 1)); v.Horses.enabled = false;
+                v.Horses.transform.position = Pixels.ToWorld(b.X * 16 + v.Art.HitchAt.x, b.Y * 16 - v.Art.Lift + v.Art.HitchAt.y);
+            }
+            if (b.Type == BuildingType.Hotel) for (int i = 0; i < 6; i++) { var gs = MakeSr("Guest", v.Go.transform, null, 0); gs.enabled = false; v.Guests.Add(gs); }
             if (b.Type != BuildingType.Wagon)
             {
                 v.Door = MakeSr("Door", v.Go.transform, null, SortOrder(foot, 1)); v.Door.enabled = false;
@@ -602,6 +647,15 @@ namespace FrontierLedger.Game
                     }
                     break;
                 }
+                case BuildingType.Ranch:
+                {
+                    // riding herd in the paddock
+                    var spots = ArtFor(b).Herd;
+                    if (spots.Count > 0) { var sp = spots[(p.Id + (int)wob) % spots.Count]; return new Vector2(b.X * 16 + sp.x + 6, b.Y * 16 + sp.y + 3); }
+                    break;
+                }
+                case BuildingType.Tannery: return new Vector2(b.X * 16 + 14 + (p.Seed - 0.5f) * 16, (b.Y + d.H) * 16 - 4);   // by the pits
+                case BuildingType.IronMine: return new Vector2(b.X * 16 + (p.Id % 2 == 0 ? 10 : 20), (b.Y + d.H) * 16 - 3);   // at the shaft or the furnace
                 case BuildingType.Fishery:
                 {
                     int[] dx = { 0, 1, -1, 2, 0, 1 }, dy = { 2, 2, 0, 0, -1, -1 };
@@ -671,8 +725,14 @@ namespace FrontierLedger.Game
                 var bed = town.GetBuilding(p.HomeId);
                 if (bed != null) { visit = bed; inside = true; return HasDoor(bed) ? DoorStep(bed, p) : Front(bed, p, 0.5f); }
             }
-            // school, the teacher's lessons and the doctor's rounds happen indoors
-            if (workHours && p.TaskId >= 0 && (p.Chore == Chore.School || p.Chore == Chore.Tend))
+            // Sunday morning: the congregation goes to church, and the preacher preaches
+            if (p.ChurchDay == town.Day && p.Jail == 0 && ph > 0.27f && ph < 0.42f)
+            {
+                var ch = p.Chore == Chore.Preach ? town.GetBuilding(p.TaskId) : town.OfType(BuildingType.Church).FirstOrDefault();
+                if (ch != null && ch.Built && ch.Type == BuildingType.Church) { visit = ch; inside = true; return HasDoor(ch) ? DoorStep(ch, p) : Front(ch, p, 0.5f); }
+            }
+            // school, the teacher's lessons, the doctor's rounds and the preacher's calls happen indoors
+            if (workHours && p.TaskId >= 0 && (p.Chore == Chore.School || p.Chore == Chore.Tend || p.Chore == Chore.Preach))
             {
                 var s = town.GetBuilding(p.TaskId);
                 if (s != null && s.Built) { visit = s; inside = true; return HasDoor(s) ? DoorStep(s, p) : Front(s, p, 0.6f); }
@@ -754,7 +814,9 @@ namespace FrontierLedger.Game
         static bool WorksIndoors(BuildingType t)
         {
             return t == BuildingType.Store || t == BuildingType.Saloon || t == BuildingType.Bank || t == BuildingType.Sheriff || t == BuildingType.Smithy
-                || t == BuildingType.School || t == BuildingType.DoctorOffice || t == BuildingType.Estate;
+                || t == BuildingType.School || t == BuildingType.DoctorOffice || t == BuildingType.Estate
+                || t == BuildingType.Butcher || t == BuildingType.Bakery || t == BuildingType.Tailor || t == BuildingType.Hotel || t == BuildingType.Barber
+                || t == BuildingType.Church || t == BuildingType.Brewery;
         }
 
         // ---------------------------------------------------------------- errands
@@ -794,6 +856,7 @@ namespace FrontierLedger.Game
             if (!errandsBy.TryGetValue(p.Id, out list) || v.DoorState != Out) return null;
             foreach (var s in list)
             {
+                if (s.E.Service) continue;   // nothing to carry home from a bath
                 float k = (ph - s.Start) / ErrandLen;
                 if (s.E.Delivery && k >= 0 && k < 0.5f) return s.E.Good;
                 if (!s.E.Delivery && ph >= s.Start + ErrandLen * 0.5f && ph < s.Start + ErrandLen + 0.07f) return s.E.Good;
@@ -801,15 +864,7 @@ namespace FrontierLedger.Game
             return null;
         }
 
-        static Sprite LoadSprite(Good g)
-        {
-            switch (g)
-            {
-                case Good.Logs: case Good.Firewood: return PropArt.CarriedLog();
-                case Good.Stone: return PropArt.CarriedStone();
-                default: return PropArt.CarriedSack();
-            }
-        }
+        static Sprite LoadSprite(Good g) { return PropArt.Carried(g); }
 
         // ---------------------------------------------------------------- indoors
         /// <summary>Puts the people inside an open building at their places: staff at their stations, pupils at their desks,
@@ -819,6 +874,7 @@ namespace FrontierLedger.Game
             bool night = town.TimeOfDay >= 0.86f || town.TimeOfDay < 0.2f;
             foreach (var bv in buildings.Values)
             {
+                foreach (var gs in bv.Guests) gs.enabled = false;
                 if (bv.In == null || bv.Open < 0.5f) continue;
                 var b = bv.B; var it = bv.In;
                 float ox = b.X * 16, oy = b.Y * 16 - bv.Art.Lift; int foot = (b.Y + b.Def.H) * 16;
@@ -864,7 +920,25 @@ namespace FrontierLedger.Game
                     v.Sr.sortingOrder = SortOrder(foot, 1 + Mathf.Clamp((sp.Y - room.y) * 3 / Mathf.Max(1, room.height), 0, 2));
                     v.Shown = true; v.ShownPos = new Vector2(x, y);
                 }
+                // travellers at supper in the hotel's dining room
+                float ph = town.TimeOfDay;
+                int guests = b.Type == BuildingType.Hotel && town.IsOpen(b) && (ph > 0.62f || ph < 0.3f) ? Mathf.Min((int)b.Today.Sold, bv.Guests.Count) : 0;
+                for (int i = 0; i < guests && nv + i < it.Visit.Count; i++)
+                {
+                    var sp = it.Visit[nv + i]; var sr = bv.Guests[i];
+                    sr.enabled = true; sr.color = Color.white;
+                    sr.sprite = PeopleArt.Get(Traveller(b.Id * 7 + i + town.Day), sp.Dir, Noise.Hash(i, Mathf.FloorToInt(time * 0.5f), 19) < 0.2f ? 1 : 0);
+                    sr.transform.position = Pixels.ToWorld(ox + sp.X, oy + sp.Y);
+                    sr.sortingOrder = SortOrder(foot, 1 + Mathf.Clamp((sp.Y - it.Room.y) * 3 / Mathf.Max(1, it.Room.height), 0, 2));
+                }
             }
+        }
+
+        /// <summary>A stranger passing through: drummers in bowlers, cattlemen, families on the road west.</summary>
+        static Citizen Traveller(int k)
+        {
+            float seed = Noise.Hash(k, 5, 29);
+            return new Citizen { Seed = seed, Female = Noise.Hash(k, 6, 29) < 0.3f, Age = 25 + seed * 30, Role = Noise.Hash(k, 7, 29) < 0.4f ? Role.Owner : Role.Laborer };
         }
         bool workHoursNow;
 
@@ -1037,7 +1111,15 @@ namespace FrontierLedger.Game
                     else if (p.Role == Role.Worker) frame = (Mathf.FloorToInt(time * 3 + p.Seed * 5) % 2) * 2;
                 }
                 var load = !v.Carry ? ErrandLoad(p, ph, v) : null;
-                if (load.HasValue)
+                v.Held.flipX = false;
+                if (load.HasValue && load.Value == Good.Cattle)
+                {
+                    // a steer led on a rope behind the courier
+                    bool right = v.Dir == PeopleArt.Right;
+                    v.Held.enabled = true; v.Held.sprite = PropArt.Steer(v.Moving ? Mathf.FloorToInt(v.Step / 6) % 2 : 0); v.Held.flipX = right;
+                    v.Held.transform.localPosition = right ? Pixels.ToWorld(-19, 1) : Pixels.ToWorld(2, 1);
+                }
+                else if (load.HasValue)
                 {
                     bool longLoad = load.Value == Good.Logs || load.Value == Good.Firewood;
                     v.Held.enabled = true; v.Held.sprite = LoadSprite(load.Value);
@@ -1113,6 +1195,10 @@ namespace FrontierLedger.Game
                 else if ((b.Type == BuildingType.Estate && town.MayorId >= 0) || (b.Type == BuildingType.LumberCamp && town.IsOpen(b))) rate = 0.6f;
                 else if (b.Type == BuildingType.School && si == 3 && town.SchoolInSession && b.Employees.Count > 0) rate = 0.6f;   // the schoolroom stove
                 else if (b.Type == BuildingType.DoctorOffice && b.Employees.Count > 0) rate = si >= 2 ? 0.6f : 0.25f;
+                else if (b.Type == BuildingType.Bakery && town.IsOpen(b)) rate = town.TimeOfDay < 0.45f ? 1.6f : 0.7f;   // the ovens fire before dawn
+                else if (b.Type == BuildingType.Brewery && town.IsOpen(b)) rate = 1f;
+                else if (b.Type == BuildingType.IronMine && town.IsOpen(b)) { rate = 1.8f; dark = true; }
+                else if (b.Type == BuildingType.Barber && town.IsOpen(b)) rate = 0.5f;
                 if (rate <= 0) continue;
                 float tmr; if (!smokeTimers.TryGetValue(b.Id, out tmr)) tmr = Random.value;
                 tmr -= dt * rate;

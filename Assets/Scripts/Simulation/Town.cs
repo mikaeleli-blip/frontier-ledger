@@ -11,7 +11,7 @@ namespace FrontierLedger.Simulation
     [Serializable]
     public partial class Town
     {
-        public const int CurrentVersion = 8;
+        public const int CurrentVersion = 9;
         public int Version = CurrentVersion;
         public int Seed;
         public int Day = 1;
@@ -136,6 +136,13 @@ namespace FrontierLedger.Simulation
                 foreach (var b in Buildings) { b.Deposit = 0; b.BankId = -1; }
                 Version = 8;
             }
+            if (Version < 9)
+            {
+                // version 9: new trades. Everyone has the clothes they came in, part worn.
+                foreach (var p in People) { p.Clothes = Rnd(0.6f, 1f); p.BathedDay = -999; p.ChurchDay = -999; }
+                foreach (var b in Buildings) { b.Attendance = 0; b.Collection = 0; }
+                Version = 9;
+            }
         }
 
         /// <summary>Resizes a per-good array to the current number of goods, keeping what's there.</summary>
@@ -206,9 +213,28 @@ namespace FrontierLedger.Simulation
         /// <summary>School runs in the summer and winter terms; children are needed at home for planting and harvest.</summary>
         public bool SchoolInSession { get { return Season == 1 || Season == 3; } }
         /// <summary>Jobs that pay a wage or salary (and are left when someone becomes an owner or the mayor).</summary>
-        public static bool Employed(Role r) { return r == Role.Worker || r == Role.Sheriff || r == Role.Deputy || r == Role.Builder || r == Role.Teacher || r == Role.Doctor; }
+        public static bool Employed(Role r) { return r == Role.Worker || r == Role.Sheriff || r == Role.Deputy || r == Role.Builder || r == Role.Teacher || r == Role.Doctor || r == Role.Preacher; }
         /// <summary>Work that needs someone who can read, write and keep accounts.</summary>
-        public static bool SkilledWork(BuildingType t) { return t == BuildingType.Store || t == BuildingType.Bank; }
+        public static bool SkilledWork(BuildingType t) { return t == BuildingType.Store || t == BuildingType.Bank || t == BuildingType.Hotel; }
+        /// <summary>Work that puts food on the town's tables: settlers take it first when food is short.</summary>
+        public static bool FoodJob(BuildingType t) { return t == BuildingType.Farm || t == BuildingType.Gatherer || t == BuildingType.Fishery || t == BuildingType.Ranch || t == BuildingType.Butcher; }
+        /// <summary>Goods people eat.</summary>
+        public static bool Edible(Good g) { return g == Good.Food || g == Good.Meat || g == Good.Bread; }
+        /// <summary>Shops that make what they sell over the counter (and buy the makings, not the goods).</summary>
+        public static bool MakesWhatItSells(BuildingType t) { return t == BuildingType.Butcher || t == BuildingType.Bakery || t == BuildingType.Tailor; }
+        /// <summary>How much of a good a business keeps before the surplus goes east on the freight wagons.</summary>
+        public static float StockCap(Building b, Good g)
+        {
+            if (g == Good.Food && b.Type == BuildingType.Farm) return Balance.BarnCapacity;
+            if (g == Good.Cattle) return Balance.HerdCap;
+            if (g == Good.Clothes) return Balance.ClothesCap;
+            if (g == Good.Leather || g == Good.Hides) return 30f;   // hides and leather go east before they pile up
+            if (g == Good.Iron || g == Good.Wool || g == Good.Beer) return 40f;
+            return Balance.BusinessStockCap;
+        }
+        /// <summary>Trades that send their surplus east and keep working: the ranch's cattle drives and the mine's pig iron.</summary>
+        public static bool ExportTrade(BuildingType t) { return t == BuildingType.Ranch || t == BuildingType.IronMine || t == BuildingType.Tannery; }
+        public Building ChurchWithPreacher { get { return OfType(BuildingType.Church).FirstOrDefault(c => StaffOf(c, Role.Preacher) != null); } }
         public Citizen StaffOf(Building b, Role r) { foreach (var id in b.Employees) { var p = GetCitizen(id); if (p != null && p.Role == r) return p; } return null; }
         public Building OwnedBusiness(Citizen p) { return Buildings.FirstOrDefault(b => b.Def.IsBusiness && b.OwnerId == p.Id); }
         /// <summary>The business a settler's household owns, if any (theirs or their spouse's).</summary>
@@ -385,6 +411,14 @@ namespace FrontierLedger.Simulation
             Errands.Add(new Errand { PersonId = p.Id, ToId = to.Id, Good = g });
         }
 
+        /// <summary>Notes a trip for the map: someone goes in for a service (a bath and a shave).</summary>
+        void Visit(Citizen p, Building to)
+        {
+            if (p == null || to == null || p.IsChild || Errands.Count > 400) return;
+            if (Errands.Count(e => e.PersonId == p.Id) >= 3) return;
+            Errands.Add(new Errand { PersonId = p.Id, ToId = to.Id, Service = true });
+        }
+
         /// <summary>Notes a delivery for the map: one of the seller's hands carries the goods over.</summary>
         void Deliver(Building from, Building to, Good g)
         {
@@ -459,17 +493,24 @@ namespace FrontierLedger.Simulation
                 case Good.Stone: return t == BuildingType.Quarry;
                 case Good.Tools: return t == BuildingType.Smithy;
                 case Good.Furniture: return t == BuildingType.BuilderYard;
+                case Good.Meat: case Good.Hides: return t == BuildingType.Butcher;
+                case Good.Bread: return t == BuildingType.Bakery;
+                case Good.Iron: return t == BuildingType.IronMine;
+                case Good.Wool: case Good.Cattle: return t == BuildingType.Ranch;
+                case Good.Leather: return t == BuildingType.Tannery;
+                case Good.Clothes: return t == BuildingType.Tailor;
+                case Good.Beer: return t == BuildingType.Brewery;
             }
             return false;
         }
 
         /// <summary>Buys a good from the businesses that make it, at wholesale. Returns the amount bought
         /// and lowers <paramref name="budget"/> by what was paid.</summary>
-        float BuyFromProducers(Good g, float qty, ref float budget, Building buyer)
+        float BuyFromProducers(Good g, float qty, ref float budget, Building buyer, BuildingType? only = null)
         {
             float price = Balance.Wholesale[(int)g], bought = 0;
             if (qty <= 0 || budget < price * 0.1f) return 0;
-            foreach (var s in Businesses.Where(b => b != buyer && Produces(b.Type, g) && b.Stock[(int)g] > 0.01f).OrderByDescending(b => b.Stock[(int)g]))
+            foreach (var s in Businesses.Where(b => b != buyer && Produces(b.Type, g) && (only == null || b.Type == only.Value) && b.Stock[(int)g] > 0.01f).OrderByDescending(b => b.Stock[(int)g]))
             {
                 float q = Math.Min(Math.Min(qty - bought, s.Stock[(int)g]), budget / price);
                 if (q <= 0.001f) break;
@@ -594,6 +635,34 @@ namespace FrontierLedger.Simulation
                 }
             return false;
         }
+        bool TouchesHill(int x, int y, int w, int h)
+        {
+            for (int dx = -1; dx <= w; dx++)
+                for (int dy = -1; dy <= h; dy++)
+                {
+                    bool edge = dx == -1 || dy == -1 || dx == w || dy == h;
+                    if (edge && TerrainAt(x + dx, y + dy) == Tile.Hill) return true;
+                }
+            return false;
+        }
+        /// <summary>Open grazing round a spot: grass, saplings and stumps nobody has built on.</summary>
+        public int PastureAt(int x, int y, int w, int h)
+        {
+            int cx = x + w / 2, cy = y + h / 2, r = Balance.PastureRadius, n = 0;
+            for (int yy = cy - r; yy <= cy + r; yy++)
+                for (int xx = cx - r; xx <= cx + r; xx++)
+                {
+                    if ((xx - cx) * (xx - cx) + (yy - cy) * (yy - cy) > r * r) continue;
+                    if (xx >= x && xx < x + w && yy >= y && yy < y + h) continue;   // the ranch itself
+                    byte t = TerrainAt(xx, yy);
+                    if (t != Tile.Grass && t != Tile.Sapling && t != Tile.Stump) continue;
+                    var o = OccupantAt(xx, yy);
+                    if (o == null) n++;
+                }
+            return n;
+        }
+        public int PastureNear(Building b) { var d = b.Def; return PastureAt(b.X, b.Y, d.W, d.H); }
+
         bool NearStone(int x, int y, int w, int h, int r)
         {
             for (int dx = -1; dx <= w; dx++)
@@ -618,6 +687,8 @@ namespace FrontierLedger.Simulation
             if (d.Unique && Buildings.Any(b => b.Type == type)) return "The town already has a " + d.Name;
             if (d.NeedsWater && !TouchesWater(x, y, d.W, d.H)) return "A fishing dock has to touch the river or lake";
             if (d.NeedsStone && !NearStone(x, y, d.W, d.H, d.Radius)) return "A quarry needs a hillside next to it or boulders nearby";
+            if (d.NeedsHill && !TouchesHill(x, y, d.W, d.H)) return "An iron mine has to be dug into a hillside";
+            if (d.NeedsPasture && PastureAt(x, y, d.W, d.H) < Balance.PastureMin) return "A ranch needs open grassland around it for grazing";
             float money = d.Money + ClearCost(type, x, y);
             if (!free && Treasury < money) return "The treasury needs " + Money(money) + " to clear the ground";
             return null;

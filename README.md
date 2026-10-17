@@ -123,13 +123,32 @@ Trade, Election, the Gazette and Freight.
   - Lumber camps fell trees, leaving stumps and replanting saplings. Woodcutters split logs into firewood.
   - Cold homes make people sick. The homeless camp by the fire, which only keeps them warm in spring and summer.
 - **Tools:**
-  - The blacksmith turns logs and stone into tools.
+  - The blacksmith turns logs and stone (bog iron) into tools, or logs and iron into half again as many.
   - Workers without tools produce 40% less.
+- **The trades:** each one buys from the last and sells to the next; what doesn't sell in town goes east on the freight wagons.
+  - *Cattle ranch:* needs open grassland round it. Raises steers all year and shears wool in spring. Steers go to the butcher;
+    past 24 head the rest are driven east.
+  - *Butcher shop:* dresses steers into meat for the counter and hides for the tannery.
+  - *Bakery:* buys grain from the fields (or the granary's surplus) and bakes bread.
+  - *Tannery:* turns hides into leather. Families living within 6 lots grumble about the stink.
+  - *Tailor:* makes clothes from wool and leather.
+  - *Iron mine:* dug into a hillside; smelts iron with firewood for the blacksmith, and sends the rest east.
+  - *Brewery:* brews beer from grain for the saloons and the hotel, unless food is short. A saloon with beer on tap
+    serves a third more customers.
+  - *Hotel:* travellers on the main road pay for a room, supper and a drink: money from outside. More come in summer
+    and as the town grows; a hand looks after four guests.
+  - *Barber & bathhouse:* a shave and a hot bath about once a week. It cheers people up, and clean folk fall sick less.
+  - *Church:* a preacher lives on the Sunday collection, which the town makes up to $10 a week. Sunday service cheers
+    the congregation and eases grief; church weddings and funerals mean more; families like a town with a church.
+- **The table:** households with money to spare buy bread and meat for part of their food, and are happier and
+  healthier for it.
+- **Clothes:** clothes wear thin over three or four years and get patched and mended. New, decent clothes cheer people,
+  keep out the cold, and mean less illness in winter. Households buy from the tailor, or clothes ordered from back east.
 - **Running a business:**
   - Owners hire when trade is good and lay hands off when it isn't. Fields take on hands for the harvest.
   - Owners take home the weekly profit above a reserve.
   - When no shop is open, farmers, fishers and woodcutters sell at their own gate.
-- **Freight from back east:** in the Freight book, order food, firewood, logs, stone and tools, or pay passage for laborers
+- **Freight from back east:** in the Freight book, order food, firewood, logs, stone, tools, iron, wool and clothes, or pay passage for laborers
   ($25) and families ($60).
   - The treasury pays when you order: goods at back-east prices with the haul included, plus a $10 teamsters' fee.
   - A caravan of covered wagons comes up the main road 4 days later (7 in winter), stops by the storehouse and drives on.
@@ -146,11 +165,14 @@ Trade, Election, the Gazette and Freight.
   - Newcomers arrive when there are spare beds and the larders aren't thin or running down, and bring some food with them.
 - **Law:** broke, hungry settlers steal. The sheriff and deputies catch them and jail them for two days.
 - **Daily life:** settlers open their front doors to go in at night and come out in the morning. Most saloon-goers head inside, and jailed settlers are taken into the sheriff's office.
-  - Shopkeepers, barkeeps, bankers, smiths, lawmen, the teacher and the doctor work indoors.
+  - Shopkeepers, barkeeps, bankers, smiths, lawmen, the teacher, the doctor and the preacher work indoors, and so do
+    the butcher, baker, tailor, barber, brewer and hotel staff. Butchers, bakers and barbers wear aprons.
+  - On Sunday morning most of the town walks to church. Ranch hands ride herd among the cattle, steers are led to the
+    butcher on a rope, and travellers' horses stand at the hotel's rail in the evening.
   - Every purchase is a trip: someone from the household walks to the shop, goes in, and comes home with a sack.
     Those at work shop after hours. Farmers, fishers, gatherers and woodcutters carry what they sell to the store or storehouse.
 - **Seeing inside:** click a cottage, the boarding house, the estate, the storehouse, store, saloon, bank, sheriff's office,
-  smithy, schoolhouse or doctor's office and the roof lifts off. Staff work at their stations, customers wait at the counter,
+  smithy, schoolhouse, doctor's office, butcher, bakery, tailor, hotel, barber, church or brewery and the roof lifts off. Staff work at their stations, customers wait at the counter,
   pupils sit at their desks, and the sleeping and the sick lie in bed. Clicking a settler who's indoors opens their building too.
 - **Mayor:**
   - Every 4 weeks, 2–3 settlers campaign on a platform: Law & Order, Farmers' Champion, Railroad & Trade or Common Folk.
@@ -190,6 +212,5 @@ A day lasts 3 minutes at 1× speed. Spring and winter last 14 days, summer and a
 
 - Replace the IMGUI interface with UI Toolkit, and the legacy Input Manager with the Input System
 - Hand-made sprite sheets to replace the generated art
-- More businesses, chosen: ranch, bakery, iron mine, tailor, tannery, brewery, hotel, barber & bathhouse, butcher, church
 - A railroad station and freight schedule
 - Events: droughts, gold strikes, outlaws, fires

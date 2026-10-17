@@ -25,7 +25,8 @@ namespace FrontierLedger.Game.Art
             public string Skin, SkinShade, Hair, HairShade, Shirt, ShirtShade, Pant, PantShade, Shoe = "#4a2f1e";
             public string Hat;           // null, straw, cowboy, cowboyTan, top, bowler, cap
             public string HatColor;
-            public bool Vest, Coat, Badge, Suspenders, LongHair, Bun;
+            public bool Vest, Coat, Badge, Suspenders, LongHair, Bun, Collar;
+            public string Apron;         // a white apron for the butcher, baker and barber, leather for smith and tanner
             public string Key;
         }
 
@@ -34,6 +35,9 @@ namespace FrontierLedger.Game.Art
             var c = PixelCanvas.C(hex);
             return "#" + ((int)(c.r * k)).ToString("x2") + ((int)(c.g * k)).ToString("x2") + ((int)(c.b * k)).ToString("x2");
         }
+
+        /// <summary>Where a settler works, so their clothes can show their trade. Set by the map view.</summary>
+        public static System.Func<Citizen, BuildingType?> WorkplaceOf;
 
         static Look LookOf(Citizen p)
         {
@@ -60,11 +64,20 @@ namespace FrontierLedger.Game.Art
                         if (L.Female) { L.Shirt = "#5a6a8a"; L.ShirtShade = "#46546e"; L.Bun = true; L.LongHair = false; }
                         else { L.Vest = true; L.Shirt = "#ece4d2"; L.ShirtShade = "#cfc4ad"; }
                         break;
+                    case Role.Preacher: L.Hat = "parson"; L.HatColor = "#1e1a22"; L.Coat = true; L.Collar = true; L.Shirt = "#24202a"; L.ShirtShade = "#16131a"; L.Pant = "#24202a"; L.PantShade = "#16131a"; break;
                     case Role.Worker: if (!L.Female && (int)(p.Seed * 13) % 2 == 0) { L.Hat = "straw"; L.HatColor = "#e0c070"; } else if (!L.Female) { L.Hat = "cap"; L.HatColor = "#6a5a4a"; } break;
                     default: L.Shirt = L.Female ? L.Shirt : "#9a8e7a"; L.ShirtShade = L.Female ? L.ShirtShade : "#7e735f"; break;
                 }
+            if (!L.Child && !L.Jailed && (p.Role == Role.Worker || p.Role == Role.Owner) && WorkplaceOf != null)
+            {
+                var w = WorkplaceOf(p);
+                if (w == BuildingType.Butcher || w == BuildingType.Bakery || w == BuildingType.Barber) L.Apron = "#f4f0e6";
+                else if (w == BuildingType.Smithy || w == BuildingType.Tannery || w == BuildingType.IronMine) L.Apron = "#6e4428";
+                if (w == BuildingType.Bakery && !L.Female) { L.Hat = "cap"; L.HatColor = "#f4f0e6"; }
+                if (w == BuildingType.Ranch && !L.Female) { L.Hat = "cowboy"; L.HatColor = "#9a7a52"; }
+            }
             L.Key = string.Join("|", new[] { L.Female ? "f" : "m", L.Child ? "c" : "a", L.Skin, L.Hair, L.Shirt, L.Pant, L.Hat ?? "-", L.HatColor ?? "-",
-                L.Vest ? "v" : "", L.Coat ? "c" : "", L.Badge ? "b" : "", L.Suspenders ? "s" : "", L.LongHair ? "l" : "", L.Bun ? "u" : "" });
+                L.Vest ? "v" : "", L.Coat ? "c" : "", L.Badge ? "b" : "", L.Suspenders ? "s" : "", L.LongHair ? "l" : "", L.Bun ? "u" : "", L.Collar ? "k" : "", L.Apron ?? "" });
             return L;
         }
 
@@ -160,6 +173,8 @@ namespace FrontierLedger.Game.Art
                 if (L.Coat && dir == Down) { RR(4, ty, 1, 2, "#ece4d2"); P(4, ty + 1, "#b5432f"); }
                 if (L.Suspenders) { P(3, ty, "#5a3a2a"); P(5, ty, "#5a3a2a"); RR(3, ty + 1, 1, torso - 2, "#5a3a2a"); RR(5, ty + 1, 1, torso - 2, "#5a3a2a"); }
                 if (L.Badge && dir == Down) P(5, ty + 1, "#f2d04a");
+                if (L.Collar && dir == Down) { P(4, ty, "#f8f8f4"); }
+                if (L.Apron != null && dir == Down) { RR(3, ty + 1, 3, torso - 1, L.Apron); RR(3, ly, 3, 1, L.Apron); }
                 int arm = L.Child ? 1 : 2, la = frame == 1 ? -1 : frame == 2 ? 1 : 0;
                 RR(1, ty + 1, 1, arm + la, L.Shirt); P(1, ty + 1 + arm + la, L.Skin);
                 RR(7, ty + 1, 1, arm - la, L.ShirtShade); P(7, ty + 1 + arm - la, L.SkinShade);
@@ -219,6 +234,7 @@ namespace FrontierLedger.Game.Art
                     case "cowboy": RR(2, by - 2, 5, 2, hc); P(4, by - 2, hs); RR(0, by, 9, 1, hc); P(-1, by - 1, hc); P(9, by - 1, hc); break;
                     case "top": RR(2, by - 4, 5, 4, hc); RR(2, by - 1, 5, 1, "#b5432f"); RR(1, by, 7, 1, hc); RR(6, by - 4, 1, 4, hs); break;
                     case "bowler": RR(3, by - 2, 3, 1, hc); RR(2, by - 1, 5, 1, hc); RR(1, by, 7, 1, hs); break;
+                    case "parson": RR(2, by - 2, 5, 2, hc); RR(-1, by, 11, 1, hc); P(4, by - 2, hs); break;   // a low crown and a wide flat brim
                     case "cap":
                         RR(1, by - 1, 7, 2, hc); RR(2, by - 2, 5, 1, hc); RR(6, by - 1, 2, 2, hs);
                         if (dir == Down) RR(1, by + 1, 7, 1, hs); else if (dir == Left) RR(-1, by + 1, 3, 1, hs);

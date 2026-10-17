@@ -69,6 +69,8 @@ namespace FrontierLedger.Simulation
         public int VacantDays;                        // a school or doctor's office waiting for someone to take the post
         public float Deposit;                         // an owned business's money in the bank
         public int BankId = -1;                       // the bank holding it
+        public int Attendance;                        // a church's congregation last Sunday
+        public float Collection;                      // and what went in the plate
         public PeriodStats Week = new PeriodStats();
         public WeekReport Last = new WeekReport();
         public DayStats Today = new DayStats();
@@ -143,6 +145,10 @@ namespace FrontierLedger.Simulation
         public bool Physician;           // trained as a doctor
         public float Deposit;            // savings in the bank (Money is what they keep at home)
         public int BankId = -1;          // the bank holding them
+        public float Clothes = 1f;       // the clothes on their back: 1 a new set, wearing down to rags
+        public int BathedDay = -999;     // last bath and shave at the barber's
+        public int ChurchDay = -999;     // last Sunday at church
+        public bool AteMeat, AteBread;   // what was on the table today
         public string Name { get { return First + " " + Family; } }
         public bool IsChild { get { return Age < Balance.AdultAge; } }
     }
@@ -164,6 +170,7 @@ namespace FrontierLedger.Simulation
         public int PersonId, ToId, FromId = -1;
         public Good Good;
         public bool Delivery;        // carrying goods there (selling) rather than coming back with them (buying)
+        public bool Service;         // going for a service (a bath and a shave), not goods
     }
 
     [Serializable]
@@ -225,8 +232,8 @@ namespace FrontierLedger.Simulation
         public bool Charity = true;        // the storehouse feeds and warms those who can't pay
         public bool ElectionsOn = true;
         public bool StorehouseSells = true;
-        public float[] StorehousePrice = { 1.1f, 0.7f, 0f, 0f, 0f, 0f };
-        public float[] Reserve = { 150f, 60f, 40f, 20f, 10f, 0f };   // the town buys up to these levels
+        public float[] StorehousePrice = { 1.1f, 0.7f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 9f, 0f, 0f };   // clothes ordered from back east sell when no tailor has any
+        public float[] Reserve = { 150f, 60f, 40f, 20f, 10f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f };   // the town buys up to these levels
     }
 
     [Serializable]

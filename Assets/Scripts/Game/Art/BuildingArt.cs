@@ -23,13 +23,15 @@ namespace FrontierLedger.Game.Art
         public bool HasDoor;
         public RectInt Door;                   // the doorway, sprite pixels
         public Sprite DoorOpen, DoorOpenLit;   // overlays: the door swung open on a dark or lamplit room
+        public readonly List<Vector2Int> Herd = new List<Vector2Int>();   // where cattle and sheep graze (footprint pixels)
+        public Vector2Int HitchAt = new Vector2Int(-1, -1);              // the hitching rail: horses' feet, bottom-left (sprite pixels)
     }
 
     /// <summary>
     /// Procedural 3/4-view buildings in a warm, chunky farm-sim style: dark outlines, plank walls,
     /// scalloped shingles, window boxes. Generated once per (type, variant, season) and cached.
     /// </summary>
-    public static class BuildingArt
+    public static partial class BuildingArt
     {
         public const string OL = "#3b2618";
         const string SNOW = "#f4f8fa", SNOW2 = "#d4e2ea";
@@ -57,6 +59,16 @@ namespace FrontierLedger.Game.Art
                 case BuildingType.Bank: return 14;
                 case BuildingType.School: return 24;
                 case BuildingType.DoctorOffice: return 16;
+                case BuildingType.Ranch: return 12;
+                case BuildingType.Butcher: return 12;
+                case BuildingType.Bakery: return 14;
+                case BuildingType.IronMine: return 16;
+                case BuildingType.Tannery: return 10;
+                case BuildingType.Brewery: return 16;
+                case BuildingType.Tailor: return 12;
+                case BuildingType.Hotel: return 26;
+                case BuildingType.Barber: return 12;
+                case BuildingType.Church: return 30;
                 default: return 0;
             }
         }
@@ -251,6 +263,16 @@ namespace FrontierLedger.Game.Art
                 case BuildingType.Bank: Bank(k); break;
                 case BuildingType.School: School(k); break;
                 case BuildingType.DoctorOffice: DoctorOffice(k); break;
+                case BuildingType.Ranch: Ranch(k); break;
+                case BuildingType.Butcher: Butcher(k); break;
+                case BuildingType.Bakery: Bakery(k); break;
+                case BuildingType.IronMine: IronMine(k); break;
+                case BuildingType.Tannery: Tannery(k); break;
+                case BuildingType.Brewery: Brewery(k); break;
+                case BuildingType.Tailor: Tailor(k); break;
+                case BuildingType.Hotel: Hotel(k); break;
+                case BuildingType.Barber: Barber(k); break;
+                case BuildingType.Church: Church(k); break;
             }
             k.Tg.Outline(OL);
             string n = type + "_" + v + "_" + si;

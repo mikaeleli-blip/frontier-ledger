@@ -3,7 +3,8 @@ using UnityEngine;
 
 namespace FrontierLedger.Game.UI
 {
-    public enum Icon { Food, Firewood, Logs, Stone, Tools, People, Child, House, Heart, Health, Coin, Warning, Grave, Book, Scales, Ballot, News, Hammer, Pointer, Axe, Sun, Moon, Snow, Leaf, Close, Plus, Minus, Play, Pause, Star, Chair, Wagon }
+    public enum Icon { Food, Firewood, Logs, Stone, Tools, People, Child, House, Heart, Health, Coin, Warning, Grave, Book, Scales, Ballot, News, Hammer, Pointer, Axe, Sun, Moon, Snow, Leaf, Close, Plus, Minus, Play, Pause, Star, Chair, Wagon,
+                       Meat, Bread, Iron, Wool, Hide, Leather, Clothes, Beer, Steer, Cross, Bath }
 
     /// <summary>
     /// A tiny immediate-mode UI kit on top of IMGUI: wooden frames, parchment panels, pixel text,
@@ -127,6 +128,17 @@ namespace FrontierLedger.Game.UI
                 {Icon.Star, "....o....|...oyo...|ooooyoooo|oyyyyyyyo|.oyyyyyo.|..oyyyo..|.oyyoyyo.|.oo...oo.|........."},
                 {Icon.Chair, ".oo......|.oBo.....|.oBo.....|.oBo.....|.oBoooooo|.oBBBBBBo|.oBooooBo|.oBo..oBo|.ooo..ooo"},
                 {Icon.Wagon, "..ooooo..|.owwwwwo.|owwwwwwwo|owwcwcwwo|ooooooooo|obbbbbbbo|ooooooooo|.ogo.ogo.|..o...o.."},
+                {Icon.Meat, ".........|..ooooo..|.orrrrro.|orrRrrrro|orRRrrrro|orrrrrro.|.orrrrooo|..ooo.owo|......oo."},
+                {Icon.Bread, ".........|.........|..ooooo..|.oBBBBBo.|oBbBbBbBo|oBBBBBBBo|obbbbbbbo|.ooooooo.|........."},
+                {Icon.Iron, ".........|.........|..ooooooo|.oGgggGo.|oGgggGoo.|oooooooGo|oGgggGooo|ooooooo..|........."},
+                {Icon.Wool, ".........|..ooooo..|.owwcwwo.|owcwwwcwo|owwwcwwwo|owcwwwcwo|.owwwwwo.|..ooooo..|........."},
+                {Icon.Hide, ".o.....o.|oBo...oBo|.oBBBBBo.|..oBBBo..|..oBbBo..|.oBBBBBo.|oBo...oBo|.o.....o.|........."},
+                {Icon.Leather, ".........|.oooooo..|obbbbbbo.|obhhhhbo.|obbbbbboo|.oooooobo|....obbbo|.....ooo.|........."},
+                {Icon.Clothes, ".oo...oo.|okkoookko|okkkkkkko|.ookkkoo.|..okkko..|..okkko..|..okkko..|..ooooo..|........."},
+                {Icon.Beer, ".........|.ooooo...|.owwwwoo.|.oyyyyoyo|.oyyyyoyo|.oyyyyoo.|.oyyyyo..|.oooooo..|........."},
+                {Icon.Steer, "w.......w|ow.ooo.wo|.oobbboo.|..obbbo..|..obobo..|..obbbo..|...ohho..|....oo...|........."},
+                {Icon.Cross, "...ooo...|...oyo...|.oooyooo.|.oyyyyyo.|.oooyooo.|...oyo...|...oyo...|...ooo...|........."},
+                {Icon.Bath, ".......o.|......oko|.......o.|ooooooooo|okkkkkkko|ogggggggo|.ooooooo.|.o.....o.|........."},
             };
             foreach (var kv in art)
             {
