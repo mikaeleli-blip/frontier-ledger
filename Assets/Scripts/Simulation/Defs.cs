@@ -123,7 +123,7 @@ namespace FrontierLedger.Simulation
         // Owning a business
         public const float LoanInterest = 0.015f;          // a bank charges this much a week on what's owed
         public const float MinDown = 0.25f;                // a bank wants this share of the price paid down
-        public const float LoanTerm = 12f;                 // weeks a loan is meant to be paid back over
+        public const float LoanTerm = 26f;                 // weeks a loan is meant to be paid back over
         public const float BankCapital = 300f;             // what a new banker brings out from back east to lend
         // Banking: owned businesses bank everything but a small till; settlers keep pocket money at home and bank the rest
         public const float DepositInterest = 0.003f;       // at most this a week on savings (about 3% a year), paid out of what the bank earns on loans

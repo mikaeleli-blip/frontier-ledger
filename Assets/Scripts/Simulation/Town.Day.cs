@@ -1583,15 +1583,26 @@ namespace FrontierLedger.Simulation
                 AddLog(o.Name + " fell behind on the bank loan for the " + b.Def.Name + ".", LogKind.Bad);
                 return;
             }
-            // foreclosure: the bank takes the business back and sells it on; what's left owing is the bank's loss
-            AddLog((banker != null ? banker.Name : "The bank") + " took the " + b.Def.Name + " from " + o.Name + " after four missed payments. The town runs it until it sells again.", LogKind.Bad);
-            if (b.Deposit > 0) WithdrawFor(b, b.Deposit);
-            o.Money += Math.Max(0, b.Cash) * 0.5f;
-            Treasury += Math.Max(0, b.Cash) * 0.5f; b.Cash = 0;
+            // foreclosure: the bank takes the business and what's in it, and gets the rest back when it sells
+            Repossess(b);
+            AddLog((banker != null ? banker.Name : "The bank") + " took the " + b.Def.Name + " from " + o.Name + " after four missed payments." +
+                   (b.Debt > 0.01f ? " It's for sale, and the bank gets the " + Money(b.Debt) + " still owed out of the price. The town runs it meanwhile." : ""), LogKind.Bad);
             foreach (var id in b.Employees) { var e = GetCitizen(id); if (e != null && e.FamilyHand) { e.FamilyHand = false; } }
             foreach (var id in b.Employees.ToList()) { var e = GetCitizen(id); if (e != null && (e.PartnerId == o.Id || e.MotherId == o.Id || e.FatherId == o.Id)) QuitJob(e); }
-            b.OwnerId = -1; b.Debt = 0; b.LenderId = -1; b.MissedPayments = 0;
             o.Role = Role.Laborer; o.WorkId = -1;
+        }
+
+        /// <summary>The bank takes back a business whose owner defaulted or left: the till and the business's account go
+        /// against the loan, and the business stays pledged to the bank until it sells, when the bank is paid first.</summary>
+        void Repossess(Building b)
+        {
+            var bank = GetBuilding(b.LenderId);
+            b.OwnerId = -1; b.MissedPayments = 0;
+            if (bank == null || bank.OwnerId < 0) { if (b.Deposit > 0) WithdrawFor(b, b.Deposit); b.Debt = 0; b.LenderId = -1; return; }
+            if (b.Deposit > 0) WithdrawFor(b, b.Deposit);
+            float t = Math.Min(Math.Max(0, b.Cash), b.Debt);
+            b.Cash -= t; bank.Cash += t; b.Debt -= t;
+            if (b.Debt <= 0.01f) { b.Debt = 0; b.LenderId = -1; }
         }
 
         // =====================================================================

@@ -82,7 +82,10 @@ Trade, Election, the Gazette and Freight.
 - **Owning a business:** a finished business is run by the town until a family can buy it at what it cost to build.
   - The town hires and pays its hands and keeps its takings meanwhile.
   - A family buys with its own savings, in full. Once a Bank is open, the banker lends the rest to a family with a
-    quarter of the price, at 1.5% a week. Four missed payments and the bank takes the business back (farms settle at harvest).
+    quarter of the price, at 1.5% a week, paid back over about 26 weeks. Four missed payments and the bank takes the business
+    back (farms settle at harvest). It takes what's in the till and the business's account against the loan, then the town
+    runs it until it sells, and the bank is paid what it's still owed out of the price. The same happens when an owner with
+    a loan leaves town or dies with no one to take over.
   - When a Bank is finished, a banker comes out from back east with money to lend and buys it from the town.
   - Banking: owned businesses bank everything but a small till each Sunday, and settlers bank all but $15 of pocket money.
     They draw on their accounts whenever they need to (shopping, rent, taxes, buying a business), and banked money is safe
@@ -148,6 +151,7 @@ Trade, Election, the Gazette and Freight.
   keep out the cold, and mean less illness in winter. Households buy from the tailor, or clothes ordered from back east.
 - **Running a business:**
   - Owners hire when trade is good and lay hands off when it isn't. Fields take on hands for the harvest.
+    Nobody is taken on unless there's a week's wages in hand for every hired hand (the treasury backs the town's own).
   - Owners take home the weekly profit above a reserve. If the family can't afford the day's food or firewood, they spend
     their savings first, then the owner takes what's needed from whatever the business holds beyond its working money.
     A banker can only take the bank's own money, never the savers'.

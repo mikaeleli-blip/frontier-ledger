@@ -250,13 +250,13 @@ namespace FrontierLedger.Simulation
                 }
                 else
                 {
-                    own.OwnerId = -1;
-                    if (own.Type == BuildingType.Bank) CloseBank(own);   // no banker, no bank
+                    if (own.Type == BuildingType.Bank) { own.OwnerId = -1; CloseBank(own); }   // no banker, no bank
                     if (own.Deposit > 0) WithdrawFor(own, own.Deposit);   // a town-run business keeps its money in the till
-                    if (own.Debt > 0.01f && GetBuilding(own.LenderId) != null) AddLog("The bank wrote off " + Money(own.Debt) + " still owed on the " + own.Def.Name + ".", LogKind.Bad);
-                    own.Debt = 0; own.LenderId = -1; own.MissedPayments = 0;
+                    if (own.Debt > 0.01f) Repossess(own);   // the bank holds it until it sells, and is paid first
+                    else { own.OwnerId = -1; own.Debt = 0; own.LenderId = -1; own.MissedPayments = 0; }
                     foreach (var id in own.Employees) { var e = GetCitizen(id); if (e != null) e.FamilyHand = false; }
-                    AddLog("The " + own.Def.Name + " is up for sale. The town runs it until someone buys it.");
+                    AddLog("The " + own.Def.Name + " is up for sale. The town runs it until someone buys it." +
+                           (own.Debt > 0.01f ? " The bank gets the " + Money(own.Debt) + " still owed out of the price." : ""));
                 }
             }
             var partner = GetCitizen(p.PartnerId);
@@ -410,9 +410,18 @@ namespace FrontierLedger.Simulation
             var partner = GetCitizen(buyer.PartnerId);
             var payers = new List<Citizen> { buyer }; if (partner != null) payers.Add(partner);
             Collect(payers, price - loan);
+            // a business the bank took back: the bank is paid what it's still owed out of the price, the town gets the rest
+            float toBank = 0;
+            var holder = GetBuilding(b.LenderId);
+            if (b.Debt > 0.01f && holder != null && holder.OwnerId >= 0)
+            {
+                toBank = Math.Min(price, b.Debt);
+                holder.Cash += toBank;
+                if (b.Debt - toBank > 0.01f) AddLog("The bank got back " + Money(toBank) + " of the " + Money(b.Debt) + " owed on the " + d.Name + " and wrote off the rest.", LogKind.Bad);
+            }
             if (loan > 0) { bank.Cash -= loan; b.Debt = loan; b.LenderId = bank.Id; b.MissedPayments = 0; }
             else { b.Debt = 0; b.LenderId = -1; }
-            Treasury += price; LedgerThisWeek.Deeds += price;
+            Treasury += price - toBank; LedgerThisWeek.Deeds += price - toBank;
             // the town takes back what's in its till; the family puts some savings in, and the town a little start-up money
             Treasury += Math.Max(0, b.Cash); LedgerThisWeek.TownTakings += Math.Max(0, b.Cash); b.Cash = 0;
             float capital = Collect(payers, payers.Sum(x => Math.Max(0, Savings(x))) * (b.Type == BuildingType.Bank ? 0.8f : 0.3f));
@@ -529,7 +538,11 @@ namespace FrontierLedger.Simulation
             {
                 if (b.Type == BuildingType.Bank && b.OwnerId < 0) continue;   // a bank needs a banker; the town doesn't lend
                 int want = Math.Min(b.Def.MaxEmployees, b.Desired);
-                for (int i = b.Employees.Count; i < want; i++) vac.Add(new Vacancy { B = b, Wage = b.Wage, Role = Role.Worker });
+                // nobody is taken on without a week's wages in hand for every hired hand (the town's money backs its own)
+                float purse = b.Cash + b.Deposit + (b.OwnerId < 0 ? Math.Max(0, Treasury) : 0);
+                int hired = b.Employees.Count(id => { var e = GetCitizen(id); return e != null && !e.FamilyHand; });
+                int affordable = b.Wage > 0 ? (int)(purse / (b.Wage * 7f)) : 0;
+                for (int i = b.Employees.Count; i < want && hired < affordable; i++, hired++) vac.Add(new Vacancy { B = b, Wage = b.Wage, Role = Role.Worker });
             }
             if (off != null && Treasury > 15)
             {

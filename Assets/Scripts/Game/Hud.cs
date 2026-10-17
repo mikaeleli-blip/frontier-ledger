@@ -963,7 +963,8 @@ namespace FrontierLedger.Game
                 if (b.Debt > 0.5f)
                 {
                     var lender = T.GetBuilding(b.LenderId);
-                    Row(lender != null ? "Owes the bank" : "Owes the town", Town.Money(b.Debt), b.MissedPayments > 0 ? Ui.Bad : Ui.Warn);
+                    Row(lender != null ? (b.OwnerId < 0 ? "Pledged to the bank" : "Owes the bank") : "Owes the town", Town.Money(b.Debt), b.MissedPayments > 0 ? Ui.Bad : Ui.Warn);
+                    if (b.OwnerId < 0 && lender != null) Para("The bank took it back. It's paid first out of the price when it sells.", Ui.InkSoft);
                     if (b.MissedPayments > 0) Para(b.MissedPayments + (b.MissedPayments == 1 ? " missed payment." : " missed payments.") + " Four and the bank takes it.", Ui.Bad);
                 }
                 ConditionRows(b);
