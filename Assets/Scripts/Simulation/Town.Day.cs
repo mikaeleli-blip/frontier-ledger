@@ -1580,6 +1580,8 @@ namespace FrontierLedger.Simulation
                 return Math.Min(want, Math.Max(afford, 1));
             }
             if (b.Type == BuildingType.Gatherer && nextSeason == 3) return 0;
+            // the town running out of firewood: a woodcutter with logs to split takes on every hand it can pay
+            if (b.Type == BuildingType.Woodcutter && FirewoodShort && (townRun || b.Cash > b.Wage * 2)) return Math.Min(d.MaxEmployees, Math.Max(n + 1, Math.Max(afford, townRun ? d.MaxEmployees : 0)));
             if (!townRun && b.Cash < b.Wage * (n + 1) * 2) return Math.Max(0, n - 1);
             float fill = 0;
             if (d.IsRetail) fill = d.Sells.Average(g => b.Stock[(int)g]) / (d.Capacity / (float)d.Sells.Length);

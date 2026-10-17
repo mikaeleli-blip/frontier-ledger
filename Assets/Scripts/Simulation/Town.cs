@@ -338,6 +338,8 @@ namespace FrontierLedger.Simulation
 
         public float AverageHappiness { get { return People.Count == 0 ? 50f : People.Average(p => p.Happy); } }
         public float AverageHealth { get { return People.Count == 0 ? 100f : People.Average(p => p.Health); } }
+        /// <summary>Less than about a week's firewood put by for the homes that need it.</summary>
+        public bool FirewoodShort { get { return TotalFirewood() < Buildings.Count(h => h.Built && IsHome(h.Type) && h.Residents.Count > 0) * 8f; } }
         public int FreeBeds { get { return Buildings.Where(h => h.Built && (h.Type == BuildingType.House || h.Type == BuildingType.BoardingHouse)).Sum(h => h.Def.Beds - h.Residents.Count); } }
         /// <summary>Buildings people live in.</summary>
         public static bool IsHome(BuildingType t) { return t == BuildingType.House || t == BuildingType.BoardingHouse || t == BuildingType.Estate || t == BuildingType.LargeHouse || t == BuildingType.Manor; }

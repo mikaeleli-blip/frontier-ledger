@@ -599,8 +599,7 @@ namespace FrontierLedger.Simulation
             }
             // when food is short, settlers take food jobs first
             bool hungry = People.Count > 0 && TotalFood() / People.Count < 30f;   // less than a month's food put by
-            int homes = Buildings.Count(h => h.Built && IsHome(h.Type) && h.Residents.Count > 0);
-            bool cold = TotalFirewood() < homes * 8f;
+            bool cold = FirewoodShort;
             vac = vac.OrderByDescending(v => v.Wage + (v.B == null ? 0f :
                         (hungry && FoodJob(v.B.Type) ? 1f : 0f) +
                         (cold && (v.B.Type == BuildingType.Woodcutter || v.B.Type == BuildingType.LumberCamp) ? 1f : 0f))).ToList();
@@ -630,16 +629,19 @@ namespace FrontierLedger.Simulation
             foreach (var v in open)
             {
                 if (v.Role != Role.Worker || v.B == null) continue;
-                bool urgent = hungry && FoodJob(v.B.Type);
-                // family hands only leave the family business for urgent food work, or when it isn't paying its way
+                // food work when food is short, and firewood work when the town is running out, can't wait for someone to come free
+                Func<BuildingType, bool> fuel = t => t == BuildingType.Woodcutter || t == BuildingType.LumberCamp;
+                Func<BuildingType, bool> vital = t => (hungry && FoodJob(t)) || (cold && fuel(t));
+                bool urgent = vital(v.B.Type);
+                // family hands only leave the family business for urgent work, or when it isn't paying its way
                 var mover = People.Where(p => p.Role == Role.Worker && p.Jail == 0 && p.WorkId != v.B.Id && CanDo(p, v) && !AtBrothel(p) &&
                                               (!p.FamilyHand || urgent || Losing(GetBuilding(p.WorkId))))
                                   .Select(p => new { p, w = GetBuilding(p.WorkId) })
-                                  .Where(x => x.w != null && !(urgent && FoodJob(x.w.Type)) && (urgent || x.p.FamilyHand || x.w.Wage + 0.4f < v.Wage))
+                                  .Where(x => x.w != null && !(urgent && vital(x.w.Type)) && (urgent || x.p.FamilyHand || x.w.Wage + 0.4f < v.Wage))
                                   .OrderBy(x => x.w.Wage).FirstOrDefault();
                 if (mover == null) continue;
                 var from = mover.w; bool fam = mover.p.FamilyHand; QuitJob(mover.p); Hire(mover.p, v);
-                AddLog(mover.p.Name + " left the " + from.Def.Name + " for " + (urgent ? "the " + v.B.Def.Name + ": the town needs food." : "better pay at the " + v.B.Def.Name + "."));
+                AddLog(mover.p.Name + " left the " + from.Def.Name + " for " + (urgent ? "the " + v.B.Def.Name + (FoodJob(v.B.Type) ? ": the town needs food." : ": the town is running out of firewood.") : "better pay at the " + v.B.Def.Name + "."));
                 break;
             }
         }
