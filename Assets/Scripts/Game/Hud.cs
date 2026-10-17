@@ -620,7 +620,7 @@ namespace FrontierLedger.Game
             var own = p.Role == Role.Owner ? T.OwnedBusiness(p) : null;
             if (own != null) return own.Def.Name;
             var w = T.GetBuilding(p.WorkId);
-            if (p.Role == Role.Worker && w != null) return w.Def.Name;
+            if (p.Role == Role.Worker && w != null) return Town.IsHome(w.Type) ? "Servant" : w.Def.Name;
             return Defs.RoleName(p.Role);
         }
 
@@ -648,7 +648,7 @@ namespace FrontierLedger.Game
             int poor = folk.Count(p => T.Savings(p) < 5f);
             Row("Down to their last $5", poor.ToString(), poor > 0 ? Ui.Warn : Ui.Ink);
             Para("HAS is money at home and in the bank. EARNED is what came in " + (full ? "last week" : "this week so far") +
-                 ", after tax: wages, shares, an owner's take, interest. A gold mark: they own the business. Point at a name for more; click to find them.");
+                 ", after tax: wages, shares, an owner's take, interest, alms. A gold mark: they own the business. Point at a name for more; click to find them.");
             string[] sorts = { "Most money", "Earned", "Name", "Job" };
             float sw = Mathf.Floor((bw - 6) / 4f);
             for (int i = 0; i < 4; i++)
@@ -974,7 +974,7 @@ namespace FrontierLedger.Game
                 bool sel = gc.Selected.Kind == SelectionKind.Person && gc.Selected.Id == p.Id;
                 if (sel || Ui.Hover(rr)) Ui.Fill(rr, sel ? Ui.Hex("#f2cf4a") : Ui.ParchDark);
                 var w = T.GetBuilding(p.WorkId);
-                string job = (p.Role == Role.Worker || p.Role == Role.Owner) && w != null ? w.Def.Name : Defs.RoleName(p.Role);
+                string job = (p.Role == Role.Worker || p.Role == Role.Owner) && w != null ? (Town.IsHome(w.Type) ? "Servant" : w.Def.Name) : Defs.RoleName(p.Role);
                 string name = p.First + " " + p.Family + (p.IsChild ? " (" + Mathf.FloorToInt(p.Age) + ")" : "");
                 Ui.Text(bx, by, Trim(name, 100), p.Jail > 0 ? Ui.Bad : Ui.Ink);
                 Ui.Text(bx + 104, by, Trim(job, 80), Ui.InkSoft);
@@ -1133,7 +1133,8 @@ namespace FrontierLedger.Game
             var p = T.GetCitizen(gc.Selected.Id);
             if (p == null) { Later(() => gc.Select(Selection.None)); return; }
             Ui.Text(bx, by, p.Name, Ui.Title); by += 10;
-            Ui.Text(bx, by, Defs.RoleName(p.Role) + " · " + Mathf.FloorToInt(p.Age) + " years" + (p.Jail > 0 ? " · in jail" : ""), p.Jail > 0 ? Ui.Bad : Ui.InkSoft); by += 13;
+            var job0 = T.GetBuilding(p.WorkId);
+            Ui.Text(bx, by, (p.Role == Role.Worker && job0 != null && Town.IsHome(job0.Type) ? "Servant" : Defs.RoleName(p.Role)) + " · " + Mathf.FloorToInt(p.Age) + " years" + (p.Jail > 0 ? " · in jail" : ""), p.Jail > 0 ? Ui.Bad : Ui.InkSoft); by += 13;
             Ui.Text(bx, by, "Health", Ui.InkSoft); Ui.Bar(new Rect(bx + 46, by + 1, bw - 46, 6), p.Health / 100f, Ui.Mood(p.Health)); by += 10;
             Ui.Text(bx, by, "Mood", Ui.InkSoft); Ui.Bar(new Rect(bx + 46, by + 1, bw - 46, 6), p.Happy / 100f, Ui.Mood(p.Happy)); by += 12;
             Row("Eating", p.Fed >= 0.95f ? "well" : p.Fed >= 0.7f ? "short" : "hungry", p.Fed >= 0.95f ? Ui.Good : p.Fed >= 0.7f ? Ui.Warn : Ui.Bad);
@@ -1150,7 +1151,7 @@ namespace FrontierLedger.Game
             var home = T.GetBuilding(p.HomeId); var work = T.GetBuilding(p.WorkId);
             Row("Home", home != null ? (home.Type == BuildingType.House ? "Cottage #" + home.Id : home.Def.Name) : "tent by the wagon", home == null ? Ui.Bad : Ui.Ink);
             if (p.RentOwed > 0.01f) Row("Behind on rent", Town.Money(p.RentOwed), Ui.Warn);
-            Row("Work", work != null ? work.Def.Name + (p.FamilyHand ? " (family)" : work.OwnerId < 0 && work.Def.IsBusiness ? " (town)" : "") : p.IsChild ? "too young" : p.Role == Role.Laborer ? "laborer" : "none");
+            Row("Work", work != null ? (Town.IsHome(work.Type) ? "in service, " + work.Def.Name : work.Def.Name) + (p.FamilyHand ? " (family)" : work.OwnerId < 0 && work.Def.IsBusiness ? " (town)" : "") : p.IsChild ? "too young" : p.Role == Role.Laborer ? "laborer" : "none");
             if (p.IsChild && p.Age >= Balance.SchoolAge)
             {
                 float years = p.Schooling * Balance.SchoolYearsFull;
@@ -1467,6 +1468,10 @@ namespace FrontierLedger.Game
                     Row("Rent", charity ? "waived (on charity)" : rent <= 0 ? "free" : M(rent) + "/week", Ui.Ink);
                     if (b.Arrears > 0.01f) Row("Behind on rent", M(b.Arrears), b.Arrears >= rent * 3 ? Ui.Bad : Ui.Warn);
                     if (rs.Count > 0) Row("Family has", M(rs.Where(p => !p.IsChild).Sum(p => T.Savings(p))));
+                    var help = b.Employees.Select(T.GetCitizen).Where(x => x != null).Select(x => x.First + " " + x.Family).ToArray();
+                    Row("Servants", help.Length > 0 ? string.Join(", ", help) : "none", help.Length > 0 ? Ui.Ink : Ui.InkSoft);
+                    Para("Up to " + (b.Type == BuildingType.Manor ? Balance.ServantsManor + " servants" : "1 servant") + " at " + M(T.Policy.MinWage) + "/day (the minimum wage), paid by the family: one for every " +
+                         M(T.Policy.MinWage * 7 * Balance.ServantHireWeeks) + " they have put by, taken on when someone's looking for work.", Ui.InkSoft);
                     Para((b.Type == BuildingType.Manor ? "When it's empty, the richest household in town with " : "When it's empty, the best-off household in a cottage or boarding house with ") + M(T.MoveInAt(b.Type)) +
                          " or more put by moves in. Under " + M(T.KeepUpAt(b.Type)) + " they move somewhere cheaper. Rent is set on the Ledger's Rules page.", Ui.InkSoft);
                 }
@@ -1552,8 +1557,10 @@ namespace FrontierLedger.Game
                 if (rev == null) Para("Takes a settler who can read and write. If nobody can, the town sends back east: someone comes once there's a free bed and " + Town.Money(40) + " in the treasury.", Ui.Warn);
                 Row("Last Sunday", b.Attendance + " in the pews");
                 Row("Collection", Town.Money(b.Collection));
+                Row("Alms fund", Town.Money(b.Alms) + (b.AlmsGiven > 0.01f ? " · " + Town.Money(b.AlmsGiven) + " given this week" : ""));
                 Row("Town makes it up to", Town.Money(Balance.PlateTopUp) + " a week");
                 Row("Pews", d.Capacity.ToString());
+                Para("The well-off put in 1% of what they have over " + Town.Money(Balance.TitheFrom) + " (up to " + Town.Money(Balance.TitheMax) + ") and feel the better for it; the preacher hands it out through the week, a dollar at a time, to grown-ups with less than " + Town.Money(Balance.NeedyBelow) + ".", Ui.InkSoft);
                 Para("Sunday service cheers the congregation and eases grief. A church wedding cheers the whole town, a funeral is a comfort, and grief passes sooner with a preacher to talk to. Families moving west like a town with a church.", Ui.InkSoft);
             }
             else if (b.Type == BuildingType.Cemetery)
@@ -1587,7 +1594,7 @@ namespace FrontierLedger.Game
                 if (pick.Kind == SelectionKind.Person)
                 {
                     var p = T.GetCitizen(pick.Id);
-                    if (p != null) { var w = T.GetBuilding(p.WorkId); s = p.Name + "\n" + Defs.RoleName(p.Role) + (w != null && p.Role != Role.Mayor ? " · " + w.Def.Name : ""); }
+                    if (p != null) { var w = T.GetBuilding(p.WorkId); bool svc = p.Role == Role.Worker && w != null && Town.IsHome(w.Type); s = p.Name + "\n" + (svc ? "Servant" : Defs.RoleName(p.Role)) + (w != null && p.Role != Role.Mayor ? " · " + w.Def.Name : ""); }
                 }
                 else if (pick.Kind == SelectionKind.Building)
                 {

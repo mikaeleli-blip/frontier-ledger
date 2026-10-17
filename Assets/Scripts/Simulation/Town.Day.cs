@@ -30,6 +30,7 @@ namespace FrontierLedger.Simulation
             BankWithdrawals();
             Trade(si);
             Travellers(si);
+            Dining();
             Households(si);
             if (DayOfSeason == 1 && si >= 2 && Homeless > 0)
                 AddLog(si == 2 ? "Autumn, and " + Homeless + " settlers still sleep in tents. Without a roof they'll be freezing by winter."
@@ -634,6 +635,24 @@ namespace FrontierLedger.Simulation
         // =====================================================================
         float Spend(Building b) { return Math.Max(0, b.Cash - b.Wage * Math.Max(1, b.Employees.Count)); }
 
+        /// <summary>What a settler's family has put by, per grown-up.</summary>
+        public float Means(Citizen p)
+        {
+            var sp = GetCitizen(p.PartnerId);
+            return sp != null ? (Savings(p) + Savings(sp)) / 2f : Savings(p);
+        }
+        /// <summary>How well off a settler is: 0 for most folk, rising to 1 for the rich.</summary>
+        public float Richness(Citizen p) { return Clamp((Means(p) - Balance.RichFrom) / (Balance.RichFull - Balance.RichFrom), 0, 1); }
+
+        /// <summary>A settler pays for something out of pocket, drawing on the bank if need be. False if they can't.</summary>
+        bool PayOut(Citizen p, float price)
+        {
+            if (p.Money < price && p.Deposit > 0) WithdrawFor(p, price - p.Money);
+            if (p.Money < price) return false;
+            p.Money -= price;
+            return true;
+        }
+
         void BuyFor(Building b, Good g, float want, BuildingType? only = null)
         {
             if (want <= 0.01f) return;
@@ -962,20 +981,40 @@ namespace FrontierLedger.Simulation
             }
         }
 
+        /// <summary>The well-off dine out at the hotel now and then, the richest a couple of times a week.</summary>
+        void Dining()
+        {
+            foreach (var h in Businesses.Where(b => b.Type == BuildingType.Hotel && IsOpen(b)).ToList())
+            {
+                int cap = (int)(WorkersAt(h) * Balance.GuestsPerHand);
+                foreach (var p in Shuffle(People.Where(x => !x.IsChild && x.Jail == 0 && !LaidUp(x) && Means(x) > Balance.RichFrom).ToList()))
+                {
+                    if (cap <= 0) break;
+                    if (!Chance(0.08 + 0.22 * Richness(p))) continue;
+                    if (EatFrom(h, 1f) < 0.99f) break;   // the kitchen's run out
+                    if (!PayOut(p, Balance.HotelDinner)) continue;
+                    h.Cash += Balance.HotelDinner; h.Week.Revenue += Balance.HotelDinner;
+                    p.Happy = Math.Min(100, p.Happy + 2f); cap--;
+                    Visit(p, h);
+                }
+            }
+        }
+
         /// <summary>Settlers with a little money go for a shave and a hot bath about once a week.</summary>
         void Barbers()
         {
             foreach (var b in OfType(BuildingType.Barber).Where(IsOpen).ToList())
             {
                 int cap = WorkersAt(b) * Balance.CustomersPerHand;
-                foreach (var p in Shuffle(People.Where(x => !x.IsChild && x.Jail == 0 && !LaidUp(x) && x.Money > 6f && Day - x.BathedDay >= 6).ToList()))
+                foreach (var p in Shuffle(People.Where(x => !x.IsChild && x.Jail == 0 && !LaidUp(x) && (x.Money > 6f || Means(x) > Balance.RichFrom) && Day - x.BathedDay >= 6 - (int)Math.Round(3 * Richness(x))).ToList()))
                 {
                     if (!Chance(0.35)) continue;
                     b.Week.Made++;   // wanted a bath today, served or not: the owner hires for them
                     if (cap <= 0) continue;
                     bool bath = b.Stock[(int)Good.Firewood] >= Balance.BathFuel;   // no firewood, no hot water: just a shave
                     float price = bath ? Balance.BathPrice : Balance.ShavePrice;
-                    p.Money -= price; b.Cash += price; b.Week.Revenue += price; b.Today.Sold++; b.Week.Sold++;
+                    if (!PayOut(p, price)) continue;
+                    b.Cash += price; b.Week.Revenue += price; b.Today.Sold++; b.Week.Sold++;
                     if (bath) { b.Stock[(int)Good.Firewood] -= Balance.BathFuel; p.BathedDay = Day; } else p.BathedDay = Day - 4;
                     p.Happy = Math.Min(100, p.Happy + (bath ? 2.5f : 1f));
                     Visit(p, b); cap--;
@@ -1036,21 +1075,47 @@ namespace FrontierLedger.Simulation
                 {
                     var sick = People.Where(p => p != rev && LaidUp(p) && p.HomeId >= 0).OrderByDescending(p => p.Illness).FirstOrDefault();
                     if (sick != null) { rev.TaskId = sick.HomeId; sick.Happy = Math.Min(100, sick.Happy + 2f); }
+                    GiveAlms(c, rev, 7 - Day % 7);
                     continue;
                 }
-                int n = 0; float plate = 0;
+                if (c.AlmsGiven >= 1f) AddLog("The church gave " + Money(c.AlmsGiven) + " in alms to the poor this week.", LogKind.Good);
+                c.AlmsGiven = 0;
+                int n = 0; float plate = 0, tithes = 0;
                 foreach (var p in People.Where(x => x.Jail == 0 && !LaidUp(x) && x.ChurchDay != sunday && (x == rev || (x.Seed * 53f) % 1f < 0.75f)).OrderBy(x => x.HomeId).ToList())
                 {
                     if (n >= c.Def.Capacity) break;
                     p.ChurchDay = sunday; n++;
                     p.Happy = Math.Min(100, p.Happy + 4f); p.Grief = Math.Max(0, p.Grief - 15f);
                     if (!p.IsChild && p != rev) { float g = Math.Min(0.5f, Math.Max(0, p.Money) * 0.04f); p.Money -= g; plate += g; }
+                    // the well-off put in more, for the poor, and are the better thought of for it
+                    if (!p.IsChild && p != rev && Savings(p) > Balance.TitheFrom)
+                    {
+                        float t = Math.Min(Balance.TitheMax, (Savings(p) - Balance.TitheFrom) * Balance.TitheShare);
+                        if (t >= 0.1f && PayOut(p, t)) { tithes += t; p.Happy = Math.Min(100, p.Happy + 3f); }
+                    }
                 }
+                c.Alms += tithes;
                 // the town makes up a thin plate so the preacher can live
                 float topUp = Math.Max(0, Math.Min(Balance.PlateTopUp - plate, Treasury));
                 Treasury -= topUp; LedgerThisWeek.Salaries += topUp;
                 rev.Money += plate + topUp; rev.Earned += plate + topUp;
                 c.Attendance = n; c.Collection = plate; c.Today.Sold = n;
+            }
+        }
+
+        /// <summary>Through the week the preacher hands out what the well-off gave on Sunday, a dollar at a time,
+        /// to the poorest grown-ups first.</summary>
+        void GiveAlms(Building c, Citizen rev, int daysLeft)
+        {
+            if (c.Alms < 0.5f) return;
+            float budget = c.Alms / Math.Max(1, daysLeft);
+            foreach (var p in People.Where(x => !x.IsChild && x != rev && x.Jail == 0 && (Savings(x) < Balance.NeedyBelow || x.CharityDays > 0))
+                                    .OrderBy(x => Savings(x)).ToList())
+            {
+                if (budget < 0.25f || c.Alms < 0.25f) break;
+                float g = Math.Min(Balance.AlmsGift, Math.Min(budget, c.Alms));
+                p.Money += g; p.Earned += g; p.Happy = Math.Min(100, p.Happy + 2f);
+                c.Alms -= g; c.AlmsGiven += g; budget -= g;
             }
         }
 
@@ -1064,7 +1129,8 @@ namespace FrontierLedger.Simulation
                 var payers = rs.Where(p => !p.IsChild).ToList();
                 if (payers.Count == 0) continue;
                 int bought = 0;
-                foreach (var p in rs.Where(x => x.Clothes < Balance.ClothesBuyBelow).OrderBy(x => x.Clothes).ToList())
+                float below = Balance.ClothesBuyBelow + 0.3f * payers.Max(x => Richness(x));   // the well-off buy new before theirs wear out
+                foreach (var p in rs.Where(x => x.Clothes < below).OrderBy(x => x.Clothes).ToList())
                 {
                     if (bought >= 2) break;
                     float spare = payers.Sum(x => Savings(x)) / payers.Count;
@@ -1197,8 +1263,9 @@ namespace FrontierLedger.Simulation
                 float treat = Clamp((spare - Balance.TreatsFrom) / (Balance.TreatsFull - Balance.TreatsFrom), 0, 1);
                 if (treat > 0.01f)
                 {
-                    h.Stock[(int)Good.Bread] += Purchase(Good.Bread, Math.Max(0, appetite * Balance.BreadShare * treat - h.Stock[(int)Good.Bread]), payers);
-                    h.Stock[(int)Good.Meat] += Purchase(Good.Meat, Math.Max(0, appetite * Balance.MeatShare * treat - h.Stock[(int)Good.Meat]), payers);
+                    float rich = payers.Max(x => Richness(x));   // a rich table has more meat and bread on it
+                    h.Stock[(int)Good.Bread] += Purchase(Good.Bread, Math.Max(0, appetite * (Balance.BreadShare + 0.15f * rich) * treat - h.Stock[(int)Good.Bread]), payers);
+                    h.Stock[(int)Good.Meat] += Purchase(Good.Meat, Math.Max(0, appetite * (Balance.MeatShare + 0.25f * rich) * treat - h.Stock[(int)Good.Meat]), payers);
                 }
                 float wantFood = Math.Max(0, appetite * 2f - Pantry(h));
                 float wantWood = Math.Max(0, heatNeed * 2.5f - h.Stock[(int)Good.Firewood]);
@@ -1283,14 +1350,17 @@ namespace FrontierLedger.Simulation
             foreach (var s in OfType(BuildingType.Saloon))
             {
                 int cap = WorkersAt(s) * (s.Stock[(int)Good.Beer] >= 1f ? Balance.DrinksPerHandBeer : Balance.DrinksPerHand); if (cap == 0) continue;
-                foreach (var p in Shuffle(People.Where(x => !x.IsChild && x.Money > 12 && x.Jail == 0).ToList()))
+                foreach (var p in Shuffle(People.Where(x => !x.IsChild && (x.Money > 12 || Means(x) > Balance.RichFrom) && x.Jail == 0).ToList()))
                 {
                     if (cap <= 0) break;
-                    if (Chance(0.45))
+                    if (Chance(0.45) && PayOut(p, Balance.DrinkPrice))
                     {
                         Pour(s);
-                        p.Money -= Balance.DrinkPrice; s.Cash += Balance.DrinkPrice; s.Week.Revenue += Balance.DrinkPrice;
+                        s.Cash += Balance.DrinkPrice; s.Week.Revenue += Balance.DrinkPrice;
                         s.Today.Sold++; s.Week.Sold++; p.Happy += 3; p.SaloonToday = s.Id; cap--;
+                        // the well-off stand a round now and then
+                        if (cap > 0 && Chance(Richness(p) * 0.5f) && PayOut(p, Balance.DrinkPrice))
+                        { Pour(s); s.Cash += Balance.DrinkPrice; s.Week.Revenue += Balance.DrinkPrice; s.Today.Sold++; s.Week.Sold++; cap--; }
                     }
                 }
                 // travellers from the hotel come in for a drink
@@ -1330,6 +1400,30 @@ namespace FrontierLedger.Simulation
             }
         }
 
+        /// <summary>Families in large houses and manors pay their servants each day; one they can't pay, they let go.</summary>
+        void PayServants()
+        {
+            foreach (var h in Buildings.Where(b => b.Built && HomeTier(b.Type) >= 1 && b.Employees.Count > 0).ToList())
+            {
+                var payers = Household(h).Where(p => !p.IsChild).ToList();
+                foreach (var id in h.Employees.ToList())
+                {
+                    var s = GetCitizen(id); if (s == null || s.Jail > 0) continue;
+                    float wage = h.Wage > 0 ? h.Wage : Policy.MinWage;
+                    float paid = payers.Count > 0 ? Collect(payers, wage) : 0;
+                    if (paid < wage - 0.01f)
+                    {
+                        s.Money += paid; s.Earned += paid;
+                        QuitJob(s);
+                        if (payers.Count > 0) AddLog("The " + payers[0].Family + " family couldn't pay " + s.Name + " and let them go from the " + h.Def.Name + ".", LogKind.Bad);
+                        continue;
+                    }
+                    float tax = wage * Policy.IncomeTax;
+                    s.Money += wage - tax; s.Earned += wage - tax; Treasury += tax; LedgerThisWeek.IncomeTax += tax;
+                }
+            }
+        }
+
         void Payroll()
         {
             foreach (var b in Businesses.ToList())
@@ -1353,6 +1447,7 @@ namespace FrontierLedger.Simulation
                     }
                 }
             }
+            PayServants();
             var L = LedgerThisWeek;
             foreach (var p in People.ToList())
             {
@@ -1559,6 +1654,7 @@ namespace FrontierLedger.Simulation
                     if (home.Type != BuildingType.Estate && home.Condition < 25) d -= 0.6f;
                     if (!p.IsChild && home.Type == BuildingType.House && Policy.Rent > 3f) d -= (Policy.Rent - 3f) * 0.2f;
                     if (home.Type == BuildingType.LargeHouse) d += Balance.LargeHouseMood - (!p.IsChild && Policy.LargeRent > 8f ? (Policy.LargeRent - 8f) * 0.15f : 0f);
+                    if (home.Employees.Count > 0 && HomeTier(home.Type) >= 1) d += Balance.ServantMood;   // help in the house
                     if (home.Type == BuildingType.Manor) d += Balance.ManorMood - (!p.IsChild && Policy.ManorRent > 20f ? (Policy.ManorRent - 20f) * 0.1f : 0f);
                     if (home.Type == BuildingType.BoardingHouse) d -= 0.3f + (Policy.BoardRent > 1.5f ? (Policy.BoardRent - 1.5f) * 0.3f : 0f);   // cramped
                     foreach (var t in stink)
@@ -1854,7 +1950,9 @@ namespace FrontierLedger.Simulation
             {
                 var payers = Household(h).Where(p => !p.IsChild).ToList();
                 if (payers.Count == 0) continue;
-                float target = h.Type == BuildingType.Estate || h.Type == BuildingType.Manor ? 5f : h.Type == BuildingType.LargeHouse ? 4f : 3f;
+                float target = (h.Type == BuildingType.Estate || h.Type == BuildingType.Manor ? 5f : h.Type == BuildingType.LargeHouse ? 4f : 3f) + (float)Math.Round(3 * payers.Max(x => Richness(x)));
+                var buyer = payers.OrderByDescending(x => Savings(x)).First();
+                if (buyer.Money < 12f && buyer.Deposit > 0) WithdrawFor(buyer, 12f - buyer.Money);
                 if (h.Stock[(int)Good.Furniture] > target - 0.5f) continue;
                 if (payers.Sum(p => Savings(p)) < Balance.FurnitureSavings) continue;
                 h.Stock[(int)Good.Furniture] += Purchase(Good.Furniture, 1f, payers);

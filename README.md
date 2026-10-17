@@ -98,6 +98,15 @@ The Ledger has five pages:
     and a single boarder gives up their bed to a family with little ones.
 - **Rent:** cottages, large houses and manors pay weekly rent per family, boarders pay per head. Four weeks behind and they're put out.
   Families living on charity pay nothing.
+- **The well-off:** how rich a settler is runs from nothing at $100 put by (per grown-up in the family) to full at $500.
+  The rich drink at the saloon and sometimes stand a round, go to the barber every few days, dine at the hotel ($1.60)
+  once or twice a week, buy new clothes before theirs wear out, keep more furniture, and put more meat and bread on the
+  table. They draw on the bank to pay for it.
+  - **Servants:** a large house keeps one servant, a manor two, at the minimum wage paid by the family, one for every six
+    weeks' wages they have put by. They're taken on from settlers looking for work, and let go when money gets tight.
+    A family with help in the house is a little happier.
+  - **Alms:** at Sunday service the well-off put 1% of what they have over $150 (up to $3) in the plate for the poor, and
+    feel the better for it. Through the week the preacher hands it out, a dollar at a time, to grown-ups with under $15.
 - **The bank:** the town pays whoever runs it a salary (Rules page, $3/day by default). If the bank stands empty for a week,
   the town sends back east for a banker, who comes once there are two free beds. Besides lending to families buying a business,
   the bank lends working money to owners whose till runs short, lends owners the price of a repair, and lends to the town

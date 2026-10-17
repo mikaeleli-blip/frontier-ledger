@@ -84,6 +84,7 @@ namespace FrontierLedger.Simulation
         public int TargetTile = -1;
         // Cemetery
         public int Graves;
+        public float Alms, AlmsGiven;                 // a church's fund for the poor, and what it gave out this week
 
         public BuildingDef Def { get { return Defs.Get(Type); } }
         public bool Contains(int tx, int ty)

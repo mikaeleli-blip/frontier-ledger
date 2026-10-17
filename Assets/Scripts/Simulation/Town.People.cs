@@ -479,6 +479,12 @@ namespace FrontierLedger.Simulation
             p.Role = v.Role;
             if (v.Role == Role.Builder) { p.WorkId = -1; AddLog(p.Name + " joined the town's building crew at " + Money(v.Wage) + "/day."); return; }
             p.WorkId = v.B.Id; v.B.Employees.Add(p.Id);
+            if (v.Role == Role.Worker && IsHome(v.B.Type))
+            {
+                var fam = Household(v.B).FirstOrDefault(x => !x.IsChild);
+                AddLog(p.Name + " went into service with the " + (fam != null ? fam.Family + " family" : "family") + " at the " + v.B.Def.Name + ", at " + Money(v.Wage) + "/day.");
+                v.B.VacantDays = 0; return;
+            }
             string label = v.Role == Role.Worker ? "a hand at the " + v.B.Def.Name : v.Role == Role.Sheriff ? "the new Sheriff" : v.Role == Role.Teacher ? "the schoolteacher"
                          : v.Role == Role.Doctor ? "the town doctor" : v.Role == Role.Preacher ? "the preacher" : "a deputy";
             if (v.Role == Role.Preacher)
@@ -584,6 +590,25 @@ namespace FrontierLedger.Simulation
                 int affordable = PaysByShare(b.Type) ? b.Def.MaxEmployees : b.Wage > 0 ? (int)(purse / (b.Wage * 7f)) : 0;
                 for (int i = b.Employees.Count; i < want && hired < affordable; i++, hired++) vac.Add(new Vacancy { B = b, Wage = b.Wage, Role = Role.Worker });
             }
+            // families in large houses and manors take on servants they can keep paying, and let them go when they can't
+            foreach (var h in Buildings.Where(b => b.Built && HomeTier(b.Type) >= 1).ToList())
+            {
+                h.Wage = Policy.MinWage;
+                float worth = Household(h).Where(p => !p.IsChild).Sum(p => Savings(p));
+                float weekly = h.Wage * 7f;
+                int max = h.Type == BuildingType.Manor ? Balance.ServantsManor : Balance.ServantsLarge;
+                int keep = h.Residents.Count == 0 ? 0 : Math.Min(max, (int)(worth / (weekly * Balance.ServantKeepWeeks)));
+                while (h.Employees.Count > keep)
+                {
+                    var s = GetCitizen(h.Employees[h.Employees.Count - 1]);
+                    if (s == null) { h.Employees.RemoveAt(h.Employees.Count - 1); continue; }
+                    QuitJob(s);
+                    var fam = Household(h).FirstOrDefault();
+                    if (fam != null) AddLog("The " + fam.Family + " family at the " + h.Def.Name + " let their servant " + s.Name + " go. Money's tighter.", LogKind.Bad);
+                }
+                int want = h.Residents.Count == 0 ? 0 : Math.Min(max, (int)(worth / (weekly * Balance.ServantHireWeeks)));
+                for (int i = h.Employees.Count; i < want; i++) vac.Add(new Vacancy { B = h, Wage = h.Wage, Role = Role.Worker });
+            }
             if (off != null && Treasury > 15)
             {
                 var staff = off.Employees.Select(GetCitizen).Where(p => p != null).ToList();
@@ -608,7 +633,7 @@ namespace FrontierLedger.Simulation
             var open = new List<Vacancy>();
             foreach (var v in vac)
             {
-                var p = idle.FirstOrDefault(x => CanDo(x, v));
+                var p = idle.FirstOrDefault(x => CanDo(x, v) && (v.B == null || !IsHome(v.B.Type) || x.HomeId != v.B.Id));
                 if (p == null) { open.Add(v); continue; }
                 idle.Remove(p); Hire(p, v); filled++;
             }
@@ -640,7 +665,7 @@ namespace FrontierLedger.Simulation
                 Func<BuildingType, bool> vital = t => (hungry && FoodJob(t)) || (cold && fuel(t));
                 bool urgent = vital(v.B.Type);
                 // family hands only leave the family business for urgent work, or when it isn't paying its way
-                var mover = People.Where(p => p.Role == Role.Worker && p.Jail == 0 && p.WorkId != v.B.Id && CanDo(p, v) && !AtBrothel(p) &&
+                var mover = People.Where(p => p.Role == Role.Worker && p.Jail == 0 && p.WorkId != v.B.Id && CanDo(p, v) && !AtBrothel(p) && (!IsHome(v.B.Type) || p.HomeId != v.B.Id) &&
                                               (!p.FamilyHand || urgent || Losing(GetBuilding(p.WorkId))))
                                   .Select(p => new { p, w = GetBuilding(p.WorkId) })
                                   .Where(x => x.w != null && !(urgent && vital(x.w.Type)) && (urgent || x.p.FamilyHand || x.w.Wage + 0.4f < v.Wage))

@@ -1056,7 +1056,8 @@ namespace FrontierLedger.Game
             return t == BuildingType.Store || t == BuildingType.Saloon || t == BuildingType.Bank || t == BuildingType.Sheriff || t == BuildingType.Smithy
                 || t == BuildingType.School || t == BuildingType.DoctorOffice || t == BuildingType.Estate
                 || t == BuildingType.Butcher || t == BuildingType.Bakery || t == BuildingType.Tailor || t == BuildingType.Hotel || t == BuildingType.Barber
-                || t == BuildingType.Church || t == BuildingType.Brewery || t == BuildingType.Brothel;
+                || t == BuildingType.Church || t == BuildingType.Brewery || t == BuildingType.Brothel
+                || t == BuildingType.LargeHouse || t == BuildingType.Manor;   // servants keep house
         }
 
         // ---------------------------------------------------------------- errands
@@ -1212,6 +1213,8 @@ namespace FrontierLedger.Game
                 case BuildingType.Church: return callers > 0 ? PeopleArt.Act.Preach : PeopleArt.Act.Write;
                 case BuildingType.Brewery: return PeopleArt.Act.Stir;
                 case BuildingType.BoardingHouse: return PeopleArt.Act.Stir;
+                case BuildingType.LargeHouse: return PeopleArt.Act.Stir;
+                case BuildingType.Manor: return station == 0 ? PeopleArt.Act.Sweep : PeopleArt.Act.Serve;
             }
             return PeopleArt.Act.None;
         }

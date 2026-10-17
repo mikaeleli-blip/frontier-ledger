@@ -140,6 +140,15 @@ namespace FrontierLedger.Simulation
         public const float LargeHouseWeeks = 12f, ManorWeeks = 20f, KeepUpWeeks = 4f;
         public const float LargeHouseMood = 0.3f, ManorMood = 0.6f;                      // pride in the house, a day
         public const float LargeHouseHeat = 1.3f, ManorHeat = 1.7f;                      // firewood burned against a cottage
+        // Servants: a large house keeps one, a manor two, at the minimum wage, paid by the family
+        public const int ServantsLarge = 1, ServantsManor = 2;
+        public const float ServantHireWeeks = 6f, ServantKeepWeeks = 2f;                // wages in hand to take one on, and to keep one
+        public const float ServantMood = 0.2f;                                           // a day, for a family with help in the house
+        // The well-off: how rich a settler is runs from 0 at RichFrom saved (per grown-up in the family) to 1 at RichFull
+        public const float RichFrom = 100f, RichFull = 500f;
+        public const float HotelDinner = 1.6f;                                           // a dinner out at the hotel
+        // The Sunday plate: the well-off give a share of what they have above TitheFrom, up to TitheMax, for the poor
+        public const float TitheFrom = 150f, TitheShare = 0.01f, TitheMax = 3f, AlmsGift = 1f, NeedyBelow = 15f;
 
         // Ranch: steers ready for market and wool, per hand-day by season, at full pasture
         public static readonly float[] CattleBySeason = { 0.44f, 0.37f, 0.32f, 0.17f };   // calving in spring, winter feeding is slow

@@ -69,7 +69,8 @@ namespace FrontierLedger.Game.Art
             Bed(g, it, 18, y0 + 20, 8, 7, "#3f5470", 2);
             Bed(g, it, 39, y0 + 20, 8, 7, "#3f6a3a", 2);
             Bed(g, it, 48, y0 + 18, 9, 8, "#c8a050", 2);
-            it.Work.Add(new Spot(10, y0 + 9, PeopleArt.Up));               // at the piano
+            it.Work.Add(new Spot(42, y0 + 29, PeopleArt.Left));            // a maid sweeping
+            it.Work.Add(new Spot(46, y0 + 12, PeopleArt.Left));            // serving at the table
             it.Seat.Add(new Spot(25, y0 + 9, PeopleArt.Down)); it.Seat.Add(new Spot(35, y0 + 9, PeopleArt.Down));
             it.Seat.Add(new Spot(30, y0 + 16, PeopleArt.Up)); it.Seat.Add(new Spot(40, y0 + 16, PeopleArt.Up));
             it.Seat.Add(new Spot(50, y0 + 9, PeopleArt.Down)); it.Seat.Add(new Spot(10, y0 + 9, PeopleArt.Up));
