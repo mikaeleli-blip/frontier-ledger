@@ -614,15 +614,16 @@ namespace FrontierLedger.Game
         string JobOf(Citizen p)
         {
             var own = p.Role == Role.Owner ? T.OwnedBusiness(p) : null;
-            if (own != null) return "owns " + own.Def.Name;
+            if (own != null) return own.Def.Name;
             var w = T.GetBuilding(p.WorkId);
-            if (p.Role == Role.Worker && w != null) return w.Def.Name + (p.FamilyHand ? " (family)" : "");
+            if (p.Role == Role.Worker && w != null) return w.Def.Name;
             return Defs.RoleName(p.Role);
         }
 
         string MoneyTip(Citizen p)
         {
-            string s = p.Name + "\nAt home " + M(p.Money) + (p.Deposit > 0.01f ? ", in the bank " + M(p.Deposit) : "") + ".";
+            var job = T.GetBuilding(p.WorkId);
+            string s = p.Name + (p.FamilyHand && job != null ? "\nWorks the family " + job.Def.Name.ToLower() + " for no wage." : "") + "\nAt home " + M(p.Money) + (p.Deposit > 0.01f ? ", in the bank " + M(p.Deposit) : "") + ".";
             if (T.PeopleWeekValid) s += "\nLast week: earned " + M(p.EarnedLast) + ", spent " + M(p.SpentLast) + ".";
             s += "\nThis week so far: earned " + M(p.Earned) + ".";
             var sp = T.GetCitizen(p.PartnerId);
@@ -643,7 +644,7 @@ namespace FrontierLedger.Game
             int poor = folk.Count(p => T.Savings(p) < 5f);
             Row("Down to their last $5", poor.ToString(), poor > 0 ? Ui.Warn : Ui.Ink);
             Para("HAS is money at home and in the bank. EARNED is what came in " + (full ? "last week" : "this week so far") +
-                 ", after tax: wages, shares, an owner's take, interest. Point at a name for more; click to find them.");
+                 ", after tax: wages, shares, an owner's take, interest. A gold mark: they own the business. Point at a name for more; click to find them.");
             string[] sorts = { "Most money", "Earned", "Name", "Job" };
             float sw = Mathf.Floor((bw - 6) / 4f);
             for (int i = 0; i < 4; i++)
@@ -652,7 +653,7 @@ namespace FrontierLedger.Game
                 if (Ui.Button(new Rect(bx + i * (sw + 2), by, sw, 13), sorts[i], sortBy == s)) Later(() => sortBy = s);
             }
             by += 18;
-            Ui.Text(bx, by, "NAME", Ui.InkSoft); Ui.Text(bx + 86, by, "WORK", Ui.InkSoft);
+            Ui.Text(bx, by, "NAME", Ui.InkSoft); Ui.Text(bx + 91, by, "WORK", Ui.InkSoft);
             Ui.Text(bx + bw - 44, by, full ? "EARNED" : "SO FAR", Ui.InkSoft, Ui.Align.Right); Ui.Text(bx + bw, by, "HAS", Ui.InkSoft, Ui.Align.Right);
             by += 11;
             System.Func<Citizen, float> earned = p => full ? p.EarnedLast : p.Earned;
@@ -670,8 +671,10 @@ namespace FrontierLedger.Game
                 bool sel = IsSel(SelectionKind.Person, p.Id), hov = Ui.Hover(rr);
                 if (sel || hov) Ui.Fill(rr, sel ? Ui.Gold : Ui.ParchDark);
                 float has = T.Savings(p), e = earned(p);
-                Ui.Text(bx, by, Trim(p.Name, 82), p.Jail > 0 ? Ui.Bad : Ui.Ink);
-                Ui.Text(bx + 86, by, Trim(JobOf(p), bw - 86 - 82), Ui.InkSoft);
+                Ui.Text(bx, by, Trim(p.Name, 80), p.Jail > 0 ? Ui.Bad : Ui.Ink);
+                bool owner = p.Role == Role.Owner && T.OwnedBusiness(p) != null;
+                if (owner) { Ui.Fill(new Rect(bx + 84, by + 1, 5, 5), Ui.Ink); Ui.Fill(new Rect(bx + 85, by + 2, 3, 3), Ui.Gold); }
+                Ui.Text(bx + 91, by, Trim(JobOf(p), bw - 91 - 80), owner ? Ui.Title : Ui.InkSoft);
                 Ui.Text(bx + bw - 44, by, e > 0.005f ? M(e) : "-", e > 0.005f ? Ui.Ink : Ui.InkSoft, Ui.Align.Right);
                 Ui.Text(bx + bw, by, M(has), has < 5f ? Ui.Bad : Ui.Title, Ui.Align.Right);
                 if (hov) hoverTip = MoneyTip(p);
