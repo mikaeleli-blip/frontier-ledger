@@ -887,7 +887,7 @@ namespace FrontierLedger.Simulation
                     if (extra <= 0) continue;
                     if (g == Good.Food && Treasury > 0)
                     {
-                        float price = Balance.Export[0];
+                        float price = Balance.GranaryPrice;
                         float q = Math.Min(Math.Min(extra, TownSpace), Treasury / price);
                         if (q > 0)
                         {

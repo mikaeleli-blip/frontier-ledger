@@ -103,7 +103,9 @@ namespace FrontierLedger.Simulation
         // Wholesale prices paid to producers, and what the freight wagons pay for surplus going east.
         //                                          food  wood  logs  stone tools furn  meat  bread iron  wool  hides leath cloth beer  cattle
         public static readonly float[] Wholesale = { 0.8f, 0.5f, 1.2f, 1.5f, 6f, 5f,   1.3f, 1.1f, 3.2f, 1.0f, 1.4f, 3.2f, 5.5f, 0.7f, 9.5f };
-        public static readonly float[] Export = { 0.4f, 0.25f, 0.6f, 0.7f, 3f, 3f,   0.6f, 0.2f, 2.4f, 0.7f, 1.0f, 2.0f, 3f,   0.25f, 7.5f };
+        // what the freight wagon pays for surplus sent east: about 40% of what it fetches in town, so selling at home pays far better
+        public static readonly float[] Export = { 0.32f, 0.2f, 0.48f, 0.6f, 2.4f, 2f,   0.52f, 0.2f, 1.28f, 0.4f, 0.56f, 1.28f, 2.2f, 0.25f, 3.8f };
+        public const float GranaryPrice = 0.4f;            // what the town pays for surplus grain into its stores
         public static readonly float[] StartRetail = { 1.1f, 0.7f, 0f, 0f, 0f, 8f,    1.8f, 1.4f, 0f,   0f,   0f,   0f,   7.5f, 0f,   0f };
         public const float BarnCapacity = 700f;            // a field's whole harvest stays in town
         public const float BusinessStockCap = 80f;

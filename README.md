@@ -165,6 +165,9 @@ The Ledger has five pages:
   - The blacksmith turns logs and stone (bog iron) into tools, or logs and iron into half again as many.
   - Workers without tools produce 40% less.
 - **The trades:** each one buys from the last and sells to the next; what doesn't sell in town goes east on the freight wagons.
+  The freight wagons pay only about 40% of what goods fetch in town (iron $1.28 against $3.20, steers $3.80 against $9.50),
+  so selling at home pays far better and the trades that live on shipping east earn much less. Surplus grain still goes into
+  the town's stores at $0.40.
   - *Cattle ranch:* needs open grassland round it. Raises steers all year and shears wool in spring. Steers go to the butcher;
     past 24 head the rest are driven east.
   - *Butcher shop:* dresses steers into meat for the counter and hides for the tannery.
