@@ -41,6 +41,7 @@ namespace FrontierLedger.Simulation
             HealthAndMood(si, crimes);
             FamilyLife();
             Hiring();
+            MoveUp();
             RehouseEveryone();
             Migration(si);
             Caravans();
@@ -281,11 +282,12 @@ namespace FrontierLedger.Simulation
             foreach (var b in Buildings)
             {
                 if (!b.Built || !Wears(b)) continue;
-                float w = Balance.WearPerDay * Balance.WearBySeason[si] * (b.Type == BuildingType.House && b.Residents.Count == 0 ? 0.5f : 1f);
+                bool home = HomeTier(b.Type) >= 0;
+                float w = Balance.WearPerDay * Balance.WearBySeason[si] * (home && b.Residents.Count == 0 ? 0.5f : 1f);
                 float before = b.Condition;
                 b.Condition = Math.Max(0f, b.Condition - w);
                 if (before >= 25f && b.Condition < 25f)
-                    AddLog("The " + b.Def.Name + (b.Type == BuildingType.House ? " #" + b.Id : "") + " is falling apart" + (b.Type == BuildingType.House ? ". The roof leaks." : " and getting little done.") + " It needs a builder.", LogKind.Bad);
+                    AddLog("The " + b.Def.Name + (b.Type == BuildingType.House ? " #" + b.Id : "") + " is falling apart" + (home ? ". The roof leaks." : b.Def.IsBusiness ? " and getting little done." : ".") + " It needs a builder.", LogKind.Bad);
             }
         }
 
@@ -1081,15 +1083,17 @@ namespace FrontierLedger.Simulation
         {
             var report = new MarketReport();
             float heatSeason = Balance.FirewoodBySeason[si];
-            foreach (var h in Buildings.Where(b => b.Built && IsHome(b.Type)))
+            // the large houses and manors shop first: they can pay whatever the shops ask
+            foreach (var h in Buildings.Where(b => b.Built && IsHome(b.Type)).OrderBy(b => HomeTier(b.Type) >= 1 ? 0 : 1))
             {
                 var rs = Household(h).ToList();
                 h.ColdToday = false;
                 // a drafty cottage burns more; furniture wears out slowly
-                float heatNeed = heatSeason * (h.Type == BuildingType.BoardingHouse ? 1.5f : 1f) * (h.Type != BuildingType.Estate ? (h.Condition < 25 ? 1.6f : h.Condition < 50 ? 1.25f : 1f) : 1f);
+                float size = h.Type == BuildingType.BoardingHouse ? 1.5f : h.Type == BuildingType.LargeHouse ? Balance.LargeHouseHeat : h.Type == BuildingType.Manor ? Balance.ManorHeat : 1f;
+                float heatNeed = heatSeason * size * (h.Type != BuildingType.Estate ? (h.Condition < 25 ? 1.6f : h.Condition < 50 ? 1.25f : 1f) : 1f);
                 h.Stock[(int)Good.Furniture] = Math.Max(0, h.Stock[(int)Good.Furniture] * (1 - Balance.FurnitureWear));
                 if (rs.Count == 0) { h.GardenToday = 0; continue; }
-                if (h.Type == BuildingType.House)
+                if (h.Type == BuildingType.House || h.Type == BuildingType.LargeHouse)
                 {
                     h.GardenToday = Balance.GardenBase * Balance.GardenBySeason[si] * FoodBonus;
                     h.Stock[(int)Good.Food] += h.GardenToday; report.Garden += h.GardenToday;
@@ -1461,6 +1465,8 @@ namespace FrontierLedger.Simulation
                     d += (Math.Min(home.Stock[(int)Good.Furniture], 3f) - 1f) * 0.2f;   // a bare house is dreary, a furnished one homely
                     if (home.Type != BuildingType.Estate && home.Condition < 25) d -= 0.6f;
                     if (!p.IsChild && home.Type == BuildingType.House && Policy.Rent > 3f) d -= (Policy.Rent - 3f) * 0.2f;
+                    if (home.Type == BuildingType.LargeHouse) d += Balance.LargeHouseMood - (!p.IsChild && Policy.LargeRent > 8f ? (Policy.LargeRent - 8f) * 0.15f : 0f);
+                    if (home.Type == BuildingType.Manor) d += Balance.ManorMood - (!p.IsChild && Policy.ManorRent > 20f ? (Policy.ManorRent - 20f) * 0.1f : 0f);
                     if (home.Type == BuildingType.BoardingHouse) d -= 0.3f + (Policy.BoardRent > 1.5f ? (Policy.BoardRent - 1.5f) * 0.3f : 0f);   // cramped
                     foreach (var t in stink)
                         if (Math.Abs(t.X + 1 - home.X) <= Balance.TanneryReach && Math.Abs(t.Y + 1 - home.Y) <= Balance.TanneryReach) { d -= Balance.TanneryStink; break; }   // the tannery downwind
@@ -1677,26 +1683,31 @@ namespace FrontierLedger.Simulation
 
         void CollectRent()
         {
-            foreach (var h in OfType(BuildingType.House).ToList())
+            foreach (var h in Buildings.Where(b => b.Built && HomeTier(b.Type) >= 0).ToList())
             {
-                if (Policy.Rent <= 0) { h.Arrears = 0; continue; }
+                float rent = RentOf(h.Type);
+                if (rent <= 0) { h.Arrears = 0; continue; }
                 var rs = Household(h).ToList();
                 if (rs.Count == 0) { h.Arrears = 0; continue; }
                 if (Policy.Charity && rs.Any(p => p.CharityDays > 0)) continue;   // the town doesn't charge families it is feeding
                 var payers = rs.Where(p => !p.IsChild).ToList();
-                float due = Policy.Rent + Math.Min(h.Arrears, Policy.Rent);       // catching up a week at a time
+                float due = rent + Math.Min(h.Arrears, rent);       // catching up a week at a time
                 float paid = Collect(payers, due);
                 Treasury += paid; LedgerThisWeek.Rent += paid;
-                h.Arrears = Math.Max(0, h.Arrears + Policy.Rent - paid);
-                if (h.Arrears <= 0.01f) continue;
-                foreach (var p in payers) p.Happy -= 2;
-                if (h.Arrears >= Policy.Rent * 4 - 0.01f)
+                h.Arrears = Math.Max(0, h.Arrears + rent - paid);
+                if (h.Arrears > 0.01f)
                 {
-                    var head = payers.FirstOrDefault();
-                    AddLog("The " + (head != null ? head.Family : "") + " family was put out of Cottage #" + h.Id + ", four weeks behind on rent.", LogKind.Bad);
-                    foreach (var p in rs) { LeaveHome(p); p.EvictedDay = Day; }
-                    h.Arrears = 0;
+                    foreach (var p in payers) p.Happy -= 2;
+                    if (h.Arrears >= rent * 4 - 0.01f)
+                    {
+                        var head = payers.FirstOrDefault();
+                        AddLog("The " + (head != null ? head.Family : "") + " family was put out of " + (h.Type == BuildingType.House ? "Cottage #" + h.Id : "the " + h.Def.Name) + ", four weeks behind on rent.", LogKind.Bad);
+                        foreach (var p in rs) { LeaveHome(p); p.EvictedDay = Day; }
+                        h.Arrears = 0;
+                        continue;
+                    }
                 }
+                MoveDown(h, rs);
             }
             // boarders pay for their own bed, and are put out on their own
             if (Policy.BoardRent > 0)
@@ -1722,14 +1733,33 @@ namespace FrontierLedger.Simulation
             RehouseEveryone();
         }
 
+        /// <summary>A household that can't keep up a large house or a manor moves somewhere cheaper, if there's somewhere to go.</summary>
+        void MoveDown(Building h, List<Citizen> rs)
+        {
+            if (HomeTier(h.Type) < 1) return;
+            float worth = rs.Where(p => !p.IsChild).Sum(p => Savings(p));
+            if (worth >= KeepUpAt(h.Type)) return;
+            // a manor family that can still keep a large house takes one; otherwise an empty cottage
+            Building to = null;
+            if (h.Type == BuildingType.Manor && worth >= KeepUpAt(BuildingType.LargeHouse))
+                to = OfType(BuildingType.LargeHouse).FirstOrDefault(x => x.Residents.Count == 0 && x.Def.Beds >= rs.Count);
+            if (to == null) to = OfType(BuildingType.House).FirstOrDefault(x => x.Residents.Count == 0 && x.Def.Beds >= rs.Count);
+            if (to == null) return;   // nowhere cheaper to go: they stay, and fall behind if they must
+            var head = rs.FirstOrDefault(p => !p.IsChild);
+            foreach (var p in rs) { MoveInto(p, to); p.Happy -= 4; }
+            h.Arrears = 0;
+            AddLog((rs.Count > 1 ? "The " + (head != null ? head.Family : "") + " family" : head != null ? head.Name : "Someone") + " gave up the " + h.Def.Name + " for " +
+                   (to.Type == BuildingType.House ? "a cottage" : "the " + to.Def.Name) + ". They can't keep up the rent.", LogKind.Bad);
+        }
+
         /// <summary>Households with savings to spare buy a piece of furniture now and then.</summary>
         void BuyFurniture()
         {
-            foreach (var h in Buildings.Where(b => b.Built && (b.Type == BuildingType.House || b.Type == BuildingType.Estate)).ToList())
+            foreach (var h in Buildings.Where(b => b.Built && (HomeTier(b.Type) >= 0 || b.Type == BuildingType.Estate)).ToList())
             {
                 var payers = Household(h).Where(p => !p.IsChild).ToList();
                 if (payers.Count == 0) continue;
-                float target = h.Type == BuildingType.Estate ? 5f : 3f;
+                float target = h.Type == BuildingType.Estate || h.Type == BuildingType.Manor ? 5f : h.Type == BuildingType.LargeHouse ? 4f : 3f;
                 if (h.Stock[(int)Good.Furniture] > target - 0.5f) continue;
                 if (payers.Sum(p => Savings(p)) < Balance.FurnitureSavings) continue;
                 h.Stock[(int)Good.Furniture] += Purchase(Good.Furniture, 1f, payers);

@@ -160,6 +160,38 @@ namespace FrontierLedger.Simulation
             }
         }
 
+        /// <summary>
+        /// Households with money put by move up into an empty large house or manor: the manor goes to the richest,
+        /// a large house to the best-off of the rest. Their old home frees up for someone else.
+        /// </summary>
+        void MoveUp()
+        {
+            foreach (var t in new[] { BuildingType.Manor, BuildingType.LargeHouse })
+                foreach (var h in OfType(t).Where(x => x.Residents.Count == 0).ToList())
+                {
+                    int tier = HomeTier(t);
+                    float need = MoveInAt(t), best = 0;
+                    Citizen head = null; List<Citizen> unit = null;
+                    foreach (var a in People)
+                    {
+                        if (a.IsChild || a.Role == Role.Mayor || a.Jail > 0) continue;
+                        var cur = GetBuilding(a.HomeId);
+                        if (cur != null && (cur.Type == BuildingType.Estate || HomeTier(cur.Type) >= tier)) continue;
+                        var sp = GetCitizen(a.PartnerId);
+                        if (sp != null && (sp.Role == Role.Mayor || (sp.Id < a.Id && sp.HomeId == a.HomeId && sp.Jail == 0))) continue;   // each couple once
+                        var u = FamilyUnit(a);
+                        if (u.Count > h.Def.Beds) continue;
+                        float worth = u.Where(x => !x.IsChild).Sum(x => Savings(x));
+                        if (worth < need || worth <= best) continue;
+                        best = worth; head = a; unit = u;
+                    }
+                    if (head == null) continue;
+                    foreach (var u in unit) { MoveInto(u, h); u.Happy = Math.Min(100, u.Happy + 5); }
+                    h.Arrears = 0;
+                    AddLog((unit.Count > 1 ? "The " + head.Family + " family" : head.Name) + " moved into the " + h.Def.Name + ".", LogKind.Good);
+                }
+        }
+
         /// <summary>Someone put out for unpaid rent is turned away for two weeks, unless the rent is now free
         /// or they have two weeks' rent in hand.</summary>
         bool MayRehouse(Citizen p)
@@ -301,6 +333,11 @@ namespace FrontierLedger.Simulation
             foreach (var x in new[] { m, w }) { var j = GetBuilding(x.WorkId); if (j != null && j.Type == BuildingType.Brothel && x.Role == Role.Worker) QuitJob(x); }
             var kids = ChildrenOf(w).Concat(ChildrenOf(m)).Distinct().ToList();
             string old = w.Family; w.Family = m.Family;
+            // one of them already keeps a large house or a manor with room for the other: they make their home there
+            int coming = 2 + kids.Count;
+            var grand = new[] { m, w }.Select(x => GetBuilding(x.HomeId))
+                                      .FirstOrDefault(h => h != null && HomeTier(h.Type) >= 1 && h.Residents.Count + coming - h.Residents.Count(id => id == m.Id || id == w.Id || kids.Any(k => k.Id == id)) <= h.Def.Beds);
+            if (grand != null) empty = grand;
             MoveInto(m, empty); MoveInto(w, empty);
             foreach (var k in kids) if (empty.Residents.Count < empty.Def.Beds) MoveInto(k, empty);
             m.Happy = Math.Min(100, m.Happy + 15); w.Happy = Math.Min(100, w.Happy + 15);
@@ -311,10 +348,10 @@ namespace FrontierLedger.Simulation
                 var rev = StaffOf(church, Role.Preacher);
                 m.Happy = Math.Min(100, m.Happy + 5); w.Happy = Math.Min(100, w.Happy + 5);
                 foreach (var o in People) if (o != m && o != w) o.Happy = Math.Min(100, o.Happy + 1f);
-                AddLog(m.First + " " + m.Family + " and " + w.First + " " + old + " were married at the church by " + rev.Name + ", and moved into a cottage of their own.", LogKind.Birth);
+                AddLog(m.First + " " + m.Family + " and " + w.First + " " + old + " were married at the church by " + rev.Name + (grand != null ? ", and made their home in the " + grand.Def.Name + "." : ", and moved into a cottage of their own."), LogKind.Birth);
                 return;
             }
-            AddLog(m.First + " " + m.Family + " and " + w.First + " " + old + " were married and moved into a cottage of their own.", LogKind.Birth);
+            AddLog(m.First + " " + m.Family + " and " + w.First + " " + old + " were married" + (grand != null ? " and made their home in the " + grand.Def.Name + "." : " and moved into a cottage of their own."), LogKind.Birth);
         }
 
         void FamilyLife()

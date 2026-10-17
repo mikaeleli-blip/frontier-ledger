@@ -11,7 +11,7 @@ namespace FrontierLedger.Simulation
     [Serializable]
     public partial class Town
     {
-        public const int CurrentVersion = 10;
+        public const int CurrentVersion = 11;
         public int Version = CurrentVersion;
         public int Seed;
         public int Day = 1;
@@ -150,6 +150,14 @@ namespace FrontierLedger.Simulation
                 foreach (var p in People) { p.Earned = 0; p.EarnedLast = 0; p.SpentLast = 0; p.WorthStart = Savings(p); }
                 PeopleWeekValid = false;
                 Version = 10;
+            }
+            if (Version < 11)
+            {
+                // version 11: large houses and manors, and their rents
+                var fresh = new TownPolicy();
+                if (Policy.LargeRent <= 0) Policy.LargeRent = fresh.LargeRent;
+                if (Policy.ManorRent <= 0) Policy.ManorRent = fresh.ManorRent;
+                Version = 11;
             }
         }
 
@@ -319,7 +327,20 @@ namespace FrontierLedger.Simulation
         public float AverageHealth { get { return People.Count == 0 ? 100f : People.Average(p => p.Health); } }
         public int FreeBeds { get { return Buildings.Where(h => h.Built && (h.Type == BuildingType.House || h.Type == BuildingType.BoardingHouse)).Sum(h => h.Def.Beds - h.Residents.Count); } }
         /// <summary>Buildings people live in.</summary>
-        public static bool IsHome(BuildingType t) { return t == BuildingType.House || t == BuildingType.BoardingHouse || t == BuildingType.Estate; }
+        public static bool IsHome(BuildingType t) { return t == BuildingType.House || t == BuildingType.BoardingHouse || t == BuildingType.Estate || t == BuildingType.LargeHouse || t == BuildingType.Manor; }
+        /// <summary>Family houses from plain to grand: a cottage 0, a large house 1, a manor 2. Anything else -1.</summary>
+        public static int HomeTier(BuildingType t) { return t == BuildingType.House ? 0 : t == BuildingType.LargeHouse ? 1 : t == BuildingType.Manor ? 2 : -1; }
+        /// <summary>Weekly rent for a family house.</summary>
+        public float RentOf(BuildingType t) { return t == BuildingType.LargeHouse ? Policy.LargeRent : t == BuildingType.Manor ? Policy.ManorRent : t == BuildingType.House ? Policy.Rent : 0f; }
+        /// <summary>What a household needs put by to move into a large house or manor.</summary>
+        public float MoveInAt(BuildingType t)
+        {
+            if (t == BuildingType.LargeHouse) return Math.Max(Balance.LargeHouseSavings, Policy.LargeRent * Balance.LargeHouseWeeks);
+            if (t == BuildingType.Manor) return Math.Max(Balance.ManorSavings, Policy.ManorRent * Balance.ManorWeeks);
+            return 0f;
+        }
+        /// <summary>Below this a household gives up its large house or manor for something cheaper.</summary>
+        public float KeepUpAt(BuildingType t) { return HomeTier(t) >= 1 ? RentOf(t) * Balance.KeepUpWeeks : 0f; }
         public int Homeless { get { return People.Count(p => p.HomeId < 0); } }
         public float AverageFoodPrice
         {
@@ -766,6 +787,7 @@ namespace FrontierLedger.Simulation
             if (!quiet && b.Type != BuildingType.Road) AddLog("The " + d.Name + " is finished.", LogKind.Build);
             if (b.Type == BuildingType.Bank && b.OwnerId < 0 && !quiet) BankerArrives(b);
             if (b.Type == BuildingType.House || b.Type == BuildingType.BoardingHouse) RehouseEveryone();
+            if (!quiet && HomeTier(b.Type) >= 1) MoveUp();
         }
 
         /// <summary>A banker comes out from back east with money to lend, buys the new bank from the town and opens it.</summary>

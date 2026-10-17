@@ -7,7 +7,7 @@ namespace FrontierLedger.Simulation
     {
         Road, House, Storehouse, Farm, Gatherer, Fishery, LumberCamp, Woodcutter, Quarry, Smithy,
         Store, Stall, Saloon, Sheriff, Estate, Cemetery, Wagon, BuilderYard, BoardingHouse, Bank, School, DoctorOffice,
-        Ranch, Bakery, Butcher, IronMine, Tannery, Brewery, Tailor, Hotel, Barber, Church, Brothel   // saves store these as numbers: only append
+        Ranch, Bakery, Butcher, IronMine, Tannery, Brewery, Tailor, Hotel, Barber, Church, Brothel, LargeHouse, Manor   // saves store these as numbers: only append
     }
     public enum Category { Roads, Housing, Food, Industry, Trade, Civic, Hidden }
     public enum Role { Child, Laborer, Worker, Owner, Builder, Sheriff, Deputy, Mayor, Teacher, Doctor, Preacher }   // Builder is unused (old saves)
@@ -133,6 +133,11 @@ namespace FrontierLedger.Simulation
         // Furniture: made by idle yard crews from logs, bought by households for comfort
         public const float FurnitureLogs = 2f, FurniturePerWorker = 0.5f, FurnitureCap = 20f, FurnitureWear = 0.003f;
         public const float FurnitureSavings = 25f;         // a household spends on furniture only above this much
+        // Better houses: a household moves up when it has this much put by (or so many weeks' rent, if more), and back down below KeepUpWeeks of rent
+        public const float LargeHouseSavings = 60f, ManorSavings = 250f;
+        public const float LargeHouseWeeks = 12f, ManorWeeks = 20f, KeepUpWeeks = 4f;
+        public const float LargeHouseMood = 0.3f, ManorMood = 0.6f;                      // pride in the house, a day
+        public const float LargeHouseHeat = 1.3f, ManorHeat = 1.7f;                      // firewood burned against a cottage
 
         // Ranch: steers ready for market and wool, per hand-day by season, at full pasture
         public static readonly float[] CattleBySeason = { 0.44f, 0.37f, 0.32f, 0.17f };   // calving in spring, winter feeding is slow
@@ -234,6 +239,10 @@ namespace FrontierLedger.Simulation
                 Blurb = "Home for one family. The garden out back grows some of their food. Burns firewood to stay warm." });
             Add(new BuildingDef { Type = BuildingType.BoardingHouse, Category = Category.Housing, Name = "Boarding House", W = 3, H = 2, Logs = 18, Stone = 4, Work = 8, Beds = 8, Color = "#b89a6a",
                 Blurb = "Cheap rooms for eight. No garden and little privacy: boarders buy all their food, no babies are born here, and families move out as soon as a cottage is free." });
+            Add(new BuildingDef { Type = BuildingType.LargeHouse, Category = Category.Housing, Name = "Large House", W = 3, H = 3, Logs = 28, Stone = 14, Work = 18, Beds = 7, Color = "#b8865a",
+                Blurb = "A roomy two-storey house with a garden, for a family doing well. When it's empty the family with the most put by (and enough saved) moves up from their cottage. Higher rent, set in the Ledger. They're glad of the room. Burns more firewood." });
+            Add(new BuildingDef { Type = BuildingType.Manor, Category = Category.Housing, Name = "Manor House", W = 4, H = 3, Logs = 40, Stone = 36, Work = 30, Beds = 8, Color = "#e6dcc6",
+                Blurb = "A grand house on a lawn, for the richest family in town. Only real money moves in, and the rent is steep, set in the Ledger. Living here is a point of pride. Burns plenty of firewood." });
             Add(new BuildingDef { Type = BuildingType.Storehouse, Category = Category.Housing, Name = "Storehouse", W = 3, H = 2, Logs = 20, Stone = 10, Work = 12, IsPublic = true, IsStorage = true, Capacity = 400, Color = "#9a7a4a",
                 Blurb = "Town stores for building materials and the winter food reserve. Sells food and firewood to settlers." });
             Add(new BuildingDef { Type = BuildingType.Farm, Category = Category.Food, Name = "Crop Field", W = 3, H = 3, Logs = 12, Stone = 4, Work = 8, IsBusiness = true, MaxEmployees = 4, BaseWage = 2.4f, Color = "#b59a4a",

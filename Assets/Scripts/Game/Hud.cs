@@ -525,7 +525,7 @@ namespace FrontierLedger.Game
             Ui.Text(bx + bw - 54, by, "THIS WK", Ui.InkSoft, Ui.Align.Right); Ui.Text(bx + bw, by, "LAST WK", Ui.InkSoft, Ui.Align.Right); by += 11;
             Ui.Text(bx, by, "Came in", Ui.InkSoft); by += 10;
             Book("Taxes", C, L, x => x.IncomeTax + x.HeadTax + x.BusinessTax, 1, x => "income tax " + M(x.IncomeTax) + ", head tax " + M(x.HeadTax) + ", business tax " + M(x.BusinessTax) + ".");
-            Book("Rent", C, L, x => x.Rent, 1, x => "cottage and boarding-house rent " + M(x.Rent) + ".");
+            Book("Rent", C, L, x => x.Rent, 1, x => "rent from cottages, large houses, manors and boarders " + M(x.Rent) + ".");
             Book("Sales", C, L, x => x.StoreSales + x.Exports + x.TownTakings, 1, x => "storehouse sales " + M(x.StoreSales) + ", takings from town-run businesses " + M(x.TownTakings) + (x.Exports > 0 ? ", the wagon sold " + M(x.Exports) : "") + ".");
             Book("Deeds & claims", C, L, x => x.Deeds + x.Claims, 1, x => "businesses sold to families " + M(x.Deeds) + ", land claims from newcomers " + M(x.Claims) + ".");
             Ui.Text(bx, by, "Went out", Ui.InkSoft); by += 10;
@@ -819,6 +819,8 @@ namespace FrontierLedger.Game
             Heading("Housing");
             P.Rent = SliderRow("Cottage rent (weekly)", M(P.Rent), P.Rent, 0, 6, 0.25f, "Every family in a cottage pays on Sunday. Four weeks behind and they're put out. Over $3 hurts morale. Families living on charity pay nothing.");
             P.BoardRent = SliderRow("Boarding rent (weekly)", M(P.BoardRent), P.BoardRent, 0, 3, 0.25f, "Each adult in a boarding house pays this. Over $1.50 hurts morale.");
+            P.LargeRent = SliderRow("Large house rent (weekly)", M(P.LargeRent), P.LargeRent, 0, 15, 0.5f, "A family moves up from a cottage once they have " + M(T.MoveInAt(BuildingType.LargeHouse)) + " put by, and back down under " + M(T.KeepUpAt(BuildingType.LargeHouse)) + ". Over $8 they grumble.");
+            P.ManorRent = SliderRow("Manor rent (weekly)", M(P.ManorRent), P.ManorRent, 0, 40, 1f, "The richest household moves in once they have " + M(T.MoveInAt(BuildingType.Manor)) + " put by, and moves out under " + M(T.KeepUpAt(BuildingType.Manor)) + ". Over $20 they grumble.");
             Heading("Stores");
             P.Charity = Ui.Toggle(new Rect(bx, by, bw, 11), P.Charity, "Storehouse feeds those who can't pay"); by += 13;
             P.StorehouseSells = Ui.Toggle(new Rect(bx, by, bw, 11), P.StorehouseSells, "Storehouse sells when shops run out"); by += 13;
@@ -1131,7 +1133,7 @@ namespace FrontierLedger.Game
                 if (p.SeenToday) Row("Doctor", "seen today", Ui.Good);
             }
             var home = T.GetBuilding(p.HomeId); var work = T.GetBuilding(p.WorkId);
-            Row("Home", home != null ? (home.Type == BuildingType.Estate ? "Mayor's Estate" : home.Type == BuildingType.BoardingHouse ? "Boarding House" : "Cottage #" + home.Id) : "tent by the wagon", home == null ? Ui.Bad : Ui.Ink);
+            Row("Home", home != null ? (home.Type == BuildingType.House ? "Cottage #" + home.Id : home.Def.Name) : "tent by the wagon", home == null ? Ui.Bad : Ui.Ink);
             if (p.RentOwed > 0.01f) Row("Behind on rent", Town.Money(p.RentOwed), Ui.Warn);
             Row("Work", work != null ? work.Def.Name + (p.FamilyHand ? " (family)" : work.OwnerId < 0 && work.Def.IsBusiness ? " (town)" : "") : p.IsChild ? "too young" : p.Role == Role.Laborer ? "laborer" : "none");
             if (p.IsChild && p.Age >= Balance.SchoolAge)
@@ -1423,7 +1425,7 @@ namespace FrontierLedger.Game
             {
                 var rs = T.Household(b).ToList();
                 Row("Beds", rs.Count + " / " + Mathf.Max(1, d.Beds));
-                if (b.Type == BuildingType.House) Row("Garden today", b.GardenToday.ToString("0.0") + " food");
+                if (b.Type == BuildingType.House || b.Type == BuildingType.LargeHouse) Row("Garden today", b.GardenToday.ToString("0.0") + " food");
                 Stocks(b, Good.Food, Good.Firewood, Good.Furniture);
                 if (b.Stock[(int)Good.Bread] + b.Stock[(int)Good.Meat] > 0.1f) Stocks(b, Good.Bread, Good.Meat);
                 if (b.Type == BuildingType.BoardingHouse && rs.Count > 0)
@@ -1436,6 +1438,16 @@ namespace FrontierLedger.Game
                     bool charity = T.Policy.Charity && rs.Any(p => p.CharityDays > 0);
                     Row("Rent", charity ? "waived (on charity)" : T.Policy.Rent <= 0 ? "free" : Town.Money(T.Policy.Rent) + "/week", Ui.Ink);
                     if (b.Arrears > 0.01f) Row("Behind on rent", Town.Money(b.Arrears), b.Arrears >= T.Policy.Rent * 3 ? Ui.Bad : Ui.Warn);
+                }
+                if (Town.HomeTier(b.Type) >= 1)
+                {
+                    float rent = T.RentOf(b.Type);
+                    bool charity = T.Policy.Charity && rs.Any(p => p.CharityDays > 0);
+                    Row("Rent", charity ? "waived (on charity)" : rent <= 0 ? "free" : M(rent) + "/week", Ui.Ink);
+                    if (b.Arrears > 0.01f) Row("Behind on rent", M(b.Arrears), b.Arrears >= rent * 3 ? Ui.Bad : Ui.Warn);
+                    if (rs.Count > 0) Row("Family has", M(rs.Where(p => !p.IsChild).Sum(p => T.Savings(p))));
+                    Para((b.Type == BuildingType.Manor ? "When it's empty, the richest household in town with " : "When it's empty, the best-off household in a cottage or boarding house with ") + M(T.MoveInAt(b.Type)) +
+                         " or more put by moves in. Under " + M(T.KeepUpAt(b.Type)) + " they move somewhere cheaper. Rent is set on the Ledger's Rules page.", Ui.InkSoft);
                 }
                 ConditionRows(b);
                 if (b.ColdToday) Para("Cold: no firewood to burn.", Ui.Bad);
@@ -1563,7 +1575,7 @@ namespace FrontierLedger.Game
                     {
                         s = b.Def.Name + (b.Built ? "" : " (being built, " + Mathf.RoundToInt(b.BuildFraction * 100) + "%)");
                         if (b.Built && b.Def.IsBusiness) { var o = T.GetCitizen(b.OwnerId); s += "\n" + (o != null ? o.Name : "For sale") + " · " + T.WorkersAt(b) + " working"; }
-                        if (b.Type == BuildingType.House || b.Type == BuildingType.BoardingHouse) s += "\n" + b.Residents.Count + " living here";
+                        if (Town.IsHome(b.Type) && b.Type != BuildingType.Estate) s += "\n" + (b.Residents.Count == 0 && Town.HomeTier(b.Type) >= 1 ? "Empty: needs a family with " + M(T.MoveInAt(b.Type)) : b.Residents.Count + " living here");
                     }
                 }
                 else

@@ -43,6 +43,7 @@ namespace FrontierLedger.Game.Art
                 case BuildingType.Smithy: case BuildingType.School: case BuildingType.DoctorOffice:
                 case BuildingType.Butcher: case BuildingType.Bakery: case BuildingType.Tailor: case BuildingType.Hotel:
                 case BuildingType.Barber: case BuildingType.Church: case BuildingType.Brewery: case BuildingType.Brothel:
+                case BuildingType.LargeHouse: case BuildingType.Manor:
                     return true;
                 default: return false;
             }
@@ -84,6 +85,8 @@ namespace FrontierLedger.Game.Art
                 case BuildingType.Church: Church(g, it, L); break;
                 case BuildingType.Brewery: Brewery(g, it, L); break;
                 case BuildingType.Brothel: Brothel(g, it, L); break;
+                case BuildingType.LargeHouse: LargeHouse(g, it, L); break;
+                case BuildingType.Manor: Manor(g, it, L); break;
             }
             g.Outline(OL);
             it.Sprite = g.ToSprite("interior_" + t + "_" + v);

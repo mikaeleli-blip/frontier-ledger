@@ -80,12 +80,19 @@ The Ledger has five pages:
 - **Wear and repairs:** buildings wear down a little every day, faster in winter.
   - Below 70% a yard is sent to repair them. The town pays for cottages and public buildings; owners pay for their businesses.
   - Drafty cottages burn more firewood, and leaking ones make the family miserable. Worn businesses get less done.
-- **Housing:** tents, then a boarding house, then a cottage (large homes to buy are planned).
+- **Housing:** tents, then a boarding house, then a cottage, then a large house, then a manor.
+  - A **large house** (7 beds, kitchen garden) goes to the best-off household below it once they have $60 or
+    12 weeks' rent put by, whichever is more. Default rent $5 a week. A small mood boost; it burns 30% more firewood.
+  - A **manor house** (8 beds, lawn, no garden) goes to the richest household in town once they have $250 or
+    20 weeks' rent put by. Default rent $12 a week. A bigger mood boost; it burns 70% more firewood.
+  - Under four weeks' rent put by, a household moves back down (a manor family to an empty large house if they can
+    keep one, otherwise an empty cottage). With nowhere to go they stay, and are put out after four weeks behind.
+  - Large houses and manors buy food and firewood first when the town is short. Both rents are on the Ledger's Rules page.
   - A boarding house sleeps eight cheaply, but has no garden, is cramped, and no babies are born there.
   - Single adults take a boarding-house bed, and grown children move out of their parents' cottage into one.
   - Families board only when no cottage is free, and move out as soon as one is. Two children share a bed,
     and a single boarder gives up their bed to a family with little ones.
-- **Rent:** cottages pay weekly rent per family, boarders pay per head. Four weeks behind and they're put out.
+- **Rent:** cottages, large houses and manors pay weekly rent per family, boarders pay per head. Four weeks behind and they're put out.
   Families living on charity pay nothing.
 - **Owning a business:** a finished business is run by the town until a family can buy it at what it cost to build.
   - The town hires and pays its hands and keeps its takings meanwhile.
@@ -200,7 +207,7 @@ The Ledger has five pages:
     the smith's striker works the bellows, the teacher points at the blackboard and the preacher preaches.
   - Every purchase is a trip: someone from the household walks to the shop, goes in, and comes home with a sack.
     Those at work shop after hours. Farmers, fishers, gatherers and woodcutters carry what they sell to the store or storehouse.
-- **Seeing inside:** click a cottage, the boarding house, the estate, the storehouse, store, saloon, bank, sheriff's office,
+- **Seeing inside:** click a cottage, a large house, a manor, the boarding house, the estate, the storehouse, store, saloon, bank, sheriff's office,
   smithy, schoolhouse, doctor's office, butcher, bakery, tailor, hotel, barber, church or brewery and the roof lifts off. Staff work at their stations, customers wait at the counter,
   pupils sit at their desks, and the sleeping and the sick lie in bed. Clicking a settler who's indoors opens their building too.
 - **Mayor:**

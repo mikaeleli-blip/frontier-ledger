@@ -232,6 +232,8 @@ namespace FrontierLedger.Simulation
         public float ContractRate = 3.5f;  // paid to a builder's yard per day of work a job takes
         public float Rent = 2.5f;          // per cottage per week
         public float BoardRent = 0.75f;    // per boarder per week
+        public float LargeRent = 5f;       // per large house per week
+        public float ManorRent = 12f;      // per manor house per week
         public float ReliefWage = 0.6f;    // paid to laborers on days without work
         public bool Charity = true;        // the storehouse feeds and warms those who can't pay
         public bool ElectionsOn = true;
