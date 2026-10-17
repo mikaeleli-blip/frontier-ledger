@@ -767,7 +767,7 @@ namespace FrontierLedger.Game
                 var o = T.GetCitizen(bank.OwnerId);
                 Heading(banks.Count > 1 ? "Bank #" + bank.Id : "The bank");
                 if (o != null) PickRow("Banker", o.Name, Ui.InkSoft, Ui.Ink, Selection.Person(o.Id));
-                else Para("No banker: no deposits or loans until a family buys it.", Ui.Warn);
+                else Para("No banker: no deposits or loans. After a week empty the town sends back east for one" + (T.FreeBeds < 2 ? ", once there are two free beds." : "."), Ui.Warn);
                 var loans = T.Buildings.Where(x => x.LenderId == bank.Id && x.Debt > 0.01f).OrderByDescending(x => x.Debt).ToList();
                 var savers = T.People.Where(x => x.BankId == bank.Id && x.Deposit > 0.01f).OrderByDescending(x => x.Deposit).ToList();
                 var firms = T.Buildings.Where(x => x.BankId == bank.Id && x.Deposit > 0.01f).OrderByDescending(x => x.Deposit).ToList();
