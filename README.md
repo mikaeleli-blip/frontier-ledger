@@ -79,7 +79,8 @@ The Ledger has five pages:
   - Then they lay stone footings, raise a timber frame, and put up the walls and roof behind scaffolding.
   - More yards means more jobs at once. With no yard at all, the town falls back to hiring settlers without a job by the day.
 - **Wear and repairs:** buildings wear down a little every day, faster in winter.
-  - Below 70% a yard is sent to repair them. The town pays for cottages and public buildings; owners pay for their businesses.
+  - Below 70% they need a yard. Each yard books two repairs per worker plus two; the rest wait in line, worst first,
+    for whichever yard has room. Repairs are paid for when work starts, and a yard finishes what it started first. The town pays for cottages and public buildings; owners pay for their businesses.
   - Drafty cottages burn more firewood, and leaking ones make the family miserable. Worn businesses get less done.
 - **Housing:** tents, then a boarding house, then a cottage, then a large house, then a manor.
   - A **large house** (7 beds, kitchen garden) goes to the best-off household below it once they have $60 or

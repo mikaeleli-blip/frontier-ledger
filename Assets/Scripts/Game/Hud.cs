@@ -1225,9 +1225,10 @@ namespace FrontierLedger.Game
                 bool working = T.People.Any(p => p.TaskId == b.Id && p.Chore == Chore.Repair);
                 var o = T.GetCitizen(y.OwnerId);
                 string who = o != null ? o.First + " " + o.Family + "'s yard" : "the builder's yard";
-                Para(working ? "Being repaired by " + who + "." : b.RepairPaid ? "Repair booked with " + who + "." : "Needs repair: " + Town.Money(T.RepairPrice(b)) + (b.Def.IsBusiness && b.OwnerId >= 0 ? ", paid by the owner." : ", paid by the town."), working ? Ui.Good : Ui.Warn);
+                Para(working ? "Being repaired by " + who + "." : b.RepairPaid ? "Repair under way with " + who + "." :
+                     "Next in line at " + who + ": " + Town.Money(T.RepairPrice(b)) + " when work starts, paid by " + (b.Def.IsBusiness && b.OwnerId >= 0 ? "the owner." : "the town."), working ? Ui.Good : Ui.Warn);
             }
-            else if (b.Condition < Balance.RepairAt) Para(T.Yards.Any() ? "Worn. A builder's yard will be sent." : "Worn, and there's no builder's yard to repair it.", Ui.Warn);
+            else if (b.Condition < Balance.RepairAt) Para(T.Yards.Any() ? "Worn. Waiting for a builder's yard to have room; the worst go first." : "Worn, and there's no builder's yard to repair it.", Ui.Warn);
             bool home = b.Type == BuildingType.House || b.Type == BuildingType.BoardingHouse;
             if (b.Condition < 25) Para(home ? "The roof leaks: the family is miserable and burns more firewood." : b.Def.IsBusiness ? "Falling apart: work goes at half pace." : "Falling apart.", Ui.Bad);
             else if (b.Condition < 50) Para(home ? "Drafty: burns more firewood." : b.Def.IsBusiness ? "Worn: work goes a little slower." : "Worn.", Ui.Warn);
@@ -1401,6 +1402,9 @@ namespace FrontierLedger.Game
                     {
                         int sites = T.Sites.Count(s => s.ContractorId == b.Id), fixes = T.Buildings.Count(x => x.Built && x.RepairBy == b.Id);
                         Row("Jobs", sites + (sites == 1 ? " building, " : " buildings, ") + fixes + (fixes == 1 ? " repair" : " repairs"));
+                        int queue = T.Buildings.Count(x => x.Built && Town.Wears(x) && x.Condition < Balance.RepairAt && T.GetBuilding(x.RepairBy) == null);
+                        if (queue > 0) Row("Repairs waiting in town", queue.ToString(), Ui.Warn);
+                        Para("A yard takes on two repairs for each pair of hands it has, and two more. The rest wait for whichever yard has room.", Ui.InkSoft);
                         if (b.TownOwes > 0.5f) Row("Town owes them", Town.Money(b.TownOwes), Ui.Warn);
                         Stocks(b, Good.Logs, Good.Furniture, Good.Tools);
                         Row("Furniture price", Town.Money(b.Price[(int)Good.Furniture]));

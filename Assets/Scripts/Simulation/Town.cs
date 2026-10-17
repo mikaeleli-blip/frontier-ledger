@@ -11,7 +11,7 @@ namespace FrontierLedger.Simulation
     [Serializable]
     public partial class Town
     {
-        public const int CurrentVersion = 12;
+        public const int CurrentVersion = 13;
         public int Version = CurrentVersion;
         public int Seed;
         public int Day = 1;
@@ -164,6 +164,13 @@ namespace FrontierLedger.Simulation
                 // version 12: switches for births and newcomers, both on
                 Policy.Births = true; Policy.Newcomers = true;
                 Version = 12;
+            }
+            if (Version < 13)
+            {
+                // version 13: repairs are shared out among the yards by crew and paid for when work starts,
+                // so every repair goes back in line (they were all booked, and paid, with whichever yard got them first)
+                foreach (var b in Buildings) { b.RepairBy = -1; b.RepairPaid = false; }
+                Version = 13;
             }
         }
 

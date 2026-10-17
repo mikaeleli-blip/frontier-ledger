@@ -117,27 +117,39 @@ namespace FrontierLedger.Simulation
             // new jobs go to whichever yard has the least on its books
             foreach (var s in sites)
                 if (!yards.Any(y => y.Id == s.ContractorId)) Award(s, yards);
-            foreach (var b in Buildings)
-                if (b.Built && Wears(b) && b.Condition < Balance.RepairAt && !yards.Any(y => y.Id == b.RepairBy))
-                {
-                    var y = yards.OrderBy(x => Buildings.Count(q => q.RepairBy == x.Id || q.ContractorId == x.Id)).First();
-                    b.RepairBy = y.Id; b.RepairPaid = false;
-                }
+            // Repairs: each yard books only what its crew can get to soon (two jobs a pair of hands, and two more);
+            // the rest wait their turn, worst first, for whichever yard has room. Jobs not yet started can move on.
+            var crews = yards.ToDictionary(y => y.Id, y => CrewOf(y));
+            Func<Building, int> room = y => 2 + 2 * crews[y.Id].Count - Buildings.Count(q => q.Built && q.RepairBy == y.Id);
             foreach (var y in yards)
             {
-                var crew = CrewOf(y); int ci = 0, want = 0;
+                int over = -room(y);
+                if (over <= 0) continue;
+                foreach (var b in Buildings.Where(q => q.Built && q.RepairBy == y.Id && !q.RepairPaid).OrderByDescending(q => q.Condition).Take(over).ToList()) b.RepairBy = -1;
+            }
+            foreach (var b in Buildings.Where(q => q.Built && Wears(q) && q.Condition < Balance.RepairAt && !yards.Any(y => y.Id == q.RepairBy)).OrderBy(q => q.Condition).ToList())
+            {
+                var y = yards.OrderByDescending(room).ThenBy(x => x.Id).First();
+                if (room(y) <= 0) break;
+                b.RepairBy = y.Id; b.RepairPaid = false;
+            }
+            foreach (var y in yards)
+            {
+                var crew = crews[y.Id]; int ci = 0, want = 0;
                 var repairs = Buildings.Where(b => b.Built && b.RepairBy == y.Id).OrderBy(b => b.Condition).ToList();
-                // badly worn buildings first, then new building, then the other repairs
+                // repairs already under way first, then badly worn buildings, then new building, then the other repairs
                 var jobs = new List<Building>();
-                jobs.AddRange(repairs.Where(b => b.Condition < 40));
+                jobs.AddRange(repairs.Where(b => b.RepairPaid));
+                jobs.AddRange(repairs.Where(b => !b.RepairPaid && b.Condition < 40));
                 jobs.AddRange(sites.Where(s => s.ContractorId == y.Id));
-                jobs.AddRange(repairs.Where(b => b.Condition >= 40));
+                jobs.AddRange(repairs.Where(b => !b.RepairPaid && b.Condition >= 40));
                 foreach (var job in jobs)
                 {
                     bool repair = job.Built;
-                    if (repair ? !StartRepair(job, y) : !StartContract(job, y)) continue;   // waiting on payment
                     int max = repair ? 2 : Balance.SiteCrew(job.Def), n = 0;
                     want += max;
+                    if (ci >= crew.Count) continue;                                            // nobody free today: it waits, and isn't paid for yet
+                    if (repair ? !StartRepair(job, y) : !StartContract(job, y)) { want -= max; continue; }   // waiting on payment
                     while (ci < crew.Count && n < max)
                     {
                         if (repair ? !RepairWork(job, crew[ci]) : !SiteWork(job, crew[ci])) break;
