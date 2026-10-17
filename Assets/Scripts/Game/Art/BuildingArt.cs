@@ -69,6 +69,7 @@ namespace FrontierLedger.Game.Art
                 case BuildingType.Hotel: return 26;
                 case BuildingType.Barber: return 12;
                 case BuildingType.Church: return 30;
+                case BuildingType.Brothel: return 22;
                 default: return 0;
             }
         }
@@ -273,6 +274,7 @@ namespace FrontierLedger.Game.Art
                 case BuildingType.Hotel: Hotel(k); break;
                 case BuildingType.Barber: Barber(k); break;
                 case BuildingType.Church: Church(k); break;
+                case BuildingType.Brothel: Brothel(k); break;
             }
             k.Tg.Outline(OL);
             string n = type + "_" + v + "_" + si;

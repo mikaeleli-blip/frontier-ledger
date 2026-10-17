@@ -20,7 +20,7 @@ namespace FrontierLedger.Simulation
             bool tradeJob = t == BuildingType.Store || t == BuildingType.Stall || t == BuildingType.Smithy || t == BuildingType.Saloon
                             || t == BuildingType.LumberCamp || t == BuildingType.Woodcutter || t == BuildingType.Quarry
                             || t == BuildingType.IronMine || t == BuildingType.Tannery || t == BuildingType.Brewery || t == BuildingType.Tailor
-                            || t == BuildingType.Hotel || t == BuildingType.Barber;
+                            || t == BuildingType.Hotel || t == BuildingType.Barber || t == BuildingType.Brothel;
             if (c.Platform == Platform.Farm && (foodJob || Market.Shortfall > 1)) s += 0.5f;
             if (c.Platform == Platform.Trade && tradeJob) s += 0.45f;
             if (c.Platform == Platform.Law) s += Math.Min(0.8f, CrimesLast * 0.12f + CrimesWeek * 0.1f) + (Day - v.RobbedDay < 20 ? 0.5f : 0);

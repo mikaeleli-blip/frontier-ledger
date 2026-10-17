@@ -252,6 +252,7 @@ namespace FrontierLedger.Game
                 case BuildingType.School: return false;
                 case BuildingType.Church: return town.StaffOf(b, Role.Preacher) != null && town.Day % 7 == 0 && town.TimeOfDay > 0.75f;
                 case BuildingType.Hotel: return town.IsOpen(b) && b.Today.Sold > 0 && (town.TimeOfDay > 0.72f || town.TimeOfDay < 0.2f);
+                case BuildingType.Brothel: return town.IsOpen(b) && (town.TimeOfDay > 0.7f || town.TimeOfDay < 0.15f);
                 case BuildingType.Storehouse: case BuildingType.Wagon: case BuildingType.Cemetery: return false;
                 default: return b.Def.IsBusiness && town.IsOpen(b) && (b.Type == BuildingType.Saloon || town.TimeOfDay > 0.75f);
             }
@@ -993,7 +994,7 @@ namespace FrontierLedger.Game
             if (evening && !p.IsChild)
             {
                 var sw = town.GetBuilding(p.WorkId);
-                if (sw != null && sw.Built && sw.Type == BuildingType.Saloon && HasDoor(sw)) { visit = sw; inside = true; return DoorStep(sw, p); }
+                if (sw != null && sw.Built && (sw.Type == BuildingType.Saloon || sw.Type == BuildingType.Brothel) && HasDoor(sw)) { visit = sw; inside = true; return DoorStep(sw, p); }
             }
             if (workHours && !p.IsChild)
             {
@@ -1055,7 +1056,7 @@ namespace FrontierLedger.Game
             return t == BuildingType.Store || t == BuildingType.Saloon || t == BuildingType.Bank || t == BuildingType.Sheriff || t == BuildingType.Smithy
                 || t == BuildingType.School || t == BuildingType.DoctorOffice || t == BuildingType.Estate
                 || t == BuildingType.Butcher || t == BuildingType.Bakery || t == BuildingType.Tailor || t == BuildingType.Hotel || t == BuildingType.Barber
-                || t == BuildingType.Church || t == BuildingType.Brewery;
+                || t == BuildingType.Church || t == BuildingType.Brewery || t == BuildingType.Brothel;
         }
 
         // ---------------------------------------------------------------- errands
@@ -1119,7 +1120,7 @@ namespace FrontierLedger.Game
                 float ox = b.X * 16, oy = b.Y * 16 - bv.Art.Lift; int foot = (b.Y + b.Def.H) * 16;
                 int nw = 0, nv = 0, ns = 0, nb = 0;
                 int callers = people.Values.Count(x => x.DoorState == In && x.DoorB == b.Id && x.P.WorkId != b.Id && x.P.HomeId != b.Id);
-                bool working = workHoursNow || ((b.Type == BuildingType.Saloon || b.Type == BuildingType.Hotel) && !night);
+                bool working = workHoursNow || ((b.Type == BuildingType.Saloon || b.Type == BuildingType.Hotel || b.Type == BuildingType.Brothel) && !night);
                 foreach (var v in people.Values.Where(x => x.DoorState == In && x.DoorB == b.Id).OrderBy(x => x.P.Id))
                 {
                     var p = v.P;

@@ -130,6 +130,36 @@ namespace FrontierLedger.Game.Art
             it.Visit.Add(new Spot(5, y0 + 19, PeopleArt.Down)); it.Visit.Add(new Spot(10, y0 + 19, PeopleArt.Down));
         }
 
+        /// <summary>The parlor: red wallpaper, a piano, a settee, a rug, velvet curtains over the doorways to the rooms
+        /// at the back, and the stairs.</summary>
+        static void Brothel(PixelCanvas g, Interior it, int L)
+        {
+            int y0 = L;
+            var r = new RectInt(1, y0 - 4, 30, 31);
+            Room(g, it, r, 17, 6, 11, "#7a2a3a", "#5e1e2c", "#4a2a1a", "#8a5a3a", "#6e4428");
+            for (int x = 4; x < 29; x += 4) for (int y = y0 - 3; y < y0 + 3; y += 3) g.D(x + (y % 2), y, "#c8a050");   // flocked paper
+            // a gilt-framed picture, a piano, two velvet-curtained doorways
+            g.R(12, y0 - 3, 7, 5, "#c8a050"); g.R(13, y0 - 2, 5, 3, "#6a8aa8"); g.R(13, y0, 5, 1, "#5a7a4a");
+            g.R(3, y0 - 1, 8, 7, "#3a2418"); g.R(3, y0 - 1, 8, 1, "#5a3a22"); g.R(4, y0 + 3, 6, 1, "#f4ecd8"); for (int x = 4; x < 10; x += 2) g.D(x, y0 + 3, "#2a2420");
+            g.D(5, y0 - 2, "#f2d04a");   // a candle on the piano
+            foreach (int x in new[] { 21, 26 })
+            {
+                g.R(x, y0 - 3, 4, 9, "#2a1414");
+                g.R(x, y0 - 3, 2, 9, "#a02838"); g.R(x + 2, y0 - 3, 2, 9, "#8a2030"); g.D(x, y0 + 1, "#c8a050"); g.D(x + 3, y0 + 1, "#c8a050");
+                g.R(x - 1, y0 - 4, 6, 1, "#c8a050");
+            }
+            // the settee and a little table with a lamp
+            g.R(3, y0 + 9, 10, 2, "#8a2030"); g.R(3, y0 + 11, 10, 2, "#a02838"); g.R(3, y0 + 9, 1, 4, "#6e1a28"); g.R(12, y0 + 9, 1, 4, "#6e1a28");
+            g.D(4, y0 + 13, "#3a2418"); g.D(11, y0 + 13, "#3a2418");
+            g.R(15, y0 + 11, 4, 2, "#8a5a34"); g.D(16, y0 + 13, "#5a3a22"); g.D(17, y0 + 10, "#f2d04a"); g.D(17, y0 + 9, "#e8dcc4");
+            Rug(g, 4, y0 + 15, 14, 6, "#8a2a3a", "#c8a050");
+            // the stairs up to the rooms
+            for (int i = 0; i < 6; i++) { g.R(27 - i, y0 + 8 + i * 2, 3, 1, "#a8734a"); g.R(27 - i, y0 + 9 + i * 2, 3, 1, "#7a4e2c"); }
+            it.Work.Add(new Spot(6, y0 + 14, PeopleArt.Down)); it.Work.Add(new Spot(10, y0 + 14, PeopleArt.Down));
+            it.Work.Add(new Spot(20, y0 + 13, PeopleArt.Left)); it.Work.Add(new Spot(14, y0 + 19, PeopleArt.Up));
+            it.Visit.Add(new Spot(17, y0 + 17, PeopleArt.Left)); it.Visit.Add(new Spot(8, y0 + 21, PeopleArt.Up)); it.Visit.Add(new Spot(22, y0 + 20, PeopleArt.Up));
+        }
+
         static void Church(PixelCanvas g, Interior it, int L)
         {
             int y0 = L;

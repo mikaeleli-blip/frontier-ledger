@@ -143,6 +143,11 @@ Trade, Election, the Gazette and Freight.
   - *Hotel:* travellers on the main road pay for a room, supper and a drink: money from outside. More come in summer
     and as the town grows; a hand looks after four guests.
   - *Barber & bathhouse:* a shave and a hot bath about once a week. It cheers people up, and clean folk fall sick less.
+  - *Brothel:* a parlor house with a red lamp by the door. Men of 18 and over with a few dollars in their pocket visit now
+    and then (single men far more than married ones), and so do travellers staying at the hotel. A visit is $3: the house
+    keeps 60% and the woman 40%, which is her pay instead of a wage (taxed like one). Up to four women, three visits each a
+    day. Only unmarried women of 18 and over work there, and a woman who marries leaves. When no woman in town will take the
+    work, women come up the road for it once there's a bed. Anyone can own it.
   - *Church:* a preacher lives on the Sunday collection, which the town makes up to $10 a week. Sunday service cheers
     the congregation and eases grief; church weddings and funerals mean more; families like a town with a church.
 - **The table:** households with money to spare buy bread and meat for part of their food, and are happier and

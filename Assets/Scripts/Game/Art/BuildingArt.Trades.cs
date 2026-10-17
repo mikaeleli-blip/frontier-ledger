@@ -276,6 +276,45 @@ namespace FrontierLedger.Game.Art
             k.M.PileAt = new Vector2Int(-1, -1);
         }
 
+        /// <summary>A brothel: a two-storey parlor house in plum clapboard with a balcony, lace and velvet at the windows,
+        /// and a red lamp by the door.</summary>
+        static void Brothel(Ctx k)
+        {
+            var bg = k.Bg; var tg = k.Tg; bool W = k.Winter; int y0 = k.Y(0);
+            bg.R(0, y0 + 27, 32, 5, W ? "#d8d2c6" : "#b98b5a");
+            for (int x = 3; x < 32; x += 4) bg.R(x, y0 + 27, 1, 5, W ? "#bdb5a5" : "#8a5d3a");
+            Shadow(tg, 2, y0 + 26, 28);
+            Shingles(tg, 1, y0 - 22, 30, 12, new[] { "#4a3a4a", "#362a36", "#64506a" }, W);
+            Planks(tg, 2, y0 - 10, 28, 37, "#6e3448", "#56283a", "#844058");
+            tg.R(2, y0 - 10, 28, 1, "#efe2c4"); tg.R(2, y0 - 10, 1, 37, "#efe2c4"); tg.R(29, y0 - 10, 1, 37, "#efe2c4");
+            // upper floor: two windows, lamplight behind lace and velvet
+            foreach (int x in new[] { 6, 21 }) { Window(k, x, y0 - 7, 5, 6, false, "#efe2c4"); Drapes(tg, x, y0 - 7, 5, 6); }
+            // the balcony on turned posts
+            tg.R(1, y0 + 1, 30, 2, "#4a2a2a"); tg.R(1, y0 + 3, 30, 1, "#efe2c4");
+            for (int x = 2; x < 31; x += 2) tg.R(x, y0 + 4, 1, 3, "#efe2c4");
+            tg.R(1, y0 + 7, 30, 1, "#4a2a2a");
+            if (W) tg.R(1, y0, 30, 1, SNOW);
+            foreach (int x in new[] { 2, 29 }) tg.R(x, y0 + 8, 1, 19, "#efe2c4");
+            // a sign hung under the balcony
+            tg.R(6, y0 + 8, 1, 1, "#3a3a3a"); tg.R(13, y0 + 8, 1, 1, "#3a3a3a");
+            tg.R(5, y0 + 9, 10, 4, "#3a2414"); tg.R(6, y0 + 10, 8, 2, "#f0e4d8"); Letters(tg, 6, y0 + 10, 8, "#8a2030");
+            // ground floor: a curtained parlor window, the door with its fanlight, and the red lamp
+            Window(k, 4, y0 + 15, 9, 6, false, "#efe2c4"); Drapes(tg, 4, y0 + 15, 9, 6);
+            Window(k, 17, y0 + 12, 6, 1, false, "#efe2c4");
+            Door(k, 17, y0 + 14, 6, 13, "#4a2028");
+            tg.R(24, y0 + 12, 3, 1, "#3a3a3a"); tg.D(26, y0 + 13, "#3a3a3a");
+            tg.R(25, y0 + 14, 3, 3, "#c82a2a"); tg.D(26, y0 + 14, "#ff9a8a"); tg.R(25, y0 + 17, 3, 1, "#3a3a3a");
+            Foundation(tg, 2, y0 + 26, 28);
+            k.M.PileAt = new Vector2Int(-1, -1);
+        }
+
+        static void Drapes(PixelCanvas g, int x, int y, int w, int h)
+        {
+            g.R(x, y, 1, h, "#a02838"); g.R(x + w - 1, y, 1, h, "#a02838");
+            g.D(x, y + h / 2, "#c8a050"); g.D(x + w - 1, y + h / 2, "#c8a050");
+            for (int xx = x + 1; xx < x + w - 1; xx++) { g.D(xx, y, "#f0e4e0"); if ((xx + y) % 2 == 0) g.D(xx, y + 1, "#f0e4e0"); }
+        }
+
         /// <summary>A barbershop and bathhouse: a striped pole by the door, a chair in the window, the boiler's stovepipe.</summary>
         static void Barber(Ctx k)
         {

@@ -7,7 +7,7 @@ namespace FrontierLedger.Simulation
     {
         Road, House, Storehouse, Farm, Gatherer, Fishery, LumberCamp, Woodcutter, Quarry, Smithy,
         Store, Stall, Saloon, Sheriff, Estate, Cemetery, Wagon, BuilderYard, BoardingHouse, Bank, School, DoctorOffice,
-        Ranch, Bakery, Butcher, IronMine, Tannery, Brewery, Tailor, Hotel, Barber, Church   // saves store these as numbers: only append
+        Ranch, Bakery, Butcher, IronMine, Tannery, Brewery, Tailor, Hotel, Barber, Church, Brothel   // saves store these as numbers: only append
     }
     public enum Category { Roads, Housing, Food, Industry, Trade, Civic, Hidden }
     public enum Role { Child, Laborer, Worker, Owner, Builder, Sheriff, Deputy, Mayor, Teacher, Doctor, Preacher }   // Builder is unused (old saves)
@@ -165,6 +165,10 @@ namespace FrontierLedger.Simulation
         // Barber and bathhouse
         public const float BathPrice = 0.75f, ShavePrice = 0.25f, BathFuel = 0.15f, CleanDays = 7f;
         public const int CustomersPerHand = 8;
+        // Brothel: a visit's price is split, the house keeping the larger part; the women are paid their share, not a wage
+        public const float VisitPrice = 3f, VisitShare = 0.4f;
+        public const int VisitsPerWoman = 3;
+        public const float BrothelAge = 18f;              // nobody younger works there or is let in
         // Church: the preacher lives on the Sunday collection; the town makes up a thin plate
         public const float PlateTopUp = 10f;
         public const float TanneryStink = 0.3f; public const int TanneryReach = 6;
@@ -274,6 +278,8 @@ namespace FrontierLedger.Simulation
                 Blurb = "Rooms and meals for travellers on the main road, who pay with money from outside. Buys food, beer and firewood. Busier in summer, and as the town grows." });
             Add(new BuildingDef { Type = BuildingType.Barber, Category = Category.Trade, Name = "Barber & Bathhouse", W = 2, H = 2, Logs = 14, Stone = 8, Work = 8, IsBusiness = true, MaxEmployees = 2, BaseWage = 2.2f, Color = "#c84a4a",
                 Blurb = "A shave and a hot bath for 75 cents. Settlers come about once a week: it cheers them up, and clean folk fall sick less. Heats the water with firewood." });
+            Add(new BuildingDef { Type = BuildingType.Brothel, Category = Category.Trade, Name = "Brothel", W = 2, H = 2, Logs = 18, Stone = 6, Work = 10, IsBusiness = true, MaxEmployees = 4, BaseWage = 2f, Color = "#8a2a3a",
+                Blurb = "A parlor house with a red lamp by the door. Men pay $3 a visit, mostly in the evening, travellers from the hotel too; the house keeps 60% and the woman 40%, which is her pay instead of a wage. Only unmarried women of 18 and over work here; anyone can own it." });
             Add(new BuildingDef { Type = BuildingType.Sheriff, Category = Category.Civic, Name = "Sheriff's Office", W = 2, H = 2, Logs = 16, Stone = 14, Work = 12, IsPublic = true, Unique = true, Color = "#9c8b74",
                 Blurb = "Hires a sheriff and deputies, paid by the treasury, who catch thieves." });
             Add(new BuildingDef { Type = BuildingType.Estate, Category = Category.Civic, Name = "Mayor's Estate", W = 3, H = 2, Logs = 30, Stone = 30, Work = 24, Beds = 6, IsPublic = true, Unique = true, Color = "#e9e1cf",

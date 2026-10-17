@@ -35,6 +35,7 @@ namespace FrontierLedger.Simulation
                                : "Winter. " + Homeless + " settlers have no roof. By the fire with firewood in store they might last; without it they won't.", LogKind.Bad);
             Saloons();
             Barbers();
+            Brothels();
             Payroll();
             int crimes = Crime();
             HealthAndMood(si, crimes);
@@ -741,7 +742,7 @@ namespace FrontierLedger.Simulation
                 // the yard only buys logs for furniture when the lumber camps have plenty to spare and homes are warm
                 if (b.Type == BuildingType.BuilderYard && b.Stock[(int)Good.Furniture] < Balance.FurnitureCap && SpareLogs() > 20 && TotalFirewood() > 80)
                     BuyFor(b, Good.Logs, 6 - b.Stock[(int)Good.Logs]);
-                bool usesTools = !b.Def.IsRetail && b.Type != BuildingType.Saloon && b.Type != BuildingType.Smithy && b.Type != BuildingType.Hotel && b.Type != BuildingType.Barber;
+                bool usesTools = !b.Def.IsRetail && b.Type != BuildingType.Saloon && b.Type != BuildingType.Smithy && b.Type != BuildingType.Hotel && b.Type != BuildingType.Barber && b.Type != BuildingType.Brothel;
                 if (usesTools && w > 0 && b.Stock[(int)Good.Tools] < 0.5f * w) BuyFor(b, Good.Tools, w - b.Stock[(int)Good.Tools]);
             }
             // Shops restock
@@ -892,6 +893,45 @@ namespace FrontierLedger.Simulation
                     if (bath) { b.Stock[(int)Good.Firewood] -= Balance.BathFuel; p.BathedDay = Day; } else p.BathedDay = Day - 4;
                     p.Happy = Math.Min(100, p.Happy + (bath ? 2.5f : 1f));
                     Visit(p, b); cap--;
+                }
+            }
+        }
+
+        /// <summary>Men with money in their pocket visit the brothel now and then, single men more than married ones.
+        /// Each visit's price is split: the house keeps the larger part, the woman is paid her share (taxed like a wage).</summary>
+        void Brothels()
+        {
+            foreach (var b in OfType(BuildingType.Brothel).Where(IsOpen).ToList())
+            {
+                var women = b.Employees.Select(GetCitizen).Where(w => w != null && w.Jail == 0 && !LaidUp(w) && BrothelWorker(w)).ToList();
+                var left = women.ToDictionary(w => w.Id, w => Balance.VisitsPerWoman);
+                foreach (var p in Shuffle(People.Where(x => !x.Female && x.Age >= Balance.BrothelAge && x.Jail == 0 && !LaidUp(x) && x.Money > Balance.VisitPrice + 1f).ToList()))
+                {
+                    if (!Chance(p.PartnerId < 0 ? 0.3 : 0.06)) continue;
+                    b.Week.Made++;   // came by, served or not: the house takes on women for the trade there is
+                    var w = women.Where(x => left[x.Id] > 0).OrderByDescending(x => left[x.Id]).FirstOrDefault();
+                    if (w == null) continue;
+                    left[w.Id]--;
+                    float price = Balance.VisitPrice, share = price * Balance.VisitShare, house = price - share;
+                    p.Money -= price;
+                    float tax = share * Policy.IncomeTax;
+                    w.Money += share - tax; Treasury += tax; LedgerThisWeek.IncomeTax += tax;
+                    b.Cash += house; b.Week.Revenue += house; b.Today.Sold++; b.Week.Sold++;
+                    p.Happy = Math.Min(100, p.Happy + 3f);
+                    Visit(p, b);
+                }
+                // men passing through: hotel guests, teamsters and drovers, paying with money from outside
+                int travellers = Businesses.Where(h => h.Type == BuildingType.Hotel).Sum(h => (int)h.Today.Sold);
+                for (int i = 0; i < travellers; i++)
+                {
+                    if (!Chance(0.4)) continue;
+                    b.Week.Made++;
+                    var w = women.Where(x => left[x.Id] > 0).OrderByDescending(x => left[x.Id]).FirstOrDefault();
+                    if (w == null) continue;
+                    left[w.Id]--;
+                    float price = Balance.VisitPrice, share = price * Balance.VisitShare, house = price - share, tax = share * Policy.IncomeTax;
+                    w.Money += share - tax; Treasury += tax; LedgerThisWeek.IncomeTax += tax;
+                    b.Cash += house; b.Week.Revenue += house; b.Today.Sold++; b.Week.Sold++;
                 }
             }
         }
@@ -1206,6 +1246,7 @@ namespace FrontierLedger.Simulation
         {
             foreach (var b in Businesses.ToList())
             {
+                if (PaysByShare(b.Type)) continue;   // paid their share of each visit as it happens
                 foreach (var id in b.Employees.ToList())
                 {
                     var p = GetCitizen(id); if (p == null || p.Jail > 0 || p.FamilyHand) continue;
@@ -1488,6 +1529,12 @@ namespace FrontierLedger.Simulation
             int afford = townRun ? d.MaxEmployees : (int)(b.Cash / Math.Max(0.5f, b.Wage * 2));
             if (b.Type == BuildingType.Bank) return LoansOut(b) > 150f ? 1 : 0;   // a clerk once there's lending business to keep
             var owner = GetCitizen(b.OwnerId); int self = owner != null && owner.WorkId == b.Id ? 1 : 0;
+            if (b.Type == BuildingType.Brothel)
+            {
+                // no wages to find: at least one woman, and as many as the trade keeps busy
+                int want = (int)Math.Ceiling(b.Week.Made / 7f / Balance.VisitsPerWoman - 0.15f);
+                return Math.Max(1, Math.Min(d.MaxEmployees, want));
+            }
             if (b.Type == BuildingType.Hotel || b.Type == BuildingType.Barber)
             {
                 // hands for the trade there's been: four guests a hand at a hotel, eight customers a day at the barber's
@@ -1739,7 +1786,12 @@ namespace FrontierLedger.Simulation
                     float sweep = b.Cash - reserve; b.Cash -= sweep; Treasury += sweep; LedgerThisWeek.TownTakings += sweep;
                 }
                 b.Last = new WeekReport { Valid = true, Revenue = b.Week.Revenue, Costs = b.Week.Costs, Profit = profit, Tax = tax, OwnerDraw = draw + b.Week.Drawn, Sold = b.Week.Sold, Made = b.Week.Made };
-                b.Wage = Math.Max(Policy.MinWage, b.Wage);
+                if (PaysByShare(b.Type))
+                {
+                    // what a woman took home a day last week (kept as it was while nobody worked there)
+                    if (b.Employees.Count > 0) b.Wage = Math.Max(1f, b.Week.Sold * Balance.VisitPrice * Balance.VisitShare / (7f * b.Employees.Count));
+                }
+                else b.Wage = Math.Max(Policy.MinWage, b.Wage);
                 if (Day - b.BuiltDay >= 6)
                 {
                     b.Desired = StaffingDecision(b, profit);

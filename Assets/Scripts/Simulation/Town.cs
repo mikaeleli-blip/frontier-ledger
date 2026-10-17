@@ -215,6 +215,10 @@ namespace FrontierLedger.Simulation
         /// <summary>Jobs that pay a wage or salary (and are left when someone becomes an owner or the mayor).</summary>
         public static bool Employed(Role r) { return r == Role.Worker || r == Role.Sheriff || r == Role.Deputy || r == Role.Builder || r == Role.Teacher || r == Role.Doctor || r == Role.Preacher; }
         /// <summary>Work that needs someone who can read, write and keep accounts.</summary>
+        /// <summary>Trades that pay their people a share of each sale instead of a day wage.</summary>
+        public static bool PaysByShare(BuildingType t) { return t == BuildingType.Brothel; }
+        /// <summary>Who may work at the brothel: unmarried women of 18 and over.</summary>
+        public static bool BrothelWorker(Citizen p) { return p != null && p.Female && p.Age >= Balance.BrothelAge && p.PartnerId < 0; }
         public static bool SkilledWork(BuildingType t) { return t == BuildingType.Store || t == BuildingType.Bank || t == BuildingType.Hotel; }
         /// <summary>Work that puts food on the town's tables: settlers take it first when food is short.</summary>
         public static bool FoodJob(BuildingType t) { return t == BuildingType.Farm || t == BuildingType.Gatherer || t == BuildingType.Fishery || t == BuildingType.Ranch || t == BuildingType.Butcher; }

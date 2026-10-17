@@ -297,6 +297,7 @@ namespace FrontierLedger.Simulation
         void Marry(Citizen m, Citizen w, Building empty)
         {
             m.PartnerId = w.Id; w.PartnerId = m.Id;
+            foreach (var x in new[] { m, w }) { var j = GetBuilding(x.WorkId); if (j != null && j.Type == BuildingType.Brothel && x.Role == Role.Worker) QuitJob(x); }
             var kids = ChildrenOf(w).Concat(ChildrenOf(m)).Distinct().ToList();
             string old = w.Family; w.Family = m.Family;
             MoveInto(m, empty); MoveInto(w, empty);
@@ -457,6 +458,7 @@ namespace FrontierLedger.Simulation
         {
             if (v.Role == Role.Doctor) return p.Physician;
             if (v.Role == Role.Teacher || v.Role == Role.Preacher) return Schooled(p);
+            if (v.Role == Role.Worker && v.B != null && v.B.Type == BuildingType.Brothel) return BrothelWorker(p);
             if (v.Role == Role.Worker && v.B != null && SkilledWork(v.B.Type)) return Schooled(p);
             return true;
         }
@@ -520,7 +522,7 @@ namespace FrontierLedger.Simulation
             foreach (var b in Businesses.ToList())
             {
                 var o = GetCitizen(b.OwnerId);
-                if (o == null || o.WorkId != b.Id || b.Employees.Count >= b.Def.MaxEmployees) continue;
+                if (o == null || o.WorkId != b.Id || b.Employees.Count >= b.Def.MaxEmployees || PaysByShare(b.Type)) continue;
                 var sp = GetCitizen(o.PartnerId);
                 var kin = new List<Citizen>(); if (sp != null) kin.Add(sp);
                 kin.AddRange(People.Where(c => !c.IsChild && c.PartnerId < 0 && (c.MotherId == o.Id || c.FatherId == o.Id || (sp != null && (c.MotherId == sp.Id || c.FatherId == sp.Id)))));
@@ -537,11 +539,11 @@ namespace FrontierLedger.Simulation
             foreach (var b in Businesses)
             {
                 if (b.Type == BuildingType.Bank && b.OwnerId < 0) continue;   // a bank needs a banker; the town doesn't lend
-                int want = Math.Min(b.Def.MaxEmployees, b.Desired);
+                int want = Math.Min(b.Def.MaxEmployees, PaysByShare(b.Type) ? Math.Max(1, b.Desired) : b.Desired);
                 // nobody is taken on without a week's wages in hand for every hired hand (the town's money backs its own)
                 float purse = b.Cash + b.Deposit + (b.OwnerId < 0 ? Math.Max(0, Treasury) : 0);
                 int hired = b.Employees.Count(id => { var e = GetCitizen(id); return e != null && !e.FamilyHand; });
-                int affordable = b.Wage > 0 ? (int)(purse / (b.Wage * 7f)) : 0;
+                int affordable = PaysByShare(b.Type) ? b.Def.MaxEmployees : b.Wage > 0 ? (int)(purse / (b.Wage * 7f)) : 0;
                 for (int i = b.Employees.Count; i < want && hired < affordable; i++, hired++) vac.Add(new Vacancy { B = b, Wage = b.Wage, Role = Role.Worker });
             }
             if (off != null && Treasury > 15)
@@ -575,13 +577,24 @@ namespace FrontierLedger.Simulation
             }
             foreach (var v in open)
                 if ((v.Role == Role.Teacher || v.Role == Role.Doctor || v.Role == Role.Preacher) && v.B.Employees.Count == 0) SendForStaff(v.B, v.Role);
+            // a brothel that no woman in town will work at draws women up the road from the camps and river towns, once there's a bed
+            foreach (var b in OfType(BuildingType.Brothel).Where(x => x.Built).ToList())
+            {
+                int need = Math.Min(b.Def.MaxEmployees, Math.Max(1, b.Desired));
+                if (b.Employees.Count >= need) { b.VacantDays = 0; continue; }
+                if (++b.VacantDays < Balance.SendForStaffDays || FreeBeds < 1) continue;
+                var w = AddPerson(true, Pick(Defs.LastNames), Rnd(19, 32), (float)Math.Round(Rnd(3, 12)));
+                w.Role = Role.Worker; w.WorkId = b.Id; b.Employees.Add(w.Id); b.VacantDays = 0;
+                AddLog(w.Name + " came up the road to work at the Brothel.", LogKind.Info);
+                RehouseEveryone();
+            }
             // a hired hand leaves for a job that pays clearly better (or for food work when food is short) - one a day
             foreach (var v in open)
             {
                 if (v.Role != Role.Worker || v.B == null) continue;
                 bool urgent = hungry && FoodJob(v.B.Type);
                 // family hands only leave the family business for urgent food work, or when it isn't paying its way
-                var mover = People.Where(p => p.Role == Role.Worker && p.Jail == 0 && p.WorkId != v.B.Id && CanDo(p, v) &&
+                var mover = People.Where(p => p.Role == Role.Worker && p.Jail == 0 && p.WorkId != v.B.Id && CanDo(p, v) && !AtBrothel(p) &&
                                               (!p.FamilyHand || urgent || Losing(GetBuilding(p.WorkId))))
                                   .Select(p => new { p, w = GetBuilding(p.WorkId) })
                                   .Where(x => x.w != null && !(urgent && FoodJob(x.w.Type)) && (urgent || x.p.FamilyHand || x.w.Wage + 0.4f < v.Wage))
@@ -592,6 +605,9 @@ namespace FrontierLedger.Simulation
                 break;
             }
         }
+
+        /// <summary>Women at the brothel aren't lured away to other work; they leave it by marrying or when the house lets them go.</summary>
+        bool AtBrothel(Citizen p) { var w = GetBuilding(p.WorkId); return w != null && w.Type == BuildingType.Brothel; }
 
         /// <summary>A business that isn't paying its way. A farm earns at harvest, and a gatherer's hut is idle in winter,
         /// so losses out of season don't count.</summary>
@@ -606,7 +622,7 @@ namespace FrontierLedger.Simulation
         public void SetMinWage(float v)
         {
             Policy.MinWage = v;
-            foreach (var b in Businesses) b.Wage = Math.Max(v, b.Def.BaseWage);
+            foreach (var b in Businesses) if (!PaysByShare(b.Type)) b.Wage = Math.Max(v, b.Def.BaseWage);
         }
     }
 }

@@ -309,7 +309,7 @@ namespace FrontierLedger.Game
                 Ui.IconAt(x, y - 1, Icon.Hammer); x += 11; Ui.Text(x, y, d.Work + " work-days", Ui.InkSoft);
             }
             float by = r.y + 28;
-            if (d.IsBusiness) { Ui.Text(r.x + 7, by, "Up to " + d.MaxEmployees + " workers · wage " + Town.Money(d.BaseWage), Ui.InkSoft); by += 11; }
+            if (d.IsBusiness) { Ui.Text(r.x + 7, by, Town.PaysByShare(d.Type) ? "Up to " + d.MaxEmployees + " women · paid " + Mathf.RoundToInt(Balance.VisitShare * 100) + "% of each visit" : "Up to " + d.MaxEmployees + " workers · wage " + Town.Money(d.BaseWage), Ui.InkSoft); by += 11; }
             Ui.Wrapped(new Rect(r.x + 7, by, w - 14, 200), blurb, Ui.Ink);
         }
 
@@ -958,7 +958,8 @@ namespace FrontierLedger.Game
                 if (b.Type == BuildingType.Bank) Row("In the vault", Town.Money(b.Cash));
                 else if (b.Deposit > 0.01f) { Row("In the till", Town.Money(b.Cash)); Row("In the bank", Town.Money(b.Deposit)); }
                 else Row("Cash", Town.Money(b.Cash));
-                Row("Wage", Town.Money(b.Wage) + "/day");
+                if (Town.PaysByShare(b.Type)) Row("Pay", Mathf.RoundToInt(Balance.VisitShare * 100) + "% of each visit · about " + Town.Money(b.Wage) + "/day");
+                else Row("Wage", Town.Money(b.Wage) + "/day");
                 Row("Staff", T.WorkersAt(b) + " working · " + b.Employees.Count + "/" + d.MaxEmployees + " hired");
                 if (b.Debt > 0.5f)
                 {
@@ -1033,6 +1034,12 @@ namespace FrontierLedger.Game
                         Stocks(b, Good.Food, Good.Meat, Good.Bread, Good.Beer, Good.Firewood);
                         Para("Travellers on the main road pay " + Town.Money(Balance.RoomRate) + " a room, " + Town.Money(Balance.MealPrice) + " for supper and " + Town.Money(Balance.GuestDrink) + " a drink: money from outside. A hand looks after " + Balance.GuestsPerHand + " guests.", Ui.InkSoft);
                         break;
+                    case BuildingType.Brothel:
+                        Row("Visits today", ((int)b.Today.Sold).ToString());
+                        if (b.Last.Valid) { Row("Visits last week", ((int)b.Last.Sold).ToString()); if (b.Last.Made > b.Last.Sold + 0.5f) Row("Turned away", ((int)(b.Last.Made - b.Last.Sold)).ToString(), Ui.Warn); }
+                        Para(Town.Money(Balance.VisitPrice) + " a visit: the house keeps " + Mathf.RoundToInt((1 - Balance.VisitShare) * 100) + "%, the woman " + Mathf.RoundToInt(Balance.VisitShare * 100) +
+                             "% as her pay (taxed like a wage). Up to " + Balance.VisitsPerWoman + " visits a woman a day. Only unmarried women of 18 and over work here, and a woman who marries leaves.", Ui.InkSoft);
+                        break;
                     case BuildingType.Barber:
                         Row("Customers today", ((int)b.Today.Sold).ToString());
                         Row("Bathed this week", T.Adults.Count(x => T.Day - x.BathedDay <= 7) + " of " + T.Adults.Count());
@@ -1074,7 +1081,7 @@ namespace FrontierLedger.Game
                         if (b.Type == BuildingType.Store) Row("Firewood price", Town.Money(b.Price[1]));
                         break;
                 }
-                if (b.Type != BuildingType.Hotel && b.Type != BuildingType.Barber && b.Type != BuildingType.Saloon && b.Type != BuildingType.Bank) Row("Made today", b.Today.Made.ToString("0.0"));
+                if (b.Type != BuildingType.Hotel && b.Type != BuildingType.Barber && b.Type != BuildingType.Saloon && b.Type != BuildingType.Bank && b.Type != BuildingType.Brothel) Row("Made today", b.Today.Made.ToString("0.0"));
                 TripRows(b);
                 if (b.Last.Valid)
                 {
