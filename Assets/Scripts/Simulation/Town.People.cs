@@ -388,7 +388,7 @@ namespace FrontierLedger.Simulation
 
             // Births: families hold off when the town is short of food
             float foodPerHead = People.Count == 0 ? 0 : TotalFood() / People.Count;
-            if (foodPerHead >= 8f)
+            if (foodPerHead >= 8f && Policy.Births)
             foreach (var w in People.Where(p => p.Female && !p.IsChild && p.Age >= 18 && p.Age <= 44 && p.PartnerId >= 0).ToList())
             {
                 var h = GetBuilding(w.HomeId);
@@ -620,7 +620,7 @@ namespace FrontierLedger.Simulation
             {
                 int need = Math.Min(b.Def.MaxEmployees, Math.Max(1, b.Desired));
                 if (b.Employees.Count >= need) { b.VacantDays = 0; continue; }
-                if (++b.VacantDays < Balance.SendForStaffDays || FreeBeds < 1) continue;
+                if (!Policy.Newcomers || ++b.VacantDays < Balance.SendForStaffDays || FreeBeds < 1) continue;
                 var w = AddPerson(true, Pick(Defs.LastNames), Rnd(19, 32), (float)Math.Round(Rnd(3, 12)));
                 w.Role = Role.Worker; w.WorkId = b.Id; b.Employees.Add(w.Id); b.VacantDays = 0;
                 AddLog(w.Name + " came up the road to work at the Brothel.", LogKind.Info);

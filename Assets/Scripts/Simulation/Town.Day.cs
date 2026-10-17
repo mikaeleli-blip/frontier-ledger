@@ -1493,7 +1493,7 @@ namespace FrontierLedger.Simulation
         // =====================================================================
         void Migration(int si)
         {
-            if (si == 3 || AverageHappiness < 40 || FreeBeds < 2) return;
+            if (!Policy.Newcomers || si == 3 || AverageHappiness < 40 || FreeBeds < 2) return;
             // newcomers ask around first: they won't settle where the larders look thin, least of all before winter
             float stock = TotalFood(), need = (People.Count + 3) * (si == 2 ? 14f : 5f);
             bool rising = History.Count >= 8 && History[History.Count - 1].Food >= History[History.Count - 8].Food;

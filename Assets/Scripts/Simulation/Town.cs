@@ -11,7 +11,7 @@ namespace FrontierLedger.Simulation
     [Serializable]
     public partial class Town
     {
-        public const int CurrentVersion = 11;
+        public const int CurrentVersion = 12;
         public int Version = CurrentVersion;
         public int Seed;
         public int Day = 1;
@@ -158,6 +158,12 @@ namespace FrontierLedger.Simulation
                 if (Policy.LargeRent <= 0) Policy.LargeRent = fresh.LargeRent;
                 if (Policy.ManorRent <= 0) Policy.ManorRent = fresh.ManorRent;
                 Version = 11;
+            }
+            if (Version < 12)
+            {
+                // version 12: switches for births and newcomers, both on
+                Policy.Births = true; Policy.Newcomers = true;
+                Version = 12;
             }
         }
 

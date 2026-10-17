@@ -67,7 +67,8 @@ The Ledger has five pages:
   Sort by money, earnings, name or job; a gold mark means they own the business. Point at a name for spending and family money.
 - **Business**: every business by last week's profit, with owner, take-home, cash and loans.
 - **Bank**: the vault, savers' money, loans, the bank's own money, and lists of savers and loans.
-- **Rules**: taxes, wages, rent, the stores, elections and Start a new town.
+- **Rules**: taxes, wages, rent, the stores, switches for births and newcomers, elections and Start a new town.
+  With newcomers off, only settlers you order by Freight and the teacher, doctor, preacher or banker the town sends for arrive.
 
 ## How it works
 

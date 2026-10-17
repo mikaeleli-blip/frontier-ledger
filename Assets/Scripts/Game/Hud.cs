@@ -828,6 +828,10 @@ namespace FrontierLedger.Game
             P.Reserve[1] = SliderRow("Keep firewood", Mathf.RoundToInt(P.Reserve[1]).ToString(), P.Reserve[1], 0, 200, 10, null);
             P.Reserve[2] = SliderRow("Keep logs", Mathf.RoundToInt(P.Reserve[2]).ToString(), P.Reserve[2], 0, 150, 5, null);
             P.Reserve[3] = SliderRow("Keep stone", Mathf.RoundToInt(P.Reserve[3]).ToString(), P.Reserve[3], 0, 150, 5, null);
+            Heading("Population");
+            P.Births = Ui.Toggle(new Rect(bx, by, bw, 11), P.Births, "Couples have babies"); by += 13;
+            P.Newcomers = Ui.Toggle(new Rect(bx, by, bw, 11), P.Newcomers, "Newcomers settle here"); by += 13;
+            Para("Off, no babies are born / nobody comes up the road on their own (families, drifters, women for the brothel). Settlers you order by Freight, and a teacher, doctor, preacher or banker the town sends for, still come.");
             Heading("Mayor");
             bool on = Ui.Toggle(new Rect(bx, by, bw, 11), P.ElectionsOn, "Elect a mayor every 4 weeks"); by += 13;
             if (on != P.ElectionsOn) T.SetElections(on);

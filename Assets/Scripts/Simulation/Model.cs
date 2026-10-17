@@ -238,6 +238,8 @@ namespace FrontierLedger.Simulation
         public bool Charity = true;        // the storehouse feeds and warms those who can't pay
         public bool ElectionsOn = true;
         public bool StorehouseSells = true;
+        public bool Births = true;         // couples have babies
+        public bool Newcomers = true;      // drifters and families come up the road on their own
         public float[] StorehousePrice = { 1.1f, 0.7f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 9f, 0f, 0f };   // clothes ordered from back east sell when no tailor has any
         public float[] Reserve = { 150f, 60f, 40f, 20f, 10f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f };   // the town buys up to these levels
     }
