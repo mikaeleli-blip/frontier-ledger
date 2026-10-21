@@ -851,6 +851,8 @@ namespace FrontierLedger.Game
             if (Ui.Button(new Rect(bx, by, 120, 15), armed ? "Click to confirm" : "Start a new town")) { if (armed) { Later(gc.NewTown); confirmNewUntil = 0; } else confirmNewUntil = Time.unscaledTime + 3; }
             Ui.Text(bx + bw, by + 4, "Saves every Monday", Ui.InkSoft, Ui.Align.Right);
             by += 18;
+            if (Ui.Button(new Rect(bx, by, 120, 15), "Save and quit")) Later(Application.Quit);   // the town saves as the game closes
+            by += 18;
         }
 
         // ================================================================== freight orders
